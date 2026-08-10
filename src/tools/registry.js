@@ -2,6 +2,7 @@ import SubnetSplitter from "./subnet-splitter/SubnetSplitter.jsx";
 import ConnectionTest from "./connection-test/ConnectionTest.jsx";
 import RoutingMap from "./routing-map/RoutingMap.jsx";
 import IpCalculator from "./ip-calculator/IpCalculator.jsx";
+import Ipam from "./ipam/Ipam.jsx";
 
 // To add a new tool:
 //   1. Create src/tools/<your-tool>/YourTool.jsx (+ its own .css / logic.js if needed)
@@ -39,5 +40,13 @@ export const TOOLS = [
     tagline: "Enter an IP and netmask to get the network, broadcast, and usable host range.",
     status: "live",
     Component: IpCalculator,
+  },
+  {
+    id: "ipam",
+    name: "IPAM",
+    icon: "▣",
+    tagline: "Track subnets with a VLAN tag and record used, free, and reserved IP addresses.",
+    status: "live",
+    Component: Ipam,
   },
 ];

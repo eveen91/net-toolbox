@@ -1,0 +1,191 @@
+/* Styles unique to the IPAM tool. Shared panel/form/table styles live in
+   ../shared.css and are imported at the app shell level. */
+
+.ip-divider {
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  margin: 16px 0;
+}
+
+.ip-section-label {
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-2);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ip-section-sub-title {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent-2);
+  margin: 18px 0 8px;
+}
+.ip-refresh {
+  margin-left: auto;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+}
+
+.ip-add-subnet-form .tool-field {
+  margin-bottom: 10px;
+}
+
+.ip-subnet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.ip-subnet-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.ip-subnet-item:hover {
+  background: #17233688;
+}
+.ip-subnet-item.active {
+  background: var(--accent);
+}
+.ip-subnet-item.active .ip-subnet-cidr,
+.ip-subnet-item.active .ip-subnet-vlan {
+  color: #06211f;
+}
+.ip-subnet-item.active .tool-hint,
+.ip-subnet-item.active .ip-subnet-counts {
+  color: #06211f99;
+}
+
+.ip-subnet-item-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ip-subnet-cidr {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ip-subnet-vlan {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--accent-2);
+  background: #0a121e;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  padding: 1px 7px;
+  flex-shrink: 0;
+}
+.ip-subnet-item-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ip-subnet-counts {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  flex-shrink: 0;
+}
+
+/* Utilization bar: three proportional segments (used/reserved/free) out of
+   the subnet's total address space, so recorded addresses read as a single
+   glance without opening the table. */
+.ip-util-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #0a121e;
+  border: 1px solid var(--border-soft);
+  margin: 14px 0 4px;
+}
+.ip-util-seg {
+  height: 100%;
+}
+.ip-util-used {
+  background: var(--muted);
+}
+.ip-util-reserved {
+  background: var(--warn);
+}
+.ip-util-free {
+  background: var(--accent);
+}
+
+.ip-header-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ip-row-input {
+  padding: 4px 8px !important;
+  font-size: 12.5px !important;
+}
+.ip-row-btn {
+  margin-left: 0 !important;
+  padding: 4px 10px !important;
+  font-size: 11.5px !important;
+}
+.ip-row-btn-danger {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+}
+.ip-delete-subnet-btn {
+  margin-left: auto;
+}
+.ip-delete-confirm {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ip-add-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+.ip-add-row .tool-input {
+  flex: 1;
+  min-width: 110px;
+}
+
+.ip-actions-cell {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ip-mono {
+  font-family: var(--mono);
+}
+
+.tool-table-wrap.ip-table-wrap-full {
+  max-height: none;
+  overflow: visible;
+}

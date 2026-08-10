@@ -72,6 +72,32 @@ def init_db() -> None:
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(routes)").fetchall()}
         if "interface" not in existing_cols:
             conn.execute("ALTER TABLE routes ADD COLUMN interface TEXT")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_subnets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                cidr TEXT NOT NULL UNIQUE,
+                vlan INTEGER,
+                description TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_addresses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                address TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'used',
+                hostname TEXT,
+                description TEXT,
+                updated_at TEXT NOT NULL,
+                UNIQUE(subnet_id, address)
+            )
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -303,3 +329,250 @@ def delete_host(host: str) -> bool:
         return cur.rowcount > 0
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# IPAM — subnets (with an optional VLAN tag) and the individual IP addresses
+# recorded within them (status + hostname/DNS name + description).
+#
+# Subnets are a logical container, not a pre-populated list of every address
+# in the range — admins record addresses as they allocate/reserve/free them,
+# same philosophy as routes/interfaces above (explicit rows, not derived).
+# ---------------------------------------------------------------------------
+
+IPAM_STATUSES = ("used", "free", "reserved")
+
+
+def validate_cidr(cidr: str) -> str:
+    """Validate a subnet CIDR and normalize it to its network address (e.g. '10.0.1.5/24' -> '10.0.1.0/24')."""
+    try:
+        return str(ipaddress.ip_network(cidr.strip(), strict=False))
+    except ValueError:
+        raise ValueError(f'"{cidr}" is not a valid network in CIDR notation')
+
+
+def validate_vlan(vlan: Optional[int]) -> None:
+    if vlan is None:
+        return
+    if not (1 <= vlan <= 4094):
+        raise ValueError(f'VLAN {vlan} is out of range (must be 1-4094)')
+
+
+def validate_status(status: str) -> None:
+    if status not in IPAM_STATUSES:
+        raise ValueError(f'"{status}" is not a valid status (use one of: {", ".join(IPAM_STATUSES)})')
+
+
+def validate_address_in_subnet(address: str, cidr: str) -> None:
+    try:
+        ip = ipaddress.ip_address(address.strip())
+    except ValueError:
+        raise ValueError(f'"{address}" is not a valid IP address')
+    if ip not in ipaddress.ip_network(cidr):
+        raise ValueError(f'"{address}" is not inside subnet {cidr}')
+
+
+def _address_sort_key(row: Dict) -> tuple:
+    return (ipaddress.ip_address(row["address"]).version, ipaddress.ip_address(row["address"]))
+
+
+def _subnet_summary(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict:
+    counts = {"used": 0, "free": 0, "reserved": 0}
+    for r in conn.execute(
+        "SELECT status, COUNT(*) AS n FROM ipam_addresses WHERE subnet_id = ? GROUP BY status", (row["id"],)
+    ).fetchall():
+        counts[r["status"]] = r["n"]
+    total = ipaddress.ip_network(row["cidr"]).num_addresses
+    return {
+        "id": row["id"],
+        "cidr": row["cidr"],
+        "vlan": row["vlan"],
+        "description": row["description"],
+        "updatedAt": row["updated_at"],
+        "totalAddresses": total,
+        "usedCount": counts["used"],
+        "freeCount": counts["free"],
+        "reservedCount": counts["reserved"],
+        "recordedCount": counts["used"] + counts["free"] + counts["reserved"],
+    }
+
+
+def list_subnets() -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM ipam_subnets ORDER BY cidr COLLATE NOCASE").fetchall()
+        subnets = [_subnet_summary(conn, r) for r in rows]
+        # Numeric-ish sort by network address rather than plain text CIDR sort.
+        subnets.sort(key=lambda s: (ipaddress.ip_network(s["cidr"]).version, ipaddress.ip_network(s["cidr"])))
+        return subnets
+    finally:
+        conn.close()
+
+
+def _address_dict(row: sqlite3.Row) -> Dict:
+    return {
+        "id": row["id"],
+        "address": row["address"],
+        "status": row["status"],
+        "hostname": row["hostname"],
+        "description": row["description"],
+        "updatedAt": row["updated_at"],
+    }
+
+
+def get_subnet(subnet_id: int) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if row is None:
+            return None
+        summary = _subnet_summary(conn, row)
+        addr_rows = conn.execute(
+            "SELECT * FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        addresses = [_address_dict(r) for r in addr_rows]
+        addresses.sort(key=_address_sort_key)
+        summary["addresses"] = addresses
+        return summary
+    finally:
+        conn.close()
+
+
+def create_subnet(cidr: str, vlan: Optional[int] = None, description: Optional[str] = None) -> Dict:
+    cidr = validate_cidr(cidr)
+    validate_vlan(vlan)
+    conn = get_connection()
+    try:
+        try:
+            cur = conn.execute(
+                "INSERT INTO ipam_subnets (cidr, vlan, description, updated_at) VALUES (?, ?, ?, ?)",
+                (cidr, vlan, description, _now()),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f'Subnet "{cidr}" already exists')
+        conn.commit()
+        subnet_id = cur.lastrowid
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)
+
+
+def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, description: Optional[str] = None) -> Dict:
+    cidr = validate_cidr(cidr)
+    validate_vlan(vlan)
+    conn = get_connection()
+    try:
+        existing = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if existing is None:
+            raise ValueError("Subnet not found")
+        # If the range is shrinking, refuse to silently orphan addresses that
+        # would fall outside the new CIDR — make the admin deal with them first.
+        addr_rows = conn.execute(
+            "SELECT address FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        network = ipaddress.ip_network(cidr)
+        outside = [r["address"] for r in addr_rows if ipaddress.ip_address(r["address"]) not in network]
+        if outside:
+            raise ValueError(
+                f"Can't resize to {cidr} — {len(outside)} recorded address(es) would fall outside it "
+                f"(e.g. {outside[0]}). Remove or move them first."
+            )
+        try:
+            conn.execute(
+                "UPDATE ipam_subnets SET cidr = ?, vlan = ?, description = ?, updated_at = ? WHERE id = ?",
+                (cidr, vlan, description, _now(), subnet_id),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f'Subnet "{cidr}" already exists')
+        conn.commit()
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)
+
+
+def delete_subnet(subnet_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cur = conn.execute("DELETE FROM ipam_subnets WHERE id = ?", (subnet_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def add_address(
+    subnet_id: int, address: str, status: str = "used", hostname: Optional[str] = None, description: Optional[str] = None
+) -> Dict:
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if subnet_row is None:
+            raise ValueError("Subnet not found")
+        validate_address_in_subnet(address, subnet_row["cidr"])
+        validate_status(status)
+        address = str(ipaddress.ip_address(address.strip()))
+        try:
+            conn.execute(
+                """
+                INSERT INTO ipam_addresses (subnet_id, address, status, hostname, description, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (subnet_id, address, status, hostname, description, _now()),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f'"{address}" is already recorded in this subnet')
+        conn.commit()
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)
+
+
+def update_address(
+    subnet_id: int,
+    address_id: int,
+    address: str,
+    status: str = "used",
+    hostname: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Dict:
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if subnet_row is None:
+            raise ValueError("Subnet not found")
+        existing = conn.execute(
+            "SELECT id FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id)
+        ).fetchone()
+        if existing is None:
+            raise ValueError("Address not found")
+        validate_address_in_subnet(address, subnet_row["cidr"])
+        validate_status(status)
+        address = str(ipaddress.ip_address(address.strip()))
+        try:
+            conn.execute(
+                """
+                UPDATE ipam_addresses
+                SET address = ?, status = ?, hostname = ?, description = ?, updated_at = ?
+                WHERE id = ? AND subnet_id = ?
+                """,
+                (address, status, hostname, description, _now(), address_id, subnet_id),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f'"{address}" is already recorded in this subnet')
+        conn.commit()
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)
+
+
+def delete_address(subnet_id: int, address_id: int) -> Dict:
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if subnet_row is None:
+            raise ValueError("Subnet not found")
+        conn.execute("DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)

@@ -387,3 +387,107 @@ def delete_routing_host(host: str):
         raise HTTPException(status_code=404, detail=f'No saved routing table for "{host}"')
     return {"deleted": host}
 
+
+# ---------------------------------------------------------------------------
+# IPAM — subnets and the individual IP addresses recorded within them
+# ---------------------------------------------------------------------------
+
+class SubnetRequest(BaseModel):
+    cidr: str
+    vlan: Optional[int] = None
+    description: Optional[str] = None
+
+
+class SubnetSummary(BaseModel):
+    id: int
+    cidr: str
+    vlan: Optional[int] = None
+    description: Optional[str] = None
+    updatedAt: str
+    totalAddresses: int
+    usedCount: int
+    freeCount: int
+    reservedCount: int
+    recordedCount: int
+
+
+class AddressEntry(BaseModel):
+    id: int
+    address: str
+    status: Literal["used", "free", "reserved"]
+    hostname: Optional[str] = None
+    description: Optional[str] = None
+    updatedAt: str
+
+
+class SubnetDetail(SubnetSummary):
+    addresses: List[AddressEntry] = []
+
+
+class AddressRequest(BaseModel):
+    address: str
+    status: Literal["used", "free", "reserved"] = "used"
+    hostname: Optional[str] = None
+    description: Optional[str] = None
+
+
+@app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
+def get_subnets():
+    return db.list_subnets()
+
+
+@app.post("/api/ipam/subnets", response_model=SubnetDetail)
+def create_subnet(req: SubnetRequest):
+    try:
+        return db.create_subnet(req.cidr, req.vlan, req.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail)
+def get_subnet(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return data
+
+
+@app.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail)
+def update_subnet(subnet_id: int, req: SubnetRequest):
+    try:
+        return db.update_subnet(subnet_id, req.cidr, req.vlan, req.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/api/ipam/subnets/{subnet_id}")
+def delete_subnet(subnet_id: int):
+    deleted = db.delete_subnet(subnet_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return {"deleted": subnet_id}
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail)
+def create_address(subnet_id: int, req: AddressRequest):
+    try:
+        return db.add_address(subnet_id, req.address, req.status, req.hostname, req.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail)
+def edit_address(subnet_id: int, address_id: int, req: AddressRequest):
+    try:
+        return db.update_address(subnet_id, address_id, req.address, req.status, req.hostname, req.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail)
+def remove_address(subnet_id: int, address_id: int):
+    try:
+        return db.delete_address(subnet_id, address_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
