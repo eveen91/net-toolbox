@@ -258,6 +258,256 @@ export function cidrDetails(cidr) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Routing Test — hop-by-hop route tracing across every saved device.
+//
+// Model: given a source address and a destination address, first find which
+// saved device's interface network the source address falls within (that
+// device is the trace's starting point — the first router the source host
+// is plugged into). Then, repeatedly:
+//   1. If the destination address falls within one of the *current* device's
+//      own interface networks, the destination is directly attached to this
+//      device — the trace succeeds here.
+//   2. Otherwise, find the current device's most specific ("longest prefix
+//      match") route that covers the destination address. If that route's
+//      next hop is an IP address, jump to whichever saved device has an
+//      interface on that address and repeat from step 1. If there's no
+//      matching route, or the next hop isn't owned by any saved device, the
+//      trace fails at that point and says why.
+// This mirrors how a real device forwards a packet, using only the data
+// that's been saved for each host — it doesn't touch the network.
+// ---------------------------------------------------------------------------
+
+// Parses a dotted-decimal IPv4 address into an unsigned 32-bit integer, or
+// null if it isn't a valid address (wrong shape, or an octet out of range).
+export function ipToInt(ip) {
+  if (typeof ip !== "string") return null;
+  const octets = ip.trim().split(".");
+  if (octets.length !== 4) return null;
+  let n = 0;
+  for (const part of octets) {
+    if (!/^\d{1,3}$/.test(part)) return null;
+    const v = Number(part);
+    if (v > 255) return null;
+    n = (n << 8) | v;
+  }
+  return n >>> 0;
+}
+
+// Whether `ip` (a plain address) falls within `cidr` (a network in CIDR
+// notation, e.g. "10.0.1.0/24" — a bare address with no "/prefix" is treated
+// as a /32). False for anything unparseable, rather than throwing.
+export function cidrContainsIp(cidr, ip) {
+  const ipInt = ipToInt(ip);
+  if (ipInt === null || typeof cidr !== "string") return false;
+  const [addr, prefixStr] = cidr.split("/");
+  const prefix = prefixStr === undefined ? 32 : parseInt(prefixStr, 10);
+  const netInt = ipToInt(addr);
+  if (netInt === null || Number.isNaN(prefix) || prefix < 0 || prefix > 32) return false;
+  const hostBits = 32 - prefix;
+  const mask = hostBits === 32 ? 0 : (0xffffffff << hostBits) >>> 0;
+  return (netInt & mask) === (ipInt & mask);
+}
+
+// Same "prefer saved interfaces, fall back to connected routes" logic used
+// by the Routing Map and Network Visualization views, exported here so the
+// Routing Test trace (and anything else that needs a host's interface list)
+// doesn't have to duplicate it.
+export function interfacesForHost(detail) {
+  const stored = detail?.interfaces || [];
+  if (stored.length > 0) return stored;
+  const seen = new Set();
+  const out = [];
+  for (const r of detail?.routes || []) {
+    if ((r.nextHop || "").toLowerCase() !== DIRECT_PHRASE) continue;
+    const name = (r.interface || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, ipAddress: r.network, description: null });
+  }
+  return out;
+}
+
+// Searches every saved host's interfaces for one whose *network* contains
+// `address` (the address itself doesn't have to match an interface exactly)
+// — used to find which device a source or destination end host is plugged
+// into, since an end host's own address is never itself a saved interface.
+export function findAttachedInterface(hosts, address) {
+  if (ipToInt(address) === null) return null;
+  for (const h of hosts || []) {
+    for (const iface of interfacesForHost(h)) {
+      if (cidrContainsIp(iface.ipAddress, address)) {
+        return { host: h.host, interfaceName: iface.name, network: iface.ipAddress };
+      }
+    }
+  }
+  return null;
+}
+
+// Searches every saved host's interfaces for one whose address *exactly*
+// equals `address` — used to resolve a route's next hop to the specific
+// device that owns it. This must be an exact match, not just "same network
+// as", because a shared LAN segment can have several devices with
+// interfaces in the same network (e.g. the current device's own interface)
+// and only one of them is actually the next hop; matching by network alone
+// would wrongly resolve the next hop back to the current device itself.
+export function findInterfaceOwner(hosts, address) {
+  const addrInt = ipToInt(address);
+  if (addrInt === null) return null;
+  for (const h of hosts || []) {
+    for (const iface of interfacesForHost(h)) {
+      const ifaceAddr = (iface.ipAddress || "").split("/")[0];
+      if (ipToInt(ifaceAddr) === addrInt) {
+        return { host: h.host, interfaceName: iface.name, network: iface.ipAddress };
+      }
+    }
+  }
+  return null;
+}
+
+// Finds the most specific route in `routes` that covers `address` (longest
+// prefix match — the same tie-breaking rule a real routing table uses), or
+// null if nothing matches. Routes with an unparseable network are ignored.
+export function bestRouteMatch(routes, address) {
+  let best = null;
+  let bestPrefix = -1;
+  for (const r of routes || []) {
+    const prefixStr = (r.network || "").split("/")[1];
+    const prefix = parseInt(prefixStr, 10);
+    if (Number.isNaN(prefix)) continue;
+    if (!cidrContainsIp(r.network, address)) continue;
+    if (prefix > bestPrefix) {
+      bestPrefix = prefix;
+      best = r;
+    }
+  }
+  return best;
+}
+
+// Upper bound on hops before giving up — guards against a routing loop in
+// the saved data (A points to B, B points back to A) spinning forever.
+export const TRACE_MAX_HOPS = 32;
+
+// Traces the path a packet from `sourceAddress` to `destAddress` would take
+// through the saved routing-map database. `hosts` is the array returned by
+// exportRoutingHosts() — every saved host with its routes + interfaces.
+//
+// Returns:
+//   { ok: true, steps, entryHost, destinationHost, destinationInterface }
+//   { ok: false, error, steps, entryHost? }
+// `steps` is always present (possibly empty) so the UI can show how far the
+// trace got even when it didn't reach the destination.
+export function traceRoute(hosts, sourceAddress, destAddress) {
+  const steps = [];
+
+  if (ipToInt(sourceAddress) === null) {
+    return { ok: false, error: `"${sourceAddress}" is not a valid IPv4 address.`, steps };
+  }
+  if (ipToInt(destAddress) === null) {
+    return { ok: false, error: `"${destAddress}" is not a valid IPv4 address.`, steps };
+  }
+
+  const entry = findAttachedInterface(hosts, sourceAddress);
+  if (!entry) {
+    return {
+      ok: false,
+      error: `No saved device has an interface whose network contains ${sourceAddress}.`,
+      steps,
+    };
+  }
+
+  const byHost = new Map((hosts || []).map((h) => [h.host, h]));
+  const visited = new Set();
+  let current = entry.host;
+
+  for (let hop = 0; hop < TRACE_MAX_HOPS; hop++) {
+    if (visited.has(current)) {
+      return {
+        ok: false,
+        error: `Routing loop detected — "${current}" was already visited earlier in this trace.`,
+        steps,
+        entryHost: entry.host,
+      };
+    }
+    visited.add(current);
+
+    const detail = byHost.get(current);
+    if (!detail) {
+      return {
+        ok: false,
+        error: `"${current}" is referenced as a next hop but has no saved routing table.`,
+        steps,
+        entryHost: entry.host,
+      };
+    }
+
+    const localIface = interfacesForHost(detail).find((i) => cidrContainsIp(i.ipAddress, destAddress));
+    if (localIface) {
+      steps.push({ host: current, action: "delivered", interface: localIface.name, network: localIface.ipAddress });
+      return {
+        ok: true,
+        steps,
+        entryHost: entry.host,
+        destinationHost: current,
+        destinationInterface: localIface.name,
+      };
+    }
+
+    const route = bestRouteMatch(detail.routes, destAddress);
+    if (!route) {
+      steps.push({ host: current, action: "no-route" });
+      return {
+        ok: false,
+        error: `"${current}" has no route covering ${destAddress}.`,
+        steps,
+        entryHost: entry.host,
+      };
+    }
+
+    if ((route.nextHop || "").toLowerCase() === DIRECT_PHRASE) {
+      // The routing table says this network is directly connected, but the
+      // destination isn't inside any interface network we have on file for
+      // this device (checked above) — the saved data disagrees with itself.
+      steps.push({ host: current, action: "connected-mismatch", network: route.network });
+      return {
+        ok: false,
+        error:
+          `"${current}" has a directly-connected route for ${route.network}, but no saved interface has ` +
+          `an address in that network — the routing map data may be incomplete.`,
+        steps,
+        entryHost: entry.host,
+      };
+    }
+
+    steps.push({
+      host: current,
+      action: "forward",
+      network: route.network,
+      nextHop: route.nextHop,
+      viaInterface: route.interface || null,
+    });
+
+    const nextHopOwner = findInterfaceOwner(hosts, route.nextHop);
+    if (!nextHopOwner) {
+      return {
+        ok: false,
+        error: `No saved device has an interface for next hop ${route.nextHop} (from "${current}"'s route to ${route.network}).`,
+        steps,
+        entryHost: entry.host,
+      };
+    }
+
+    current = nextHopOwner.host;
+  }
+
+  return {
+    ok: false,
+    error: `Trace stopped after ${TRACE_MAX_HOPS} hops without reaching ${destAddress}.`,
+    steps,
+    entryHost: entry.host,
+  };
+}
+
 // ---- Checkpoint (Gaia) — "show route" -------------------------------------
 //
 // Handles lines like:

@@ -291,6 +291,62 @@
   cursor: default;
 }
 
+/* Routing Test: vertical list of hops, each a numbered marker + host/route
+   text. Marker color signals the hop's outcome (forward / delivered / error)
+   without needing a legend. */
+.rm-trace-hops {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rm-trace-hop {
+  display: flex;
+  gap: 12px;
+  padding: 6px 0;
+}
+.rm-trace-hop-marker {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.rm-trace-hop-forward {
+  border-color: var(--accent-dim);
+  color: var(--accent-2);
+}
+.rm-trace-hop-ok {
+  border-color: var(--accent-dim);
+  background: #123a2e;
+  color: #6ee7b7;
+}
+.rm-trace-hop-error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.rm-trace-hop-body {
+  padding-top: 2px;
+}
+.rm-trace-hop-title {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.rm-trace-hop-detail {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
 .rm-inline-input {
   width: 100%;
   box-sizing: border-box;
