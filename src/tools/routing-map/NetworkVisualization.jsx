@@ -1,7 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { exportRoutingHosts } from "./api.js";
 import { networkKeyForCidr } from "./logic.js";
 import { circleLayout, optimizeNodeOrder } from "./graphLayout.js";
+
+// How long a node has to be continuously hovered before the "directly
+// connected networks" tooltip appears — deliberately not instant, so
+// briefly passing the mouse over a node while moving elsewhere on the
+// graph doesn't pop it up.
+const NODE_TOOLTIP_DELAY_MS = 2000;
 
 /** Simple router glyph, drawn with CSS vars so it themes with the rest of the app. */
 function RouterIcon() {
@@ -90,6 +96,23 @@ function buildGraph(hosts) {
   return { nodes, edges };
 }
 
+// host -> [{ name, network }] — every non-loopback interface's name and the
+// network it's on (masked to the network address, not the host address), in
+// the order the host's interfaces are recorded. Used by the hover tooltip.
+function buildInterfaceLists(hosts) {
+  const map = new Map();
+  for (const h of hosts) {
+    const list = [];
+    for (const iface of interfacesForDisplay(h)) {
+      if (isLoopbackCidr(iface.ipAddress)) continue;
+      const network = networkKeyForCidr(iface.ipAddress) || iface.ipAddress;
+      list.push({ name: iface.name, network });
+    }
+    map.set(h.host, list);
+  }
+  return map;
+}
+
 // Evenly spaced points around a circle, as percentages of the container
 // box — kept in 0-100 so the same numbers drive both the node divs
 // (left/top %) and the SVG overlay (viewBox="0 0 100 100").
@@ -104,6 +127,8 @@ export default function NetworkVisualization() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [hoveredHost, setHoveredHost] = useState(null);
+  const [tooltipHost, setTooltipHost] = useState(null);
+  const tooltipTimerRef = useRef(null);
 
   const load = async () => {
     setLoading(true);
@@ -122,7 +147,31 @@ export default function NetworkVisualization() {
     load();
   }, []);
 
+  // Any timer left running when the component unmounts (e.g. navigating
+  // away mid-hover) would try to set state on a gone component — clear it.
+  useEffect(() => {
+    return () => clearTimeout(tooltipTimerRef.current);
+  }, []);
+
+  const clearTooltipTimer = () => {
+    clearTimeout(tooltipTimerRef.current);
+    tooltipTimerRef.current = null;
+  };
+
+  const handleNodeEnter = (host) => {
+    setHoveredHost(host);
+    clearTooltipTimer();
+    tooltipTimerRef.current = setTimeout(() => setTooltipHost(host), NODE_TOOLTIP_DELAY_MS);
+  };
+
+  const handleNodeLeave = () => {
+    setHoveredHost(null);
+    clearTooltipTimer();
+    setTooltipHost(null);
+  };
+
   const { nodes, edges } = useMemo(() => buildGraph(hosts), [hosts]);
+  const interfacesByHost = useMemo(() => buildInterfaceLists(hosts), [hosts]);
   const orderedHosts = useMemo(
     () => optimizeNodeOrder(nodes.map((n) => n.host), edges.map((e) => [e.a, e.b])),
     [nodes, edges]
@@ -214,16 +263,35 @@ export default function NetworkVisualization() {
               const pos = posByHost.get(n.host);
               if (!pos) return null;
               const dimmed = hoveredHost && hoveredHost !== n.host;
+              const showTooltip = tooltipHost === n.host;
+              const ifaces = interfacesByHost.get(n.host) || [];
               return (
                 <div
                   className={`rm-node rm-graph-node${dimmed ? " is-dimmed" : ""}`}
                   key={n.host}
                   style={{ left: `${pos.x}%`, top: `${pos.y}%` }}
-                  onMouseEnter={() => setHoveredHost(n.host)}
-                  onMouseLeave={() => setHoveredHost(null)}
+                  onMouseEnter={() => handleNodeEnter(n.host)}
+                  onMouseLeave={handleNodeLeave}
                 >
                   <RouterIcon />
                   <span className="rm-node-label">{n.host}</span>
+                  {showTooltip && (
+                    <div className="rm-node-tooltip" role="tooltip">
+                      <div className="rm-node-tooltip-title">{n.host}</div>
+                      {ifaces.length === 0 ? (
+                        <div className="tool-hint">No interfaces on file.</div>
+                      ) : (
+                        <ul className="rm-node-tooltip-list">
+                          {ifaces.map((iface, i) => (
+                            <li key={i}>
+                              <span className="rm-node-tooltip-iface">{iface.name}</span>
+                              <span className="rm-node-tooltip-network">{iface.network}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
