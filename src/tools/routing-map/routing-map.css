@@ -98,3 +98,32 @@
   margin-left: 8px;
   flex-shrink: 0;
 }
+
+.rm-editable-desc {
+  display: block;
+  min-height: 1.2em;
+  cursor: text;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin: -1px -4px;
+}
+.rm-editable-desc:hover:not(.is-disabled) {
+  background: #17233688;
+}
+.rm-editable-desc.is-disabled {
+  cursor: default;
+}
+
+.rm-inline-input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text);
+  background: #0c1422;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 2px 6px;
+  outline: none;
+}

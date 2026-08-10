@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./routing-map.css";
 import {
   parseRoutingData,
@@ -22,6 +22,202 @@ function formatTimestamp(iso) {
   } catch {
     return iso;
   }
+}
+
+/** Prefer saved interface rows; otherwise build the list from connected routes. */
+function interfacesForDisplay(detail) {
+  const stored = detail?.interfaces || [];
+  if (stored.length > 0) return stored;
+  const seen = new Set();
+  const out = [];
+  for (const r of detail?.routes || []) {
+    if ((r.nextHop || "").toLowerCase() !== "directly connected") continue;
+    const name = (r.interface || "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    out.push({ name, ipAddress: r.network, description: null });
+  }
+  return out;
+}
+
+function EditableDescription({ value, disabled, onCommit }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value || "");
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!editing) setDraft(value || "");
+  }, [value, editing]);
+
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  const commit = async () => {
+    const next = draft.trim();
+    const prev = (value || "").trim();
+    setEditing(false);
+    if (next === prev) return;
+    setSaving(true);
+    try {
+      await onCommit(next || null);
+    } catch {
+      setDraft(value || "");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        className="rm-inline-input"
+        value={draft}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            setDraft(value || "");
+            setEditing(false);
+          }
+        }}
+      />
+    );
+  }
+
+  return (
+    <span
+      className={`rm-editable-desc${disabled ? " is-disabled" : ""}`}
+      title={disabled ? undefined : "Double-click to edit"}
+      onDoubleClick={() => {
+        if (!disabled && !saving) setEditing(true);
+      }}
+    >
+      {saving ? "Saving…" : value || "—"}
+    </span>
+  );
+}
+
+function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
+  const ifaces = interfacesForDisplay(detail);
+  const [descError, setDescError] = useState(null);
+
+  const saveDescription = async (ifaceName, description) => {
+    setDescError(null);
+    const interfaces = ifaces.map((i) =>
+      i.name === ifaceName
+        ? { name: i.name, ipAddress: i.ipAddress, description }
+        : { name: i.name, ipAddress: i.ipAddress, description: i.description || null }
+    );
+    const routes = (detail.routes || []).map((r) => ({
+      network: r.network,
+      nextHop: r.nextHop,
+      interface: r.interface || null,
+    }));
+    const saved = await saveRoutingHost(detail.host, routes, interfaces);
+    onDetailUpdated(saved);
+  };
+
+  return (
+    <>
+      <div className="tool-section-title">
+        {detail.host}
+        <span className="tool-hint">
+          {ifaces.length} iface{ifaces.length !== 1 ? "s" : ""} · {detail.routes.length} route
+          {detail.routes.length !== 1 ? "s" : ""} · saved {formatTimestamp(detail.updatedAt)}
+        </span>
+        <button className="tool-btn tool-btn-ghost rm-delete-btn" onClick={onDelete} disabled={deleting}>
+          {deleting ? "Deleting…" : "Delete host"}
+        </button>
+      </div>
+
+      <div style={{ marginBottom: 20 }}>
+        <h3 className="rm-section-sub-title">Interfaces</h3>
+        {descError && <div className="tool-error">{descError}</div>}
+        <div className="tool-table-wrap">
+          <table className="tool-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Address</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ifaces.length === 0 && (
+                <tr>
+                  <td colSpan={3} style={{ color: "var(--muted)" }}>
+                    No interfaces for this host.
+                  </td>
+                </tr>
+              )}
+              {ifaces.map((i) => (
+                <tr key={i.name}>
+                  <td>{i.name}</td>
+                  <td>{i.ipAddress}</td>
+                  <td>
+                    <EditableDescription
+                      value={i.description}
+                      disabled={deleting}
+                      onCommit={async (description) => {
+                        try {
+                          await saveDescription(i.name, description);
+                        } catch (e) {
+                          setDescError(e.message);
+                          throw e;
+                        }
+                      }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="rm-section-sub-title">Routes</h3>
+        <div className="tool-table-wrap">
+          <table className="tool-table">
+            <thead>
+              <tr>
+                <th>Network</th>
+                <th>Next hop</th>
+                <th>Interface</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.routes.length === 0 && (
+                <tr>
+                  <td colSpan={3} style={{ color: "var(--muted)" }}>
+                    No routes for this host.
+                  </td>
+                </tr>
+              )}
+              {detail.routes.map((r, i) => (
+                <tr key={i}>
+                  <td>{r.network}</td>
+                  <td>{r.nextHop}</td>
+                  <td>{r.interface || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
+  );
 }
 
 export default function RoutingMap() {
@@ -310,85 +506,12 @@ export default function RoutingMap() {
           {selectedHost && !detailLoading && detailError && <div className="tool-error">{detailError}</div>}
 
           {selectedHost && !detailLoading && selectedDetail && (
-            <>
-              <div className="tool-section-title">
-                {selectedDetail.host}
-                <span className="tool-hint">
-                  {(selectedDetail.interfaces || []).length} iface
-                  {(selectedDetail.interfaces || []).length !== 1 ? "s" : ""} · {selectedDetail.routes.length} route
-                  {selectedDetail.routes.length !== 1 ? "s" : ""} · saved {formatTimestamp(selectedDetail.updatedAt)}
-                </span>
-                <button
-                  className="tool-btn tool-btn-ghost rm-delete-btn"
-                  onClick={handleDelete}
-                  disabled={deleting}
-                >
-                  {deleting ? "Deleting…" : "Delete host"}
-                </button>
-              </div>
-
-              <div style={{ marginBottom: 20 }}>
-                <h3 className="rm-section-sub-title">Interfaces</h3>
-                <div className="tool-table-wrap">
-                  <table className="tool-table">
-                    <thead>
-                      <tr>
-                        <th>Name</th>
-                        <th>Address</th>
-                        <th>Description</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(!selectedDetail.interfaces || selectedDetail.interfaces.length === 0) && (
-                        <tr>
-                          <td colSpan={3} style={{ color: "var(--muted)" }}>
-                            No interfaces for this host.
-                          </td>
-                        </tr>
-                      )}
-                      {(selectedDetail.interfaces || []).map((i, idx) => (
-                        <tr key={idx}>
-                          <td>{i.name}</td>
-                          <td>{i.ipAddress}</td>
-                          <td>{i.description || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="rm-section-sub-title">Routes</h3>
-                <div className="tool-table-wrap">
-                  <table className="tool-table">
-                    <thead>
-                      <tr>
-                        <th>Network</th>
-                        <th>Next hop</th>
-                        <th>Interface</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedDetail.routes.length === 0 && (
-                        <tr>
-                          <td colSpan={3} style={{ color: "var(--muted)" }}>
-                            No routes for this host.
-                          </td>
-                        </tr>
-                      )}
-                      {selectedDetail.routes.map((r, i) => (
-                        <tr key={i}>
-                          <td>{r.network}</td>
-                          <td>{r.nextHop}</td>
-                          <td>{r.interface || "—"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
+            <HostDetail
+              detail={selectedDetail}
+              deleting={deleting}
+              onDelete={handleDelete}
+              onDetailUpdated={setSelectedDetail}
+            />
           )}
         </div>
       </div>

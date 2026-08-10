@@ -76,6 +76,10 @@ def init_db() -> None:
     finally:
         conn.close()
 
+    # Hosts saved before interface inventory existed still have connected
+    # routes with an interface name — materialize those into the interfaces table.
+    backfill_interfaces_from_routes()
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -139,6 +143,40 @@ def _interface_dict(row: sqlite3.Row) -> Dict:
     return {"name": row["name"], "ipAddress": row["ip_address"], "description": row["description"]}
 
 
+def interfaces_from_connected_routes(routes: List[Dict]) -> List[Dict]:
+    """Build interface entries from routes whose next hop is 'directly connected'."""
+    result = []
+    seen = set()
+    for r in routes:
+        if (r.get("nextHop") or "").strip().lower() != DIRECTLY_CONNECTED:
+            continue
+        name = (r.get("interface") or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        result.append({"name": name, "ipAddress": r["network"], "description": None})
+    return result
+
+
+def merge_interfaces(stored: List[Dict], routes: List[Dict]) -> List[Dict]:
+    """Prefer explicit interface rows; fill gaps from connected routes."""
+    by_name = {}
+    order = []
+    for i in stored or []:
+        name = (i.get("name") or "").strip()
+        if not name or name in by_name:
+            continue
+        by_name[name] = i
+        order.append(name)
+    for i in interfaces_from_connected_routes(routes):
+        name = i["name"]
+        if name in by_name:
+            continue
+        by_name[name] = i
+        order.append(name)
+    return [by_name[n] for n in order]
+
+
 def get_host(host: str) -> Optional[Dict]:
     conn = get_connection()
     try:
@@ -155,11 +193,13 @@ def get_host(host: str) -> Optional[Dict]:
             "SELECT name, ip_address, description FROM interfaces WHERE host_id = ? ORDER BY id",
             (host_row["id"],),
         ).fetchall()
+        routes = [_route_dict(r) for r in route_rows]
+        stored = [_interface_dict(i) for i in interface_rows]
         return {
             "host": host_row["name"],
             "updatedAt": host_row["updated_at"],
-            "routes": [_route_dict(r) for r in route_rows],
-            "interfaces": [_interface_dict(i) for i in interface_rows],
+            "routes": routes,
+            "interfaces": merge_interfaces(stored, routes),
         }
     finally:
         conn.close()
@@ -181,12 +221,14 @@ def export_all() -> List[Dict]:
                 "SELECT name, ip_address, description FROM interfaces WHERE host_id = ? ORDER BY id",
                 (h["id"],),
             ).fetchall()
+            routes = [_route_dict(r) for r in route_rows]
+            stored = [_interface_dict(i) for i in interface_rows]
             result.append(
                 {
                     "host": h["name"],
                     "updatedAt": h["updated_at"],
-                    "routes": [_route_dict(r) for r in route_rows],
-                    "interfaces": [_interface_dict(i) for i in interface_rows],
+                    "routes": routes,
+                    "interfaces": merge_interfaces(stored, routes),
                 }
             )
         return result
@@ -197,6 +239,10 @@ def export_all() -> List[Dict]:
 def save_host(host: str, routes: List[Dict], interfaces: Optional[List[Dict]] = None) -> Dict:
     if interfaces is None:
         interfaces = []
+
+    # Always keep connected-route interfaces in the inventory, even if the
+    # client omitted the % lines (e.g. hosts saved before this existed).
+    interfaces = merge_interfaces(interfaces, routes)
 
     for r in routes:
         validate_route(r["network"], r["nextHop"])
@@ -230,6 +276,23 @@ def save_host(host: str, routes: List[Dict], interfaces: Optional[List[Dict]] = 
     finally:
         conn.close()
     return get_host(host)
+
+
+def backfill_interfaces_from_routes() -> int:
+    """Persist interface rows derived from connected routes for hosts that lack them."""
+    updated = 0
+    for summary in list_hosts():
+        if summary["interfaceCount"] > 0:
+            continue
+        detail = get_host(summary["host"])
+        if detail is None:
+            continue
+        derived = interfaces_from_connected_routes(detail["routes"])
+        if not derived:
+            continue
+        save_host(detail["host"], detail["routes"], detail["interfaces"])
+        updated += 1
+    return updated
 
 
 def delete_host(host: str) -> bool:
