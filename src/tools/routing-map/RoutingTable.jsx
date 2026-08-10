@@ -3,10 +3,9 @@ import "./routing-map.css";
 import {
   parseRoutingData,
   serializeHosts,
-  parseDeviceRouteOutput,
   upsertHost,
   EXAMPLE,
-  EXAMPLE_DEVICE_OUTPUT,
+  DEVICE_PARSERS,
 } from "./logic.js";
 import {
   listRoutingHosts,
@@ -304,6 +303,8 @@ export default function RoutingTable() {
 
   const [deviceOutput, setDeviceOutput] = useState("");
   const [deviceImportMessage, setDeviceImportMessage] = useState(null);
+  const [parserId, setParserId] = useState(DEVICE_PARSERS[0].id);
+  const activeParser = DEVICE_PARSERS.find((p) => p.id === parserId) || DEVICE_PARSERS[0];
 
   const refreshList = async () => {
     setListLoading(true);
@@ -406,7 +407,7 @@ export default function RoutingTable() {
     setDeviceImportMessage(null);
     if (!deviceOutput.trim()) return;
 
-    const { host, routes, interfaces, warnings } = parseDeviceRouteOutput(deviceOutput);
+    const { host, routes, interfaces, warnings } = activeParser.parse(deviceOutput);
     if (routes.length === 0 && interfaces.length === 0) {
       setDeviceImportMessage({ ok: false, text: "No routes found in the pasted output." });
       return;
@@ -447,7 +448,7 @@ export default function RoutingTable() {
     <div>
       <div className="nt-tool-header">
         <h2>Routing map</h2>
-        <p>Paste routes by hand or import "show route" output, save to the database, then pick a host to view it.</p>
+        <p>Paste routes by hand or import a device's routing table output, save to the database, then pick a host to view it.</p>
       </div>
 
       <div className="tool-layout">
@@ -502,9 +503,26 @@ export default function RoutingTable() {
           <div className="rm-section-label">Import from device output</div>
           <div className="tool-field">
             <div className="tool-label">
-              <span className="tool-hint">
-                paste "show route" / "show ip route" CLI output — connected (C) lines become interfaces
-              </span>
+              <span className="tool-hint">device type</span>
+            </div>
+            <select
+              className="tool-input"
+              value={parserId}
+              onChange={(e) => {
+                setParserId(e.target.value);
+                setDeviceImportMessage(null);
+              }}
+            >
+              {DEVICE_PARSERS.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="tool-field">
+            <div className="tool-label">
+              <span className="tool-hint">paste the "{activeParser.label}" output — connected/local lines become interfaces</span>
             </div>
             <textarea
               className="tool-textarea"
@@ -514,14 +532,14 @@ export default function RoutingTable() {
                 setDeviceOutput(e.target.value);
                 setDeviceImportMessage(null);
               }}
-              placeholder={EXAMPLE_DEVICE_OUTPUT}
+              placeholder={activeParser.example}
             />
           </div>
           <div className="tool-actions">
             <button className="tool-btn tool-btn-primary" onClick={handleImportDevice}>
               Import into draft
             </button>
-            <button className="tool-btn tool-btn-ghost" onClick={() => setDeviceOutput(EXAMPLE_DEVICE_OUTPUT)}>
+            <button className="tool-btn tool-btn-ghost" onClick={() => setDeviceOutput(activeParser.example)}>
               Load example
             </button>
           </div>
