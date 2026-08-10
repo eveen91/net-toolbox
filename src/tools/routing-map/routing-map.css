@@ -99,6 +99,15 @@
   flex-shrink: 0;
 }
 
+/* Interfaces/Routes tables in the host detail panel: show full content,
+   no internal scrollbar. The page grows instead. Compound selector
+   (.tool-table-wrap.rm-table-wrap-full) so this always beats shared.css's
+   .tool-table-wrap max-height, regardless of CSS import/load order. */
+.tool-table-wrap.rm-table-wrap-full {
+  max-height: none;
+  overflow: visible;
+}
+
 .rm-editable-desc {
   display: block;
   min-height: 1.2em;

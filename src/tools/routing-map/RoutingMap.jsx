@@ -40,7 +40,13 @@ function interfacesForDisplay(detail) {
   return out;
 }
 
-function EditableDescription({ value, disabled, onCommit }) {
+/**
+ * Inline double-click-to-edit text field, used for both an interface's
+ * address and its description. `required` blocks committing an empty
+ * value (the backend's ipAddress field is mandatory) — the field just
+ * reverts to its previous value instead of saving a blank.
+ */
+function EditableField({ value, disabled, required, onCommit }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   const [saving, setSaving] = useState(false);
@@ -64,6 +70,10 @@ function EditableDescription({ value, disabled, onCommit }) {
     const prev = (value || "").trim();
     setEditing(false);
     if (next === prev) return;
+    if (!next && required) {
+      setDraft(value || "");
+      return;
+    }
     setSaving(true);
     try {
       await onCommit(next || null);
@@ -114,13 +124,15 @@ function EditableDescription({ value, disabled, onCommit }) {
 
 function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
   const ifaces = interfacesForDisplay(detail);
-  const [descError, setDescError] = useState(null);
+  const [ifaceError, setIfaceError] = useState(null);
 
-  const saveDescription = async (ifaceName, description) => {
-    setDescError(null);
+  // Saves one interface's address and/or description, keeping the rest of
+  // that interface (and every other interface) untouched.
+  const saveInterfaceField = async (ifaceName, patch) => {
+    setIfaceError(null);
     const interfaces = ifaces.map((i) =>
       i.name === ifaceName
-        ? { name: i.name, ipAddress: i.ipAddress, description }
+        ? { name: i.name, ipAddress: i.ipAddress, description: i.description || null, ...patch }
         : { name: i.name, ipAddress: i.ipAddress, description: i.description || null }
     );
     const routes = (detail.routes || []).map((r) => ({
@@ -147,8 +159,8 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
 
       <div style={{ marginBottom: 20 }}>
         <h3 className="rm-section-sub-title">Interfaces</h3>
-        {descError && <div className="tool-error">{descError}</div>}
-        <div className="tool-table-wrap">
+        {ifaceError && <div className="tool-error">{ifaceError}</div>}
+        <div className="tool-table-wrap rm-table-wrap-full">
           <table className="tool-table">
             <thead>
               <tr>
@@ -168,16 +180,30 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
               {ifaces.map((i) => (
                 <tr key={i.name}>
                   <td>{i.name}</td>
-                  <td>{i.ipAddress}</td>
                   <td>
-                    <EditableDescription
+                    <EditableField
+                      value={i.ipAddress}
+                      disabled={deleting}
+                      required
+                      onCommit={async (ipAddress) => {
+                        try {
+                          await saveInterfaceField(i.name, { ipAddress });
+                        } catch (e) {
+                          setIfaceError(e.message);
+                          throw e;
+                        }
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <EditableField
                       value={i.description}
                       disabled={deleting}
                       onCommit={async (description) => {
                         try {
-                          await saveDescription(i.name, description);
+                          await saveInterfaceField(i.name, { description });
                         } catch (e) {
-                          setDescError(e.message);
+                          setIfaceError(e.message);
                           throw e;
                         }
                       }}
@@ -192,7 +218,7 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
 
       <div>
         <h3 className="rm-section-sub-title">Routes</h3>
-        <div className="tool-table-wrap">
+        <div className="tool-table-wrap rm-table-wrap-full">
           <table className="tool-table">
             <thead>
               <tr>
