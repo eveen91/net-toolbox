@@ -182,6 +182,39 @@ function firstUsableAddress(cidr) {
   return `${firstHost}/${prefix}`;
 }
 
+// Given an address in CIDR form ("10.226.0.65/26"), returns a string key
+// identifying the network it belongs to ("10.226.0.64/26") — the address
+// masked down to its network address, paired with the prefix length so
+// e.g. a /24 and a /25 that happen to share a network address are still
+// treated as different networks. Two interfaces are "on the same network"
+// exactly when this key matches. Returns null for anything unparseable.
+// Used by the Network Visualization graph to decide which hosts to draw
+// an edge between.
+export function networkKeyForCidr(cidr) {
+  if (typeof cidr !== "string") return null;
+  const parts = cidr.split("/");
+  if (parts.length !== 2) return null;
+  const prefix = parseInt(parts[1], 10);
+  if (Number.isNaN(prefix) || prefix < 0 || prefix > 32) return null;
+
+  const octets = parts[0].split(".").map(Number);
+  if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) return null;
+
+  const asInt = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+  const hostBits = 32 - prefix;
+  const mask = hostBits === 32 ? 0 : (0xffffffff << hostBits) >>> 0;
+  const networkInt = (asInt & mask) >>> 0;
+
+  const networkAddr = [
+    (networkInt >>> 24) & 0xff,
+    (networkInt >>> 16) & 0xff,
+    (networkInt >>> 8) & 0xff,
+    networkInt & 0xff,
+  ].join(".");
+
+  return `${networkAddr}/${prefix}`;
+}
+
 // ---- Checkpoint (Gaia) — "show route" -------------------------------------
 //
 // Handles lines like:
