@@ -162,6 +162,37 @@ function cleanIface(raw) {
   return raw.replace(/,$/, "");
 }
 
+// Given a network in CIDR form ("10.226.0.64/26"), returns the first usable
+// host address in that network, keeping the same "/prefix" suffix
+// ("10.226.0.65/26"). Used when a connected route's network is recorded as
+// an interface address — the network address itself isn't assignable to an
+// interface, so we want ".1" (the first host), not ".0".
+// For /31 and /32 there's no separate "network address" vs. "host address"
+// distinction, so the address is returned unchanged.
+function firstUsableAddress(cidr) {
+  const [addr, prefixStr] = cidr.split("/");
+  const prefix = parseInt(prefixStr, 10);
+  if (!addr || Number.isNaN(prefix) || prefix >= 31) return cidr;
+
+  const octets = addr.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((o) => Number.isNaN(o))) return cidr;
+
+  let asInt = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+  const hostBits = 32 - prefix;
+  const mask = hostBits === 32 ? 0 : (0xffffffff << hostBits) >>> 0;
+  const networkInt = (asInt & mask) >>> 0;
+  const firstHostInt = (networkInt + 1) >>> 0;
+
+  const firstHost = [
+    (firstHostInt >>> 24) & 0xff,
+    (firstHostInt >>> 16) & 0xff,
+    (firstHostInt >>> 8) & 0xff,
+    firstHostInt & 0xff,
+  ].join(".");
+
+  return `${firstHost}/${prefix}`;
+}
+
 export function parseDeviceRouteOutput(text) {
   const lines = text.split("\n");
   const warnings = [];
@@ -195,7 +226,7 @@ export function parseDeviceRouteOutput(text) {
       // Connected routes define local interfaces — record each unique name once.
       if (iface && !seenIfaces.has(iface)) {
         seenIfaces.add(iface);
-        interfaces.push({ name: iface, ipAddress: network, description: null });
+        interfaces.push({ name: iface, ipAddress: firstUsableAddress(network), description: null });
       }
       return;
     }
