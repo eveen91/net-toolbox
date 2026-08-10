@@ -1,0 +1,220 @@
+/* Generic building blocks shared by every tool: two-column layout, panels,
+   form fields, buttons, tables, status pills. Tool-specific visuals (the
+   subnet splitter's address bar, the connection test's matrix, etc.) stay in
+   that tool's own CSS file. */
+
+.tool-layout {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .tool-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tool-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.tool-field {
+  margin-bottom: 16px;
+}
+.tool-field:last-child {
+  margin-bottom: 0;
+}
+.tool-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.tool-hint {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.tool-input,
+.tool-textarea {
+  width: 100%;
+  background: #0a121e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 9px 10px;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+}
+.tool-input:focus,
+.tool-textarea:focus {
+  outline: none;
+  border-color: var(--accent-dim);
+}
+.tool-textarea {
+  min-height: 84px;
+  line-height: 1.5;
+}
+
+.tool-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
+.tool-btn {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  border-radius: 6px;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+.tool-btn:active {
+  transform: translateY(1px);
+}
+.tool-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.tool-btn-primary {
+  background: var(--accent);
+  color: #06211f;
+  flex: 1;
+}
+.tool-btn-primary:hover {
+  filter: brightness(1.08);
+}
+.tool-btn-ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+.tool-btn-ghost:hover {
+  color: var(--text);
+  border-color: var(--accent-dim);
+}
+
+.tool-error {
+  margin-top: 14px;
+  border: 1px solid #6b2c3a;
+  background: #2a1420;
+  color: var(--danger);
+  font-size: 12.5px;
+  font-family: var(--mono);
+  padding: 10px 12px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
+.tool-empty {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 60px 24px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.tool-section-title {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0 0 10px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tool-summary {
+  display: flex;
+  gap: 24px;
+  margin: 18px 0 14px;
+  flex-wrap: wrap;
+}
+.tool-stat .n {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+.tool-stat .l {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+table.tool-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.tool-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+.tool-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text);
+  white-space: nowrap;
+}
+.tool-table tr:hover td {
+  background: #16233a;
+}
+.tool-table-wrap {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+
+.tool-pill {
+  display: inline-block;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 1px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.tool-pill-ok {
+  background: #123a2e;
+  color: #6ee7b7;
+}
+.tool-pill-no {
+  background: #3a1420;
+  color: var(--danger);
+}
+.tool-pill-warn {
+  background: #3a2f14;
+  color: var(--warn);
+}
+.tool-pill-muted {
+  background: #1c2536;
+  color: var(--muted);
+}

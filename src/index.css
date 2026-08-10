@@ -1,0 +1,231 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+
+:root {
+  --bg: #0c1420;
+  --panel: #121c2c;
+  --border: #223252;
+  --border-soft: #1c2940;
+  --text: #e7edf6;
+  --muted: #7f8fac;
+  --accent: #4fd1c5;
+  --accent-dim: #2e6f6a;
+  --accent-2: #7dd3fc;
+  --warn: #f0a857;
+  --warn-dim: #6b5030;
+  --danger: #f2708a;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+  --sans: "Inter", system-ui, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  background-image: radial-gradient(circle at 15% -10%, #16324a55, transparent 45%),
+    radial-gradient(circle at 100% 0%, #123a3355, transparent 40%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ---------- Toolbar ---------- */
+.nt-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border-soft);
+  background: #0c1420ee;
+  backdrop-filter: blur(6px);
+  overflow-x: auto;
+}
+.nt-logo {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text);
+  margin-right: 18px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  background: none;
+  border: none;
+  padding: 0;
+}
+.nt-logo span {
+  color: var(--accent);
+}
+.nt-navbtn {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 13px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 7px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.nt-navbtn:hover {
+  color: var(--text);
+  background: #17233688;
+}
+.nt-navbtn.active {
+  color: #06211f;
+  background: var(--accent);
+}
+.nt-navbtn.disabled {
+  color: #4a5670;
+  cursor: default;
+}
+.nt-navbtn.disabled:hover {
+  background: transparent;
+  color: #4a5670;
+}
+
+.nt-main {
+  padding: 28px;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+/* ---------- Home page ---------- */
+.nt-hero {
+  margin-bottom: 30px;
+}
+.nt-hero h1 {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.nt-hero h1 span {
+  color: var(--accent);
+}
+.nt-hero p {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0;
+  max-width: 560px;
+}
+
+.nt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+.nt-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.08s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 130px;
+}
+.nt-card:hover {
+  border-color: var(--accent-dim);
+  transform: translateY(-1px);
+}
+.nt-card.soon {
+  cursor: default;
+  opacity: 0.55;
+}
+.nt-card.soon:hover {
+  border-color: var(--border);
+  transform: none;
+}
+.nt-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nt-card-icon {
+  font-family: var(--mono);
+  font-size: 18px;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0a121e;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--accent);
+}
+.nt-card-name {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 14.5px;
+  color: var(--text);
+}
+.nt-card-desc {
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.nt-pill {
+  align-self: flex-start;
+  font-size: 10px;
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.nt-pill-live {
+  background: #123a2e;
+  color: #6ee7b7;
+}
+.nt-pill-soon {
+  background: #241d0f;
+  color: var(--warn);
+}
+
+/* ---------- Tool page shell (shared by every tool) ---------- */
+.nt-tool-header {
+  margin-bottom: 20px;
+}
+.nt-tool-header h2 {
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
+}
+.nt-tool-header p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
+.nt-back {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.nt-back:hover {
+  color: var(--accent-2);
+}

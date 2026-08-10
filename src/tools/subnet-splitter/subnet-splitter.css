@@ -1,0 +1,84 @@
+/* Styles unique to the Subnet Splitter tool. Shared panel/form/table/pill
+   styles live in ../shared.css and are imported at the app shell level. */
+
+.ss-bar-wrap {
+  margin-bottom: 8px;
+}
+.ss-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.ss-bar {
+  display: flex;
+  width: 100%;
+  height: 34px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.ss-seg {
+  height: 100%;
+  min-width: 2px;
+  cursor: pointer;
+  border-right: 1px solid #0c1420;
+  transition: filter 0.1s ease;
+}
+.ss-seg:last-child {
+  border-right: none;
+}
+.ss-seg:hover {
+  filter: brightness(1.25);
+}
+.ss-seg-excluded {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--warn-dim),
+    var(--warn-dim) 4px,
+    #3a2a17 4px,
+    #3a2a17 8px
+  );
+}
+.ss-seg-free-a {
+  background: var(--accent);
+}
+.ss-seg-free-b {
+  background: #3fa89e;
+}
+
+.ss-tooltip {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: #0a121e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 10px;
+  color: var(--text);
+}
+.ss-tooltip .k {
+  color: var(--muted);
+}
+
+.ss-legend {
+  display: flex;
+  gap: 16px;
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.ss-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ss-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
