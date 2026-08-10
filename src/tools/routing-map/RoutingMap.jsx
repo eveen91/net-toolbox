@@ -45,6 +45,8 @@ function EditableDescription({ value, disabled, onCommit }) {
   const [draft, setDraft] = useState(value || "");
   const [saving, setSaving] = useState(false);
   const inputRef = useRef(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   useEffect(() => {
     if (!editing) setDraft(value || "");
@@ -58,7 +60,7 @@ function EditableDescription({ value, disabled, onCommit }) {
   }, [editing]);
 
   const commit = async () => {
-    const next = draft.trim();
+    const next = draftRef.current.trim();
     const prev = (value || "").trim();
     setEditing(false);
     if (next === prev) return;
@@ -80,7 +82,9 @@ function EditableDescription({ value, disabled, onCommit }) {
         value={draft}
         disabled={saving}
         onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
+        onBlur={() => {
+          void commit();
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") {
             e.preventDefault();
