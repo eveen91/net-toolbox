@@ -32,11 +32,11 @@ export async function getRoutingHost(host) {
   return handle(res);
 }
 
-export async function saveRoutingHost(host, routes, interfaces = []) {
+export async function saveRoutingHost(host, routes) {
   const res = await fetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ routes, interfaces }),
+    body: JSON.stringify({ routes }),
   });
   return handle(res);
 }

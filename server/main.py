@@ -7,7 +7,7 @@ Serves two tools that need server-side work the browser can't do itself:
     Windows sources and runs a remote TCP-connectivity check against each
     destination:port, same approach as the original .sh / .ps1 scripts.
   - Routing Map: persists each host's routing table (CIDR network + next
-    hop) and interface list to a local SQLite database so it survives across sessions.
+    hop) to a local SQLite database so it survives across sessions.
 
 Run it with:
     pip install -r requirements.txt
@@ -15,15 +15,16 @@ Run it with:
 """
 
 import asyncio
+import re
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Literal, Optional
 
 import paramiko
 import winrm
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import db
 
@@ -44,279 +45,327 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]+$")
 EXECUTOR = ThreadPoolExecutor(max_workers=16)
 
 
-# --- Routing Map Models ---
+# ---------------------------------------------------------------------------
+# Request / response models
+# ---------------------------------------------------------------------------
 
-class RouteEntry(BaseModel):
-    network: str
-    nextHop: str
-
-
-class InterfaceEntry(BaseModel):
-    name: str
-    ipAddress: str
-    description: Optional[str] = None
-
-
-class SaveRoutingHostRequest(BaseModel):
-    routes: List[RouteEntry] = []
-    interfaces: List[InterfaceEntry] = []
-
-
-class RoutingHostDetail(BaseModel):
+class Source(BaseModel):
     host: str
-    updatedAt: str
-    routes: List[RouteEntry] = []
-    interfaces: List[InterfaceEntry] = []
+    os: Literal["linux", "windows"]
 
-
-# --- Connection Test Models ---
 
 class Credentials(BaseModel):
     username: str
     password: str
 
 
-class SourceHost(BaseModel):
-    host: str
-    os: Literal["linux", "windows"]
-
-
-class ConnectionTestRequest(BaseModel):
-    sources: List[SourceHost]
+class RunRequest(BaseModel):
+    sources: List[Source]
     destinations: List[str]
     ports: List[int]
     linux_credentials: Optional[Credentials] = None
     windows_credentials: Optional[Credentials] = None
-    connect_timeout_seconds: int = 5
-    ssh_port: int = 22
-    winrm_port: int = 5985
-    winrm_transport: str = "ntlm"
-    winrm_scheme: str = "http"
+    connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    ssh_port: int = Field(default=22, ge=1, le=65535)
+    winrm_port: int = Field(default=5985, ge=1, le=65535)
+    winrm_transport: Literal["ntlm", "kerberos", "basic", "credssp"] = "ntlm"
+    winrm_scheme: Literal["http", "https"] = "http"
 
 
-# --- Routing Map Endpoints ---
+class ResultRow(BaseModel):
+    source_host: str
+    destination: str
+    port: str
+    status: str
+    timestamp: str
 
-@app.get("/api/routing/hosts")
-def list_routing_hosts():
-    return db.list_hosts()
+
+class RunResponse(BaseModel):
+    rows: List[ResultRow]
+    csv: str
 
 
-@app.get("/api/routing/hosts/{host}")
+# ---------------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------------
+
+def validate_host(host: str) -> str:
+    host = host.strip()
+    if not HOSTNAME_RE.match(host):
+        raise ValueError(f"Invalid hostname: {host}")
+    return host
+
+
+def validate_port(port: int) -> int:
+    if not (0 < port < 65536):
+        raise ValueError(f"Invalid port: {port}")
+    return port
+
+
+def now_str() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+# ---------------------------------------------------------------------------
+# Linux sources — SSH in, run a bash loop over destinations x ports
+# ---------------------------------------------------------------------------
+
+def build_linux_script(destinations: List[str], ports: List[int], timeout_seconds: int) -> str:
+    dest_str = " ".join(destinations)
+    port_str = " ".join(str(p) for p in ports)
+    return f"""
+DESTINATIONS="{dest_str}"
+PORTS="{port_str}"
+for DST in $DESTINATIONS; do
+  for PORT in $PORTS; do
+    if timeout {timeout_seconds} bash -c "</dev/tcp/$DST/$PORT" 2>/dev/null; then
+      STATUS="OPEN"
+    else
+      STATUS="FAILED"
+    fi
+    echo "$(hostname),$DST,$PORT,$STATUS,$(date '+%F %T')"
+  done
+done
+""".strip()
+
+
+def test_linux_source(
+    host: str,
+    creds: Credentials,
+    destinations: List[str],
+    ports: List[int],
+    timeout_seconds: int,
+    ssh_port: int,
+) -> List[ResultRow]:
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            hostname=host,
+            port=ssh_port,
+            username=creds.username,
+            password=creds.password,
+            timeout=10,
+            banner_timeout=10,
+            auth_timeout=10,
+        )
+        script = build_linux_script(destinations, ports, timeout_seconds)
+        _, stdout, stderr = client.exec_command(script, timeout=timeout_seconds * len(destinations) * len(ports) + 15)
+        out = stdout.read().decode(errors="replace")
+        rows = []
+        for line in out.splitlines():
+            parts = line.strip().split(",")
+            if len(parts) == 5:
+                rows.append(ResultRow(source_host=parts[0], destination=parts[1], port=parts[2], status=parts[3], timestamp=parts[4]))
+        if not rows:
+            rows.append(ResultRow(source_host=host, destination="-", port="-", status="NO_OUTPUT", timestamp=now_str()))
+        return rows
+    except Exception as exc:
+        return [ResultRow(source_host=host, destination="-", port="-", status=f"UNREACHABLE ({exc})", timestamp=now_str())]
+    finally:
+        client.close()
+
+
+# ---------------------------------------------------------------------------
+# Windows sources — WinRM in, run the PowerShell TcpClient equivalent
+# ---------------------------------------------------------------------------
+
+def build_windows_script(destinations: List[str], ports: List[int], timeout_ms: int) -> str:
+    dest_ps = ",".join(f"'{d}'" for d in destinations)
+    port_ps = ",".join(str(p) for p in ports)
+    return f"""
+$Destinations = @({dest_ps})
+$Ports = @({port_ps})
+$TimeoutMs = {timeout_ms}
+foreach ($Destination in $Destinations) {{
+    foreach ($Port in $Ports) {{
+        $TcpClient = New-Object System.Net.Sockets.TcpClient
+        try {{
+            $Async = $TcpClient.BeginConnect($Destination, $Port, $null, $null)
+            if ($Async.AsyncWaitHandle.WaitOne($TimeoutMs)) {{
+                $TcpClient.EndConnect($Async)
+                $Status = "OPEN"
+            }} else {{
+                $Status = "TIMEOUT"
+            }}
+        }} catch {{
+            $Status = "FAILED"
+        }} finally {{
+            $TcpClient.Close()
+        }}
+        Write-Output "$($env:COMPUTERNAME),$Destination,$Port,$Status,$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    }}
+}}
+""".strip()
+
+
+def test_windows_source(
+    host: str,
+    creds: Credentials,
+    destinations: List[str],
+    ports: List[int],
+    timeout_seconds: int,
+    winrm_port: int,
+    winrm_transport: str,
+    winrm_scheme: str,
+) -> List[ResultRow]:
+    try:
+        endpoint = f"{winrm_scheme}://{host}:{winrm_port}/wsman"
+        session = winrm.Session(
+            endpoint,
+            auth=(creds.username, creds.password),
+            transport=winrm_transport,
+            server_cert_validation="ignore",
+        )
+        script = build_windows_script(destinations, ports, timeout_seconds * 1000)
+        result = session.run_ps(script)
+        out = result.std_out.decode(errors="replace")
+        rows = []
+        for line in out.splitlines():
+            parts = line.strip().split(",")
+            if len(parts) == 5:
+                rows.append(ResultRow(source_host=parts[0], destination=parts[1], port=parts[2], status=parts[3], timestamp=parts[4]))
+        if not rows:
+            err = result.std_err.decode(errors="replace").strip()
+            status = f"NO_OUTPUT ({err[:120]})" if err else "NO_OUTPUT"
+            rows.append(ResultRow(source_host=host, destination="-", port="-", status=status, timestamp=now_str()))
+        return rows
+    except Exception as exc:
+        return [ResultRow(source_host=host, destination="-", port="-", status=f"UNREACHABLE ({exc})", timestamp=now_str())]
+
+
+# ---------------------------------------------------------------------------
+# API
+# ---------------------------------------------------------------------------
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/api/connection-test/run", response_model=RunResponse)
+async def run_connection_test(req: RunRequest):
+    destinations = [validate_host(d) for d in req.destinations]
+    ports = [validate_port(p) for p in req.ports]
+
+    loop = asyncio.get_event_loop()
+    tasks = []
+
+    for source in req.sources:
+        host = validate_host(source.host)
+        if source.os == "linux":
+            if req.linux_credentials is None:
+                tasks.append(_error_row(host, "Missing Linux credentials"))
+                continue
+            tasks.append(
+                loop.run_in_executor(
+                    EXECUTOR,
+                    test_linux_source,
+                    host,
+                    req.linux_credentials,
+                    destinations,
+                    ports,
+                    req.connect_timeout_seconds,
+                    req.ssh_port,
+                )
+            )
+        else:
+            if req.windows_credentials is None:
+                tasks.append(_error_row(host, "Missing Windows credentials"))
+                continue
+            tasks.append(
+                loop.run_in_executor(
+                    EXECUTOR,
+                    test_windows_source,
+                    host,
+                    req.windows_credentials,
+                    destinations,
+                    ports,
+                    req.connect_timeout_seconds,
+                    req.winrm_port,
+                    req.winrm_transport,
+                    req.winrm_scheme,
+                )
+            )
+
+    results = await asyncio.gather(*tasks)
+    rows: List[ResultRow] = [row for group in results for row in group]
+
+    csv_lines = ["SourceHost,DestinationHost,Port,Status,Timestamp"]
+    for r in rows:
+        csv_lines.append(f"{r.source_host},{r.destination},{r.port},{r.status},{r.timestamp}")
+
+    return RunResponse(rows=rows, csv="\n".join(csv_lines))
+
+
+async def _error_row(host: str, message: str) -> List[ResultRow]:
+    return [ResultRow(source_host=host, destination="-", port="-", status=message, timestamp=now_str())]
+
+
+# ---------------------------------------------------------------------------
+# Routing Map — persisted routing tables (SQLite, see db.py)
+# ---------------------------------------------------------------------------
+
+class RouteEntry(BaseModel):
+    network: str  # CIDR, e.g. "10.0.1.0/24"
+    nextHop: str  # e.g. "10.0.1.1", or "directly connected" for local routes
+    interface: Optional[str] = None  # e.g. "eth0", "eth4.355"
+
+
+class SaveRoutingHostRequest(BaseModel):
+    routes: List[RouteEntry]
+
+
+class RoutingHostSummary(BaseModel):
+    host: str
+    routeCount: int
+    updatedAt: str
+
+
+class RoutingHostDetail(BaseModel):
+    host: str
+    updatedAt: str
+    routes: List[RouteEntry]
+
+
+@app.get("/api/routing/hosts", response_model=List[RoutingHostSummary])
+def get_routing_hosts():
+    rows = db.list_hosts()
+    return [
+        RoutingHostSummary(host=r["host"], routeCount=r["route_count"], updatedAt=r["updated_at"])
+        for r in rows
+    ]
+
+
+@app.get("/api/routing/export", response_model=List[RoutingHostDetail])
+def export_routing_hosts():
+    return db.export_all()
+
+
+@app.get("/api/routing/hosts/{host}", response_model=RoutingHostDetail)
 def get_routing_host(host: str):
     data = db.get_host(host)
-    if not data:
-        raise HTTPException(status_code=404, detail="Host not found")
+    if data is None:
+        raise HTTPException(status_code=404, detail=f'No saved routing table for "{host}"')
     return data
 
 
-@app.put("/api/routing/hosts/{host}")
-def save_routing_host(host: str, request: SaveRoutingHostRequest):
+@app.put("/api/routing/hosts/{host}", response_model=RoutingHostDetail)
+def put_routing_host(host: str, req: SaveRoutingHostRequest):
     try:
-        routes_data = [r.model_dump() for r in request.routes]
-        interfaces_data = [i.model_dump() for i in request.interfaces]
-        saved = db.save_host(host, routes_data, interfaces_data)
-        return saved
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        return db.save_host(host, [r.dict() for r in req.routes])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.delete("/api/routing/hosts/{host}")
 def delete_routing_host(host: str):
     deleted = db.delete_host(host)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Host not found")
-    return {"message": f"Deleted host {host}"}
+        raise HTTPException(status_code=404, detail=f'No saved routing table for "{host}"')
+    return {"deleted": host}
 
-
-@app.get("/api/routing/export")
-def export_routing_hosts():
-    return db.export_all()
-
-
-# --- Connection Test Helpers & Endpoint ---
-
-def _test_linux_source(src: SourceHost, req: ConnectionTestRequest) -> List[dict]:
-    rows = []
-    now = datetime.now(timezone.utc).isoformat()
-    if not req.linux_credentials:
-        for dst in req.destinations:
-            for port in req.ports:
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": "NO_CREDENTIALS",
-                    "timestamp": now,
-                })
-        return rows
-
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        ssh.connect(
-            hostname=src.host,
-            port=req.ssh_port,
-            username=req.linux_credentials.username,
-            password=req.linux_credentials.password,
-            timeout=req.connect_timeout_seconds,
-            banner_timeout=req.connect_timeout_seconds,
-        )
-    except Exception as e:
-        for dst in req.destinations:
-            for port in req.ports:
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": f"UNREACHABLE ({type(e).__name__})",
-                    "timestamp": now,
-                })
-        return rows
-
-    try:
-        cmd_parts = []
-        for dst in req.destinations:
-            for port in req.ports:
-                cmd_parts.append(
-                    f'echo -n "{dst}:{port}:"; timeout {req.connect_timeout_seconds} bash -c "</dev/tcp/{dst}/{port}" 2>/dev/null && echo "OPEN" || echo "CLOSED"'
-                )
-        script = " ; ".join(cmd_parts)
-        stdin, stdout, stderr = ssh.exec_command(script, timeout=req.connect_timeout_seconds * len(cmd_parts) + 5)
-        output = stdout.read().decode("utf-8", errors="replace")
-        ssh.close()
-
-        results_map = {}
-        for line in output.splitlines():
-            parts = line.strip().split(":")
-            if len(parts) == 3:
-                d, p_str, st = parts[0], parts[1], parts[2]
-                try:
-                    results_map[(d, int(p_str))] = st
-                except ValueError:
-                    pass
-
-        for dst in req.destinations:
-            for port in req.ports:
-                st = results_map.get((dst, port), "NO_OUTPUT")
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": st,
-                    "timestamp": now,
-                })
-    except Exception as e:
-        ssh.close()
-        for dst in req.destinations:
-            for port in req.ports:
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": f"FAILED ({type(e).__name__})",
-                    "timestamp": now,
-                })
-    return rows
-
-
-def _test_windows_source(src: SourceHost, req: ConnectionTestRequest) -> List[dict]:
-    rows = []
-    now = datetime.now(timezone.utc).isoformat()
-    if not req.windows_credentials:
-        for dst in req.destinations:
-            for port in req.ports:
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": "NO_CREDENTIALS",
-                    "timestamp": now,
-                })
-        return rows
-
-    endpoint = f"{req.winrm_scheme}://{src.host}:{req.winrm_port}/wsman"
-    try:
-        session = winrm.Session(
-            endpoint,
-            auth=(req.windows_credentials.username, req.windows_credentials.password),
-            transport=req.winrm_transport,
-            server_cert_validation="ignore",
-        )
-    except Exception as e:
-        for dst in req.destinations:
-            for port in req.ports:
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": f"UNREACHABLE ({type(e).__name__})",
-                    "timestamp": now,
-                })
-        return rows
-
-    timeout_ms = req.connect_timeout_seconds * 1000
-    ps_lines = []
-    for dst in req.destinations:
-        for port in req.ports:
-            ps_lines.append(
-                f"$c = New-Object System.Net.Sockets.TcpClient; $a = $c.BeginConnect('{dst}', {port}, $null, $null); if ($a.AsyncWaitHandle.WaitOne({timeout_ms}, $false)) {{ try {{ $c.EndConnect($a); Write-Host '{dst}:{port}:OPEN' }} catch {{ Write-Host '{dst}:{port}:CLOSED' }} }} else {{ Write-Host '{dst}:{port}:TIMEOUT' }}; $c.Close()"
-            )
-    ps_script = "\n".join(ps_lines)
-
-    try:
-        res = session.run_ps(ps_script)
-        output = res.std_out.decode("utf-8", errors="replace")
-        results_map = {}
-        for line in output.splitlines():
-            parts = line.strip().split(":")
-            if len(parts) == 3:
-                d, p_str, st = parts[0], parts[1], parts[2]
-                try:
-                    results_map[(d, int(p_str))] = st
-                except ValueError:
-                    pass
-
-        for dst in req.destinations:
-            for port in req.ports:
-                st = results_map.get((dst, port), "NO_OUTPUT")
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": st,
-                    "timestamp": now,
-                })
-    except Exception as e:
-        for dst in req.destinations:
-            for port in req.ports:
-                rows.append({
-                    "source_host": src.host,
-                    "destination": dst,
-                    "port": port,
-                    "status": f"FAILED ({type(e).__name__})",
-                    "timestamp": now,
-                })
-    return rows
-
-
-def _run_single_source(src: SourceHost, req: ConnectionTestRequest) -> List[dict]:
-    if src.os == "linux":
-        return _test_linux_source(src, req)
-    elif src.os == "windows":
-        return _test_windows_source(src, req)
-    return []
-
-
-@app.post("/api/connection-test/run")
-async def run_connection_test(req: ConnectionTestRequest):
-    loop = asyncio.get_running_loop()
-    futures = [
-        loop.run_in_executor(EXECUTOR, _run_single_source, src, req)
-        for src in req.sources
-    ]
-    results = await asyncio.gather(*futures)
-    all_rows = [row for sublist in results for row in sublist]
-    return {"rows": all_rows}
