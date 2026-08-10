@@ -1,6 +1,7 @@
 import SubnetSplitter from "./subnet-splitter/SubnetSplitter.jsx";
 import ConnectionTest from "./connection-test/ConnectionTest.jsx";
 import RoutingMap from "./routing-map/RoutingMap.jsx";
+import IpCalculator from "./ip-calculator/IpCalculator.jsx";
 
 // To add a new tool:
 //   1. Create src/tools/<your-tool>/YourTool.jsx (+ its own .css / logic.js if needed)
@@ -30,5 +31,13 @@ export const TOOLS = [
     tagline: "Browse each host's routing table by network and next hop.",
     status: "live",
     Component: RoutingMap,
+  },
+  {
+    id: "ip-calculator",
+    name: "IP Calculator",
+    icon: "#",
+    tagline: "Enter an IP and netmask to get the network, broadcast, and usable host range.",
+    status: "live",
+    Component: IpCalculator,
   },
 ];

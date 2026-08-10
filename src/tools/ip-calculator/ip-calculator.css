@@ -1,0 +1,61 @@
+/* Styles unique to the IP Calculator tool. Shared panel/form/table styles
+   live in ../shared.css and are imported at the app shell level. */
+
+.ipc-field {
+  color: var(--muted);
+  width: 160px;
+  white-space: nowrap;
+}
+
+.ipc-binary-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ipc-binary-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.ipc-binary-label {
+  width: 80px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ipc-binary-bits {
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+}
+
+.ipc-bits-network {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.ipc-bits-host {
+  color: var(--muted);
+}
+
+.ipc-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+span.ipc-legend-swatch.ipc-bits-network {
+  background: var(--accent-2);
+}
+span.ipc-legend-swatch.ipc-bits-host {
+  background: var(--muted);
+}
