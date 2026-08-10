@@ -114,6 +114,48 @@
   margin-top: 10px;
 }
 
+/* Hover popover for CIDR values (interface addresses, route networks):
+   mask / first host / last host / broadcast. Pure CSS hover — the popover
+   is always in the DOM, just hidden until the parent is hovered, so it
+   works without any JS state. */
+.rm-cidr-hover {
+  position: relative;
+  cursor: help;
+  border-bottom: 1px dotted var(--border-soft);
+}
+.rm-cidr-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 6px;
+  z-index: 20;
+  min-width: 190px;
+  background: #0a121e;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.rm-cidr-tooltip b {
+  color: var(--muted);
+  font-weight: 600;
+  display: inline-block;
+  width: 72px;
+}
+.rm-cidr-hover:hover .rm-cidr-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+
 .rm-divider {
   border: none;
   border-top: 1px solid var(--border-soft);

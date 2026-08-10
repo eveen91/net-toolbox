@@ -215,6 +215,49 @@ export function networkKeyForCidr(cidr) {
   return `${networkAddr}/${prefix}`;
 }
 
+// Given an address in CIDR form ("10.226.0.65/26"), returns the network's
+// full details for display — dotted-decimal mask, network address, first
+// and last usable host, and broadcast address. Returns null for anything
+// unparseable.
+//
+// /31 has no broadcast (RFC 3021 point-to-point — both addresses are
+// usable hosts); /32 is a single host with no separate network/host split
+// at all. `hasBroadcast` / `hasHostRange` tell the caller which fields are
+// meaningful to show for those cases.
+export function cidrDetails(cidr) {
+  if (typeof cidr !== "string") return null;
+  const parts = cidr.split("/");
+  if (parts.length !== 2) return null;
+  const prefix = parseInt(parts[1], 10);
+  if (Number.isNaN(prefix) || prefix < 0 || prefix > 32) return null;
+
+  const octets = parts[0].split(".").map(Number);
+  if (octets.length !== 4 || octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) return null;
+
+  const toDotted = (n) =>
+    [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff].join(".");
+
+  const ipInt = ((octets[0] << 24) | (octets[1] << 16) | (octets[2] << 8) | octets[3]) >>> 0;
+  const hostBits = 32 - prefix;
+  const maskInt = hostBits === 32 ? 0 : (0xffffffff << hostBits) >>> 0;
+  const networkInt = (ipInt & maskInt) >>> 0;
+  const broadcastInt = hostBits === 32 ? 0xffffffff : (networkInt | (~maskInt >>> 0)) >>> 0;
+
+  const hasBroadcast = prefix < 31;
+  const hasHostRange = prefix < 31;
+
+  return {
+    prefix,
+    networkAddress: toDotted(networkInt),
+    mask: toDotted(maskInt),
+    broadcast: hasBroadcast ? toDotted(broadcastInt) : null,
+    firstHost: hasHostRange ? toDotted((networkInt + 1) >>> 0) : toDotted(networkInt),
+    lastHost: hasHostRange ? toDotted((broadcastInt - 1) >>> 0) : toDotted(broadcastInt),
+    usableHosts: hasHostRange ? Math.max(0, (broadcastInt - networkInt - 1) >>> 0) : prefix === 32 ? 1 : 2,
+    hasBroadcast,
+  };
+}
+
 // ---- Checkpoint (Gaia) — "show route" -------------------------------------
 //
 // Handles lines like:

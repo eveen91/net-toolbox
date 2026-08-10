@@ -3,9 +3,11 @@ import "./routing-map.css";
 import {
   parseRoutingData,
   serializeHosts,
+  parseDeviceRouteOutput,
   upsertHost,
+  cidrDetails,
   EXAMPLE,
-  DEVICE_PARSERS,
+  EXAMPLE_DEVICE_OUTPUT,
 } from "./logic.js";
 import {
   listRoutingHosts,
@@ -40,12 +42,51 @@ function interfacesForDisplay(detail) {
 }
 
 /**
+ * Wraps a CIDR value (e.g. "10.226.0.65/26") so hovering it shows a small
+ * popover with the network's mask, first/last usable host, and broadcast
+ * address. Falls through to plain text if the value isn't parseable CIDR
+ * (nothing to show, so no popover wiring at all).
+ */
+function CidrHelper({ cidr }) {
+  const details = useMemo(() => cidrDetails(cidr), [cidr]);
+  if (!details) return cidr || "—";
+
+  return (
+    <span className="rm-cidr-hover">
+      {cidr}
+      <span className="rm-cidr-tooltip" role="tooltip">
+        <div>
+          <b>Mask</b> {details.mask}
+        </div>
+        <div>
+          <b>First host</b> {details.firstHost}
+        </div>
+        <div>
+          <b>Last host</b> {details.lastHost}
+        </div>
+        {details.hasBroadcast ? (
+          <div>
+            <b>Broadcast</b> {details.broadcast}
+          </div>
+        ) : (
+          <div className="tool-hint">
+            {details.prefix === 32 ? "/32 — single host" : "/31 — point-to-point, no broadcast"}
+          </div>
+        )}
+      </span>
+    </span>
+  );
+}
+
+/**
  * Inline double-click-to-edit text field, used for both an interface's
  * address and its description. `required` blocks committing an empty
  * value (the backend's ipAddress field is mandatory) — the field just
- * reverts to its previous value instead of saving a blank.
+ * reverts to its previous value instead of saving a blank. `cidrHelper`
+ * shows the mask/first/last/broadcast popover on hover (only meaningful
+ * for the address field, not description).
  */
-function EditableField({ value, disabled, required, onCommit }) {
+function EditableField({ value, disabled, required, cidrHelper, onCommit }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
   const [saving, setSaving] = useState(false);
@@ -116,7 +157,7 @@ function EditableField({ value, disabled, required, onCommit }) {
         if (!disabled && !saving) setEditing(true);
       }}
     >
-      {saving ? "Saving…" : value || "—"}
+      {saving ? "Saving…" : cidrHelper && value ? <CidrHelper cidr={value} /> : value || "—"}
     </span>
   );
 }
@@ -218,6 +259,7 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
                       value={i.ipAddress}
                       disabled={deleting}
                       required
+                      cidrHelper
                       onCommit={async (ipAddress) => {
                         try {
                           await saveInterfaceField(i.name, { ipAddress });
@@ -270,7 +312,9 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
               )}
               {detail.routes.map((r, i) => (
                 <tr key={i}>
-                  <td>{r.network}</td>
+                  <td>
+                    <CidrHelper cidr={r.network} />
+                  </td>
                   <td>{r.nextHop}</td>
                   <td>{r.interface || "—"}</td>
                 </tr>
@@ -303,8 +347,6 @@ export default function RoutingTable() {
 
   const [deviceOutput, setDeviceOutput] = useState("");
   const [deviceImportMessage, setDeviceImportMessage] = useState(null);
-  const [parserId, setParserId] = useState(DEVICE_PARSERS[0].id);
-  const activeParser = DEVICE_PARSERS.find((p) => p.id === parserId) || DEVICE_PARSERS[0];
 
   const refreshList = async () => {
     setListLoading(true);
@@ -407,7 +449,7 @@ export default function RoutingTable() {
     setDeviceImportMessage(null);
     if (!deviceOutput.trim()) return;
 
-    const { host, routes, interfaces, warnings } = activeParser.parse(deviceOutput);
+    const { host, routes, interfaces, warnings } = parseDeviceRouteOutput(deviceOutput);
     if (routes.length === 0 && interfaces.length === 0) {
       setDeviceImportMessage({ ok: false, text: "No routes found in the pasted output." });
       return;
@@ -448,7 +490,7 @@ export default function RoutingTable() {
     <div>
       <div className="nt-tool-header">
         <h2>Routing map</h2>
-        <p>Paste routes by hand or import a device's routing table output, save to the database, then pick a host to view it.</p>
+        <p>Paste routes by hand or import "show route" output, save to the database, then pick a host to view it.</p>
       </div>
 
       <div className="tool-layout">
@@ -503,26 +545,9 @@ export default function RoutingTable() {
           <div className="rm-section-label">Import from device output</div>
           <div className="tool-field">
             <div className="tool-label">
-              <span className="tool-hint">device type</span>
-            </div>
-            <select
-              className="tool-input"
-              value={parserId}
-              onChange={(e) => {
-                setParserId(e.target.value);
-                setDeviceImportMessage(null);
-              }}
-            >
-              {DEVICE_PARSERS.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="tool-field">
-            <div className="tool-label">
-              <span className="tool-hint">paste the "{activeParser.label}" output — connected/local lines become interfaces</span>
+              <span className="tool-hint">
+                paste "show route" / "show ip route" CLI output — connected (C) lines become interfaces
+              </span>
             </div>
             <textarea
               className="tool-textarea"
@@ -532,14 +557,14 @@ export default function RoutingTable() {
                 setDeviceOutput(e.target.value);
                 setDeviceImportMessage(null);
               }}
-              placeholder={activeParser.example}
+              placeholder={EXAMPLE_DEVICE_OUTPUT}
             />
           </div>
           <div className="tool-actions">
             <button className="tool-btn tool-btn-primary" onClick={handleImportDevice}>
               Import into draft
             </button>
-            <button className="tool-btn tool-btn-ghost" onClick={() => setDeviceOutput(activeParser.example)}>
+            <button className="tool-btn tool-btn-ghost" onClick={() => setDeviceOutput(EXAMPLE_DEVICE_OUTPUT)}>
               Load example
             </button>
           </div>
