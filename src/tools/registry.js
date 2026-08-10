@@ -31,20 +31,4 @@ export const TOOLS = [
     status: "live",
     Component: RoutingMap,
   },
-  {
-    id: "ip-calculator",
-    name: "IP Calculator",
-    icon: "#.#",
-    tagline: "Network/broadcast address, host range, and mask lookups for a single CIDR.",
-    status: "soon",
-    Component: null,
-  },
-  {
-    id: "vlsm-planner",
-    name: "VLSM Planner",
-    icon: "▤",
-    tagline: "Allocate a block across subnets sized to each site's host count.",
-    status: "soon",
-    Component: null,
-  },
 ];
