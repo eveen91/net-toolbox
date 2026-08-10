@@ -88,7 +88,16 @@ export default function RoutingMap() {
       draftHosts.map((h) =>
         saveRoutingHost(
           h.host,
-          h.routes.map((r) => ({ network: r.network, nextHop: r.nextHop, interface: r.interface || null }))
+          (h.routes || []).map((r) => ({
+            network: r.network,
+            nextHop: r.nextHop,
+            interface: r.interface || null,
+          })),
+          (h.interfaces || []).map((i) => ({
+            name: i.name,
+            ipAddress: i.ipAddress,
+            description: i.description || null,
+          }))
         )
       )
     );
@@ -118,7 +127,14 @@ export default function RoutingMap() {
     try {
       const data = await exportRoutingHosts();
       setRaw(data.length > 0 ? serializeHosts(data) : "");
-      setSavedHosts(data.map((h) => ({ host: h.host, routeCount: h.routes.length, updatedAt: h.updatedAt })));
+      setSavedHosts(
+        data.map((h) => ({
+          host: h.host,
+          routeCount: (h.routes || []).length,
+          interfaceCount: (h.interfaces || []).length,
+          updatedAt: h.updatedAt,
+        }))
+      );
     } catch (e) {
       setListError(e.message);
     } finally {
@@ -130,18 +146,22 @@ export default function RoutingMap() {
     setDeviceImportMessage(null);
     if (!deviceOutput.trim()) return;
 
-    const { host, routes, warnings } = parseDeviceRouteOutput(deviceOutput);
-    if (routes.length === 0) {
+    const { host, routes, interfaces, warnings } = parseDeviceRouteOutput(deviceOutput);
+    if (routes.length === 0 && interfaces.length === 0) {
       setDeviceImportMessage({ ok: false, text: "No routes found in the pasted output." });
       return;
     }
 
-    setRaw((prev) => upsertHost(prev, host, routes));
+    setRaw((prev) => upsertHost(prev, host, routes, interfaces));
     setSaveMessage(null);
+    const ifaceNote =
+      interfaces.length > 0
+        ? ` and ${interfaces.length} interface${interfaces.length !== 1 ? "s" : ""} (from connected routes)`
+        : "";
     setDeviceImportMessage({
       ok: warnings.length === 0,
       text:
-        `Imported ${routes.length} route${routes.length !== 1 ? "s" : ""} into the draft for "${host}".` +
+        `Imported ${routes.length} route${routes.length !== 1 ? "s" : ""}${ifaceNote} into the draft for "${host}".` +
         (warnings.length > 0 ? `\n${warnings.join("\n")}` : "") +
         `\nReview the draft, then click "Save to database".`,
     });
@@ -176,7 +196,11 @@ export default function RoutingMap() {
           <div className="tool-field">
             <div className="tool-label">
               <span>
-                Routing tables (draft) <span className="tool-hint">@hostname, then "network -&gt; next hop[, interface]" per line — use "directly-connected" for local routes</span>
+                Routing tables (draft){" "}
+                <span className="tool-hint">
+                  @hostname, %interface cidr [- desc], then "network -&gt; next hop[, interface]" — use
+                  "directly-connected" for local routes
+                </span>
               </span>
             </div>
             <textarea
@@ -219,7 +243,9 @@ export default function RoutingMap() {
           <div className="rm-section-label">Import from device output</div>
           <div className="tool-field">
             <div className="tool-label">
-              <span className="tool-hint">paste "show route" / "show ip route" CLI output</span>
+              <span className="tool-hint">
+                paste "show route" / "show ip route" CLI output — connected (C) lines become interfaces
+              </span>
             </div>
             <textarea
               className="tool-textarea"
@@ -265,7 +291,10 @@ export default function RoutingMap() {
                 onClick={() => selectHost(h.host)}
               >
                 <span className="rm-host-name">{h.host}</span>
-                <span className="rm-host-count">{h.routeCount}</span>
+                <span className="rm-host-count">
+                  {h.interfaceCount != null ? `${h.interfaceCount} ifaces · ` : ""}
+                  {h.routeCount}
+                </span>
               </button>
             ))}
           </div>
@@ -273,7 +302,7 @@ export default function RoutingMap() {
 
         <div className="tool-panel">
           {!selectedHost && (
-            <div className="tool-empty">Select a saved host from the list to view its routing table.</div>
+            <div className="tool-empty">Select a saved host from the list to view its interfaces and routes.</div>
           )}
 
           {selectedHost && detailLoading && <div className="tool-empty">Loading {selectedHost}…</div>}
@@ -285,8 +314,9 @@ export default function RoutingMap() {
               <div className="tool-section-title">
                 {selectedDetail.host}
                 <span className="tool-hint">
-                  {selectedDetail.routes.length} route{selectedDetail.routes.length !== 1 ? "s" : ""} · saved{" "}
-                  {formatTimestamp(selectedDetail.updatedAt)}
+                  {(selectedDetail.interfaces || []).length} iface
+                  {(selectedDetail.interfaces || []).length !== 1 ? "s" : ""} · {selectedDetail.routes.length} route
+                  {selectedDetail.routes.length !== 1 ? "s" : ""} · saved {formatTimestamp(selectedDetail.updatedAt)}
                 </span>
                 <button
                   className="tool-btn tool-btn-ghost rm-delete-btn"
@@ -296,32 +326,67 @@ export default function RoutingMap() {
                   {deleting ? "Deleting…" : "Delete host"}
                 </button>
               </div>
-              <div className="tool-table-wrap">
-                <table className="tool-table">
-                  <thead>
-                    <tr>
-                      <th>Network</th>
-                      <th>Next hop</th>
-                      <th>Interface</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedDetail.routes.length === 0 && (
+
+              <div style={{ marginBottom: 20 }}>
+                <h3 className="rm-section-sub-title">Interfaces</h3>
+                <div className="tool-table-wrap">
+                  <table className="tool-table">
+                    <thead>
                       <tr>
-                        <td colSpan={3} style={{ color: "var(--muted)" }}>
-                          No routes for this host.
-                        </td>
+                        <th>Name</th>
+                        <th>Address</th>
+                        <th>Description</th>
                       </tr>
-                    )}
-                    {selectedDetail.routes.map((r, i) => (
-                      <tr key={i}>
-                        <td>{r.network}</td>
-                        <td>{r.nextHop}</td>
-                        <td>{r.interface || "—"}</td>
+                    </thead>
+                    <tbody>
+                      {(!selectedDetail.interfaces || selectedDetail.interfaces.length === 0) && (
+                        <tr>
+                          <td colSpan={3} style={{ color: "var(--muted)" }}>
+                            No interfaces for this host.
+                          </td>
+                        </tr>
+                      )}
+                      {(selectedDetail.interfaces || []).map((i, idx) => (
+                        <tr key={idx}>
+                          <td>{i.name}</td>
+                          <td>{i.ipAddress}</td>
+                          <td>{i.description || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="rm-section-sub-title">Routes</h3>
+                <div className="tool-table-wrap">
+                  <table className="tool-table">
+                    <thead>
+                      <tr>
+                        <th>Network</th>
+                        <th>Next hop</th>
+                        <th>Interface</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {selectedDetail.routes.length === 0 && (
+                        <tr>
+                          <td colSpan={3} style={{ color: "var(--muted)" }}>
+                            No routes for this host.
+                          </td>
+                        </tr>
+                      )}
+                      {selectedDetail.routes.map((r, i) => (
+                        <tr key={i}>
+                          <td>{r.network}</td>
+                          <td>{r.nextHop}</td>
+                          <td>{r.interface || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </>
           )}

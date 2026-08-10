@@ -1,19 +1,18 @@
 """
-SQLite storage for routing tables.
+SQLite storage for routing tables and host interfaces.
 
 Schema:
   hosts(id, name UNIQUE, updated_at)
   routes(id, host_id -> hosts.id, network, next_hop, interface)
+  interfaces(id, host_id -> hosts.id, name, ip_address, description)
 
 Each route is a CIDR network address ("network"), a next-hop IP address or
 the literal string "directly connected" ("next_hop"), and an optional
-interface name. Saving a host's routes replaces its entire route set — this
-matches how the UI works (edit a host's routing table as a whole, then save).
+egress interface name. Each interface has a name, CIDR address, and optional
+description — typically filled from "C … is directly connected, <iface>"
+lines when importing device output.
 
-One connection is opened per call and closed immediately after — simple and
-safe for this tool's read-heavy, low-concurrency access pattern. If this ever
-needs to handle a lot of concurrent writers, that's the point to switch to a
-pooled connection or a heavier database (see README).
+Saving a host's table replaces its entire set of routes and interfaces.
 """
 
 import ipaddress
@@ -56,6 +55,17 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS interfaces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                host_id INTEGER NOT NULL REFERENCES hosts(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                ip_address TEXT NOT NULL,
+                description TEXT
+            )
+            """
+        )
         # Migration: databases created before "interface" existed won't have
         # this column yet — add it in place rather than requiring anyone to
         # delete/recreate toolbox.db.
@@ -85,25 +95,48 @@ def validate_route(network: str, next_hop: str) -> None:
             )
 
 
+def validate_interface(name: str, ip_address: str) -> None:
+    if not name or not name.strip():
+        raise ValueError("Interface name must be non-empty")
+    try:
+        ipaddress.ip_interface(ip_address)
+    except ValueError:
+        raise ValueError(f'"{ip_address}" is not a valid IP interface in CIDR notation')
+
+
 def list_hosts() -> List[Dict]:
     conn = get_connection()
     try:
         rows = conn.execute(
             """
-            SELECT h.name AS host, h.updated_at AS updated_at, COUNT(r.id) AS route_count
+            SELECT
+                h.name AS host,
+                h.updated_at AS updated_at,
+                (SELECT COUNT(*) FROM routes WHERE host_id = h.id) AS route_count,
+                (SELECT COUNT(*) FROM interfaces WHERE host_id = h.id) AS interface_count
             FROM hosts h
-            LEFT JOIN routes r ON r.host_id = h.id
-            GROUP BY h.id
             ORDER BY h.name COLLATE NOCASE
             """
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [
+            {
+                "host": row["host"],
+                "updatedAt": row["updated_at"],
+                "routeCount": row["route_count"],
+                "interfaceCount": row["interface_count"],
+            }
+            for row in rows
+        ]
     finally:
         conn.close()
 
 
 def _route_dict(row: sqlite3.Row) -> Dict:
     return {"network": row["network"], "nextHop": row["next_hop"], "interface": row["interface"]}
+
+
+def _interface_dict(row: sqlite3.Row) -> Dict:
+    return {"name": row["name"], "ipAddress": row["ip_address"], "description": row["description"]}
 
 
 def get_host(host: str) -> Optional[Dict]:
@@ -118,10 +151,15 @@ def get_host(host: str) -> Optional[Dict]:
             "SELECT network, next_hop, interface FROM routes WHERE host_id = ? ORDER BY id",
             (host_row["id"],),
         ).fetchall()
+        interface_rows = conn.execute(
+            "SELECT name, ip_address, description FROM interfaces WHERE host_id = ? ORDER BY id",
+            (host_row["id"],),
+        ).fetchall()
         return {
             "host": host_row["name"],
             "updatedAt": host_row["updated_at"],
             "routes": [_route_dict(r) for r in route_rows],
+            "interfaces": [_interface_dict(i) for i in interface_rows],
         }
     finally:
         conn.close()
@@ -136,13 +174,19 @@ def export_all() -> List[Dict]:
         result = []
         for h in host_rows:
             route_rows = conn.execute(
-                "SELECT network, next_hop, interface FROM routes WHERE host_id = ? ORDER BY id", (h["id"],)
+                "SELECT network, next_hop, interface FROM routes WHERE host_id = ? ORDER BY id",
+                (h["id"],),
+            ).fetchall()
+            interface_rows = conn.execute(
+                "SELECT name, ip_address, description FROM interfaces WHERE host_id = ? ORDER BY id",
+                (h["id"],),
             ).fetchall()
             result.append(
                 {
                     "host": h["name"],
                     "updatedAt": h["updated_at"],
                     "routes": [_route_dict(r) for r in route_rows],
+                    "interfaces": [_interface_dict(i) for i in interface_rows],
                 }
             )
         return result
@@ -150,9 +194,15 @@ def export_all() -> List[Dict]:
         conn.close()
 
 
-def save_host(host: str, routes: List[Dict]) -> Dict:
+def save_host(host: str, routes: List[Dict], interfaces: Optional[List[Dict]] = None) -> Dict:
+    if interfaces is None:
+        interfaces = []
+
     for r in routes:
         validate_route(r["network"], r["nextHop"])
+
+    for i in interfaces:
+        validate_interface(i["name"], i["ipAddress"])
 
     conn = get_connection()
     try:
@@ -166,10 +216,16 @@ def save_host(host: str, routes: List[Dict]) -> Dict:
         )
         host_id = conn.execute("SELECT id FROM hosts WHERE name = ?", (host,)).fetchone()["id"]
         conn.execute("DELETE FROM routes WHERE host_id = ?", (host_id,))
+        conn.execute("DELETE FROM interfaces WHERE host_id = ?", (host_id,))
         conn.executemany(
             "INSERT INTO routes (host_id, network, next_hop, interface) VALUES (?, ?, ?, ?)",
             [(host_id, r["network"], r["nextHop"], r.get("interface") or None) for r in routes],
         )
+        if interfaces:
+            conn.executemany(
+                "INSERT INTO interfaces (host_id, name, ip_address, description) VALUES (?, ?, ?, ?)",
+                [(host_id, i["name"], i["ipAddress"], i.get("description")) for i in interfaces],
+            )
         conn.commit()
     finally:
         conn.close()

@@ -7,7 +7,7 @@ Serves two tools that need server-side work the browser can't do itself:
     Windows sources and runs a remote TCP-connectivity check against each
     destination:port, same approach as the original .sh / .ps1 scripts.
   - Routing Map: persists each host's routing table (CIDR network + next
-    hop) to a local SQLite database so it survives across sessions.
+    hop) and interface list to a local SQLite database so it survives across sessions.
 
 Run it with:
     pip install -r requirements.txt
@@ -316,27 +316,41 @@ class RouteEntry(BaseModel):
     interface: Optional[str] = None  # e.g. "eth0", "eth4.355"
 
 
+class InterfaceEntry(BaseModel):
+    name: str  # e.g. "eth1", "eth1.301"
+    ipAddress: str  # CIDR, e.g. "10.226.0.64/26"
+    description: Optional[str] = None
+
+
 class SaveRoutingHostRequest(BaseModel):
-    routes: List[RouteEntry]
+    routes: List[RouteEntry] = []
+    interfaces: List[InterfaceEntry] = []
 
 
 class RoutingHostSummary(BaseModel):
     host: str
     routeCount: int
+    interfaceCount: int = 0
     updatedAt: str
 
 
 class RoutingHostDetail(BaseModel):
     host: str
     updatedAt: str
-    routes: List[RouteEntry]
+    routes: List[RouteEntry] = []
+    interfaces: List[InterfaceEntry] = []
 
 
 @app.get("/api/routing/hosts", response_model=List[RoutingHostSummary])
 def get_routing_hosts():
     rows = db.list_hosts()
     return [
-        RoutingHostSummary(host=r["host"], routeCount=r["route_count"], updatedAt=r["updated_at"])
+        RoutingHostSummary(
+            host=r["host"],
+            routeCount=r["routeCount"],
+            interfaceCount=r["interfaceCount"],
+            updatedAt=r["updatedAt"],
+        )
         for r in rows
     ]
 
@@ -357,7 +371,11 @@ def get_routing_host(host: str):
 @app.put("/api/routing/hosts/{host}", response_model=RoutingHostDetail)
 def put_routing_host(host: str, req: SaveRoutingHostRequest):
     try:
-        return db.save_host(host, [r.dict() for r in req.routes])
+        return db.save_host(
+            host,
+            [r.dict() for r in req.routes],
+            [i.dict() for i in req.interfaces],
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

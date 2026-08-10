@@ -1,15 +1,18 @@
 // Parses pasted routing-table text into { hosts, warnings }.
 //
 // Format — one or more host blocks, each starting with "@hostname",
-// followed by its routes as "network -> next hop" (or "network,next hop"),
-// with an optional interface as a third field:
+// followed by its interfaces (%name cidr [- description]) and
+// routes as "network -> next hop" (or "network,next hop"),
+// with an optional egress interface as a third field:
 //
 //   @web01
+//   %eth0 10.0.1.5/24 - primary interface
 //   10.0.1.0/24 -> 10.0.1.1
 //   10.0.2.0/24 -> 10.0.1.1, eth0
 //   0.0.0.0/0 -> 10.0.1.254
 //
 //   @web02
+//   %eth0 10.0.2.5/24
 //   10.0.2.0/24 -> 10.0.2.1
 //
 // Blank lines and lines starting with "#" are ignored. Malformed lines are
@@ -50,7 +53,7 @@ export function parseRoutingData(text) {
         current = null;
         return;
       }
-      current = { host: name, routes: [] };
+      current = { host: name, routes: [], interfaces: [] };
       hosts.push(current);
       return;
     }
@@ -60,58 +63,89 @@ export function parseRoutingData(text) {
       return;
     }
 
-    const match = line.match(ROUTE_RE);
-    if (!match) {
-      warnings.push(`Line ${lineNo}: could not parse "${line}" as "network -> next hop"`);
+    if (line.startsWith("%")) {
+      const rest = line.slice(1).trim();
+      const dashIdx = rest.indexOf(" - ");
+      let mainPart = rest;
+      let desc = null;
+      if (dashIdx !== -1) {
+        mainPart = rest.slice(0, dashIdx).trim();
+        desc = rest.slice(dashIdx + 3).trim();
+      }
+      const parts = mainPart.split(/\s+/);
+      if (parts.length < 2) {
+        warnings.push(`Line ${lineNo}: could not parse "${line}" as "%name ip/cidr [- description]"`);
+        return;
+      }
+      current.interfaces.push({ name: parts[0], ipAddress: parts[1], description: desc || null });
       return;
     }
 
-    current.routes.push({ network: match[1], nextHop: normalizeNextHop(match[2]), interface: match[3] || "" });
+    const match = line.match(ROUTE_RE);
+    if (!match) {
+      warnings.push(`Line ${lineNo}: could not parse "${line}" as "network -> next hop" or "%interface cidr"`);
+      return;
+    }
+
+    current.routes.push({
+      network: match[1],
+      nextHop: normalizeNextHop(match[2]),
+      interface: match[3] || "",
+    });
   });
 
   return { hosts, warnings };
 }
 
-// One "@host" block of text for a single host's routes.
-export function formatHostBlock(host, routes) {
-  const lines = routes.map((r) => {
+// One "@host" block of text for a single host's interfaces + routes.
+export function formatHostBlock(host, routes, interfaces = []) {
+  const lines = [`@${host}`];
+  for (const i of interfaces || []) {
+    let line = `%${i.name} ${i.ipAddress}`;
+    if (i.description) line += ` - ${i.description}`;
+    lines.push(line);
+  }
+  for (const r of routes || []) {
     const iface = r.interface ? `, ${r.interface}` : "";
-    return `${r.network} -> ${denormalizeNextHop(r.nextHop)}${iface}`;
-  });
-  return [`@${host}`, ...lines].join("\n");
+    lines.push(`${r.network} -> ${denormalizeNextHop(r.nextHop)}${iface}`);
+  }
+  return lines.join("\n");
 }
 
-// Turns [{host, routes:[{network, nextHop, interface}]}] (the shape the
-// backend returns) back into the "@host / network -> next hop" text format,
-// so saved data can be loaded back into the editable textarea.
+// Turns [{host, routes, interfaces}] (the shape the backend returns) back
+// into the "@host / %interface / network -> next hop" text format.
 export function serializeHosts(hosts) {
-  return hosts.map((h) => formatHostBlock(h.host, h.routes)).join("\n\n");
+  return hosts.map((h) => formatHostBlock(h.host, h.routes, h.interfaces)).join("\n\n");
 }
 
-// Merges one host's parsed routes into the draft text — replacing that
-// host's block if it's already there, appending a new one otherwise.
+// Merges one host's parsed routes + interfaces into the draft text —
+// replacing that host's block if it's already there, appending otherwise.
 // Used by the device-output importer so re-importing the same host
 // overwrites rather than duplicates it in the draft.
-export function upsertHost(rawText, host, routes) {
+export function upsertHost(rawText, host, routes, interfaces = []) {
   const { hosts } = parseRoutingData(rawText);
   const idx = hosts.findIndex((h) => h.host === host);
+  const entry = { host, routes, interfaces };
   if (idx >= 0) {
-    hosts[idx] = { host, routes };
+    hosts[idx] = entry;
   } else {
-    hosts.push({ host, routes });
+    hosts.push(entry);
   }
   return serializeHosts(hosts);
 }
 
 // ---------------------------------------------------------------------------
 // Device output interpreter — parses CLI "show route" output (tested against
-// a Brocade/Ruckus-style routing table) into { host, routes, warnings }.
+// a Brocade/Ruckus-style routing table) into { host, routes, interfaces, warnings }.
 //
 // Handles lines like:
 //   S    10.1.0.0/16      via 10.226.20.5, eth4.355, cost 0, age 4627970
 //   C    10.226.0.64/26   is directly connected, eth1
 // and picks the device name off a CLI prompt on the first line, e.g.
 //   rzdc1>show route
+//
+// Connected (C) lines become both a route (next hop = "directly connected")
+// and an interface entry (name = eth1, address = the connected CIDR).
 //
 // Any line without a recognizable network/prefix (legend, banners, blank
 // lines, annotation lines) is silently ignored rather than treated as an
@@ -120,8 +154,13 @@ export function upsertHost(rawText, host, routes) {
 
 const PROMPT_RE = /^([A-Za-z0-9_.-]+)>/;
 const CIDR_RE = /\b(\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2})\b/;
-const CONNECTED_RE = /directly connected,?\s*(\S+)/i;
+// "is directly connected, eth1" / "directly connected to eth1" / "directly connected eth1"
+const CONNECTED_RE = /directly connected(?:\s+to)?,?\s+(\S+)/i;
 const VIA_RE = /via\s+(\S+?),\s*(\S+)/i;
+
+function cleanIface(raw) {
+  return raw.replace(/,$/, "");
+}
 
 export function parseDeviceRouteOutput(text) {
   const lines = text.split("\n");
@@ -137,6 +176,8 @@ export function parseDeviceRouteOutput(text) {
   }
 
   const routes = [];
+  const interfaces = [];
+  const seenIfaces = new Set();
 
   lines.forEach((raw, idx) => {
     const line = raw.trim();
@@ -149,13 +190,19 @@ export function parseDeviceRouteOutput(text) {
 
     const connectedMatch = line.match(CONNECTED_RE);
     if (connectedMatch) {
-      routes.push({ network, nextHop: "directly connected", interface: connectedMatch[1].replace(/,$/, "") });
+      const iface = cleanIface(connectedMatch[1]);
+      routes.push({ network, nextHop: "directly connected", interface: iface });
+      // Connected routes define local interfaces — record each unique name once.
+      if (iface && !seenIfaces.has(iface)) {
+        seenIfaces.add(iface);
+        interfaces.push({ name: iface, ipAddress: network, description: null });
+      }
       return;
     }
 
     const viaMatch = line.match(VIA_RE);
     if (viaMatch) {
-      routes.push({ network, nextHop: viaMatch[1], interface: viaMatch[2].replace(/,$/, "") });
+      routes.push({ network, nextHop: viaMatch[1], interface: cleanIface(viaMatch[2]) });
       return;
     }
 
@@ -165,11 +212,13 @@ export function parseDeviceRouteOutput(text) {
   });
 
   if (!host) {
-    warnings.push('Couldn\'t detect a device name from the first line — using "unknown-device". Rename it by editing the draft\'s "@" line.');
+    warnings.push(
+      'Couldn\'t detect a device name from the first line — using "unknown-device". Rename it by editing the draft\'s "@" line.'
+    );
     host = "unknown-device";
   }
 
-  return { host, routes, warnings };
+  return { host, routes, interfaces, warnings };
 }
 
 export const EXAMPLE_DEVICE_OUTPUT = `rzdc1>show route
@@ -188,16 +237,19 @@ C               10.226.1.0/26       is directly connected, eth1.302
 S               10.226.8.0/21       via 10.226.20.5, eth4.355, cost 0, age 4627972`;
 
 export const EXAMPLE = `@web01
+%eth0 10.0.1.5/24 - primary interface
+%eth1 10.0.1.6/24
 10.0.1.0/24 -> 10.0.1.1
 10.0.2.0/24 -> 10.0.1.254
 0.0.0.0/0 -> 10.0.1.254
 
 @web02
+%eth0 10.0.2.5/24
 10.0.2.0/24 -> 10.0.2.1
 10.0.1.0/24 -> 10.0.2.254
 0.0.0.0/0 -> 10.0.2.254
 
 @dc01
+%eth0 10.0.0.5/16 - domain controller
 10.0.0.0/16 -> 10.0.0.1
 0.0.0.0/0 -> 10.0.0.254`;
-
