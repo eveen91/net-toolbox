@@ -125,6 +125,13 @@ function EditableField({ value, disabled, required, onCommit }) {
 function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
   const ifaces = interfacesForDisplay(detail);
   const [ifaceError, setIfaceError] = useState(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  // Reset the confirm step whenever a different host is selected, so it
+  // doesn't carry over and accidentally arm itself for the next host.
+  useEffect(() => {
+    setConfirmingDelete(false);
+  }, [detail.host]);
 
   // Saves one interface's address and/or description, keeping the rest of
   // that interface (and every other interface) untouched.
@@ -152,9 +159,36 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
           {ifaces.length} iface{ifaces.length !== 1 ? "s" : ""} · {detail.routes.length} route
           {detail.routes.length !== 1 ? "s" : ""} · saved {formatTimestamp(detail.updatedAt)}
         </span>
-        <button className="tool-btn tool-btn-ghost rm-delete-btn" onClick={onDelete} disabled={deleting}>
-          {deleting ? "Deleting…" : "Delete host"}
-        </button>
+        {confirmingDelete ? (
+          <span className="rm-delete-confirm">
+            <span className="tool-hint">Delete "{detail.host}"? This can't be undone.</span>
+            <button
+              className="tool-btn tool-btn-ghost rm-delete-btn rm-delete-btn-danger"
+              onClick={() => {
+                setConfirmingDelete(false);
+                onDelete();
+              }}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting…" : "Confirm delete"}
+            </button>
+            <button
+              className="tool-btn tool-btn-ghost rm-delete-btn"
+              onClick={() => setConfirmingDelete(false)}
+              disabled={deleting}
+            >
+              Cancel
+            </button>
+          </span>
+        ) : (
+          <button
+            className="tool-btn tool-btn-ghost rm-delete-btn"
+            onClick={() => setConfirmingDelete(true)}
+            disabled={deleting}
+          >
+            Delete host
+          </button>
+        )}
       </div>
 
       <div style={{ marginBottom: 20 }}>
@@ -396,7 +430,6 @@ export default function RoutingMap() {
 
   const handleDelete = async () => {
     if (!selectedHost) return;
-    if (!window.confirm(`Delete the saved routing table for "${selectedHost}"? This can't be undone.`)) return;
     setDeleting(true);
     try {
       await deleteRoutingHost(selectedHost);
