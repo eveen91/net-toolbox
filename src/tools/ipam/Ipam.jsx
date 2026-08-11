@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from "react";
 import "./ipam.css";
-import { formatVlan, formatTimestamp, utilizationPercent, STATUS_LABELS } from "./logic.js";
+import {
+  formatVlan,
+  formatTimestamp,
+  utilizationPercent,
+  STATUS_LABELS,
+  buildSubnetTree,
+  ancestorChain,
+} from "./logic.js";
 import {
   listSubnets,
   getSubnet,
@@ -236,7 +243,7 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
   );
 }
 
-function SubnetDetail({ subnet, deleting, onDelete, onDetailUpdated }) {
+function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, onSelectSubnet }) {
   const [editingHeader, setEditingHeader] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [headerDraft, setHeaderDraft] = useState({
@@ -277,9 +284,24 @@ function SubnetDetail({ subnet, deleting, onDelete, onDetailUpdated }) {
   };
 
   const unallocated = subnet.totalAddresses - subnet.recordedCount;
+  const ancestors = ancestorChain(subnets, subnet.id);
+  const nestedCount = subnets.filter((s) => s.parentId === subnet.id).length;
 
   return (
     <>
+      {ancestors.length > 0 && (
+        <div className="ip-breadcrumb">
+          {ancestors.map((a) => (
+            <React.Fragment key={a.id}>
+              <button className="ip-breadcrumb-link" onClick={() => onSelectSubnet(a.id)}>
+                {a.cidr}
+              </button>
+              <span className="ip-breadcrumb-sep">›</span>
+            </React.Fragment>
+          ))}
+          <span>{subnet.cidr}</span>
+        </div>
+      )}
       <div className="tool-section-title">
         {editingHeader ? (
           <span className="ip-header-edit">
@@ -317,7 +339,8 @@ function SubnetDetail({ subnet, deleting, onDelete, onDetailUpdated }) {
           <>
             {subnet.cidr}
             <span className="tool-hint">
-              {formatVlan(subnet.vlan)} · {subnet.description || "no description"} · saved{" "}
+              {formatVlan(subnet.vlan)} · {subnet.description || "no description"}
+              {nestedCount > 0 ? ` · ${nestedCount} nested subnet${nestedCount !== 1 ? "s" : ""}` : ""} · saved{" "}
               {formatTimestamp(subnet.updatedAt)}
             </span>
             <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEditHeader}>
@@ -419,6 +442,59 @@ function SubnetDetail({ subnet, deleting, onDelete, onDetailUpdated }) {
   );
 }
 
+/** One row of the subnet tree, rendered recursively for its children when expanded. */
+function SubnetNode({ node, depth, selectedId, collapsedIds, onToggleCollapse, onSelect }) {
+  const hasChildren = node.children.length > 0;
+  const collapsed = collapsedIds.has(node.id);
+
+  return (
+    <>
+      <button
+        className={`ip-subnet-item ${selectedId === node.id ? "active" : ""}`}
+        style={{ paddingLeft: 10 + depth * 16 }}
+        onClick={() => onSelect(node.id)}
+      >
+        <span className="ip-subnet-item-top">
+          {hasChildren ? (
+            <span
+              className="ip-subnet-toggle"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCollapse(node.id);
+              }}
+            >
+              {collapsed ? "▸" : "▾"}
+            </span>
+          ) : (
+            <span className="ip-subnet-toggle ip-subnet-toggle-spacer" />
+          )}
+          <span className="ip-subnet-cidr">{node.cidr}</span>
+          {node.vlan != null && <span className="ip-subnet-vlan">VLAN {node.vlan}</span>}
+        </span>
+        <span className="ip-subnet-item-bottom">
+          <span className="tool-hint">{node.description || "no description"}</span>
+          <span className="ip-subnet-counts">
+            {node.usedCount}u · {node.reservedCount}r · {node.freeCount}f
+          </span>
+        </span>
+      </button>
+      {hasChildren &&
+        !collapsed &&
+        node.children.map((child) => (
+          <SubnetNode
+            key={child.id}
+            node={child}
+            depth={depth + 1}
+            selectedId={selectedId}
+            collapsedIds={collapsedIds}
+            onToggleCollapse={onToggleCollapse}
+            onSelect={onSelect}
+          />
+        ))}
+    </>
+  );
+}
+
 export default function Ipam() {
   const [subnets, setSubnets] = useState([]);
   const [listLoading, setListLoading] = useState(true);
@@ -435,6 +511,7 @@ export default function Ipam() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [collapsedIds, setCollapsedIds] = useState(() => new Set());
 
   const refreshList = async () => {
     setListLoading(true);
@@ -453,6 +530,15 @@ export default function Ipam() {
     refreshList();
   }, []);
 
+  const toggleCollapse = (id) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   const selectSubnet = async (id) => {
     setSelectedId(id);
     setSelectedDetail(null);
@@ -470,8 +556,10 @@ export default function Ipam() {
 
   const handleDetailUpdated = (detail) => {
     setSelectedDetail(detail);
-    // Keep the left-hand list's counts in sync without a full refetch.
-    setSubnets((prev) => prev.map((s) => (s.id === detail.id ? { ...s, ...detail, addresses: undefined } : s)));
+    // A CIDR edit (or an address change) can shift the whole nesting tree
+    // (this subnet's parent, or other subnets' parents, may have changed) —
+    // a full refetch keeps parentId accurate everywhere, not just here.
+    refreshList();
   };
 
   const handleCreate = async (e) => {
@@ -577,23 +665,16 @@ export default function Ipam() {
             {!listLoading && subnets.length === 0 && !listError && (
               <div className="tool-hint">No subnets yet — add one above.</div>
             )}
-            {subnets.map((s) => (
-              <button
-                key={s.id}
-                className={`ip-subnet-item ${selectedId === s.id ? "active" : ""}`}
-                onClick={() => selectSubnet(s.id)}
-              >
-                <span className="ip-subnet-item-top">
-                  <span className="ip-subnet-cidr">{s.cidr}</span>
-                  {s.vlan != null && <span className="ip-subnet-vlan">VLAN {s.vlan}</span>}
-                </span>
-                <span className="ip-subnet-item-bottom">
-                  <span className="tool-hint">{s.description || "no description"}</span>
-                  <span className="ip-subnet-counts">
-                    {s.usedCount}u · {s.reservedCount}r · {s.freeCount}f
-                  </span>
-                </span>
-              </button>
+            {buildSubnetTree(subnets).map((node) => (
+              <SubnetNode
+                key={node.id}
+                node={node}
+                depth={0}
+                selectedId={selectedId}
+                collapsedIds={collapsedIds}
+                onToggleCollapse={toggleCollapse}
+                onSelect={selectSubnet}
+              />
             ))}
           </div>
         </div>
@@ -608,9 +689,11 @@ export default function Ipam() {
           {selectedId && !detailLoading && selectedDetail && (
             <SubnetDetail
               subnet={selectedDetail}
+              subnets={subnets}
               deleting={deleting}
               onDelete={handleDelete}
               onDetailUpdated={handleDetailUpdated}
+              onSelectSubnet={selectSubnet}
             />
           )}
         </div>

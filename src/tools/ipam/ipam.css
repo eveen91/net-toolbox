@@ -189,3 +189,49 @@
   max-height: none;
   overflow: visible;
 }
+
+/* Nested subnet tree in the left panel: each level indents further (see
+   inline paddingLeft in SubnetNode), with a collapse/expand caret for any
+   subnet that has children. */
+.ip-subnet-toggle {
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 10px;
+  cursor: pointer;
+}
+.ip-subnet-toggle-spacer {
+  cursor: default;
+}
+.ip-subnet-item.active .ip-subnet-toggle {
+  color: #06211f99;
+}
+
+/* Breadcrumb above a nested subnet's detail, linking back up through its
+   ancestors to the top-level block it lives inside. */
+.ip-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.ip-breadcrumb-link {
+  background: transparent;
+  border: none;
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+.ip-breadcrumb-link:hover {
+  text-decoration: underline;
+}
+.ip-breadcrumb-sep {
+  color: var(--border-soft);
+}
