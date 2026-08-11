@@ -402,6 +402,7 @@ class SubnetSummary(BaseModel):
     id: int
     cidr: str
     vlan: Optional[int] = None
+    parentId: Optional[int] = None
     description: Optional[str] = None
     updatedAt: str
     totalAddresses: int

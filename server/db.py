@@ -80,10 +80,16 @@ def init_db() -> None:
                 cidr TEXT NOT NULL UNIQUE,
                 vlan INTEGER,
                 description TEXT,
+                parent_id INTEGER REFERENCES ipam_subnets(id),
                 updated_at TEXT NOT NULL
             )
             """
         )
+        # Migration: databases created before nesting existed won't have this
+        # column yet — add it in place rather than requiring a fresh DB.
+        subnet_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_subnets)").fetchall()}
+        if "parent_id" not in subnet_cols:
+            conn.execute("ALTER TABLE ipam_subnets ADD COLUMN parent_id INTEGER REFERENCES ipam_subnets(id)")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ipam_addresses (
@@ -98,6 +104,22 @@ def init_db() -> None:
             )
             """
         )
+        # Migration: databases created before nested subnets existed won't
+        # have this column yet — add it in place, same as the "interface"
+        # migration above.
+        ipam_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_subnets)").fetchall()}
+        if "parent_id" not in ipam_cols:
+            conn.execute("ALTER TABLE ipam_subnets ADD COLUMN parent_id INTEGER REFERENCES ipam_subnets(id)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    # Populate/refresh parent_id for every subnet from its CIDR alone — cheap
+    # and keeps hierarchy correct even for subnets that existed before nesting
+    # was added, or if rows were ever edited outside the app.
+    conn = get_connection()
+    try:
+        recompute_subnet_hierarchy(conn)
         conn.commit()
     finally:
         conn.close()
@@ -376,6 +398,31 @@ def _address_sort_key(row: Dict) -> tuple:
     return (ipaddress.ip_address(row["address"]).version, ipaddress.ip_address(row["address"]))
 
 
+def recompute_subnet_hierarchy(conn: sqlite3.Connection) -> None:
+    """Derive parent_id for every subnet purely from its CIDR.
+
+    CIDR blocks are always either disjoint or one is fully nested inside the
+    other — never a partial overlap — so containment alone is enough to
+    build the tree: a subnet's parent is the smallest other subnet whose
+    range fully contains it. Call this after any insert/update/delete that
+    touches ipam_subnets, before committing.
+    """
+    rows = conn.execute("SELECT id, cidr FROM ipam_subnets").fetchall()
+    networks = {r["id"]: ipaddress.ip_network(r["cidr"]) for r in rows}
+    updates = []
+    for sid, net in networks.items():
+        best_parent = None
+        best_size = None
+        for oid, onet in networks.items():
+            if oid == sid or onet.version != net.version:
+                continue
+            if net.subnet_of(onet) and net != onet:
+                if best_size is None or onet.num_addresses < best_size:
+                    best_parent, best_size = oid, onet.num_addresses
+        updates.append((best_parent, sid))
+    conn.executemany("UPDATE ipam_subnets SET parent_id = ? WHERE id = ?", updates)
+
+
 def _subnet_summary(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict:
     counts = {"used": 0, "free": 0, "reserved": 0}
     for r in conn.execute(
@@ -387,6 +434,7 @@ def _subnet_summary(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict:
         "id": row["id"],
         "cidr": row["cidr"],
         "vlan": row["vlan"],
+        "parentId": row["parent_id"],
         "description": row["description"],
         "updatedAt": row["updated_at"],
         "totalAddresses": total,
@@ -450,8 +498,11 @@ def create_subnet(cidr: str, vlan: Optional[int] = None, description: Optional[s
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'Subnet "{cidr}" already exists')
-        conn.commit()
         subnet_id = cur.lastrowid
+        # New subnet may nest inside an existing one, or become the new parent
+        # of existing subnets it now contains — recompute the whole tree.
+        recompute_subnet_hierarchy(conn)
+        conn.commit()
     finally:
         conn.close()
     return get_subnet(subnet_id)
@@ -465,18 +516,32 @@ def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, descrip
         existing = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         if existing is None:
             raise ValueError("Subnet not found")
+        network = ipaddress.ip_network(cidr)
+
         # If the range is shrinking, refuse to silently orphan addresses that
         # would fall outside the new CIDR — make the admin deal with them first.
         addr_rows = conn.execute(
             "SELECT address FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
         ).fetchall()
-        network = ipaddress.ip_network(cidr)
-        outside = [r["address"] for r in addr_rows if ipaddress.ip_address(r["address"]) not in network]
-        if outside:
+        outside_addrs = [r["address"] for r in addr_rows if ipaddress.ip_address(r["address"]) not in network]
+        if outside_addrs:
             raise ValueError(
-                f"Can't resize to {cidr} — {len(outside)} recorded address(es) would fall outside it "
-                f"(e.g. {outside[0]}). Remove or move them first."
+                f"Can't resize to {cidr} — {len(outside_addrs)} recorded address(es) would fall outside it "
+                f"(e.g. {outside_addrs[0]}). Remove or move them first."
             )
+
+        # Same idea for nested child subnets — don't let a resize silently
+        # detach a child from its parent.
+        child_rows = conn.execute("SELECT cidr FROM ipam_subnets WHERE parent_id = ?", (subnet_id,)).fetchall()
+        outside_children = [
+            r["cidr"] for r in child_rows if not ipaddress.ip_network(r["cidr"]).subnet_of(network)
+        ]
+        if outside_children:
+            raise ValueError(
+                f"Can't resize to {cidr} — it would no longer contain nested subnet(s): "
+                f"{', '.join(outside_children)}. Resize or move them first."
+            )
+
         try:
             conn.execute(
                 "UPDATE ipam_subnets SET cidr = ?, vlan = ?, description = ?, updated_at = ? WHERE id = ?",
@@ -484,6 +549,7 @@ def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, descrip
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'Subnet "{cidr}" already exists')
+        recompute_subnet_hierarchy(conn)
         conn.commit()
     finally:
         conn.close()
@@ -493,7 +559,14 @@ def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, descrip
 def delete_subnet(subnet_id: int) -> bool:
     conn = get_connection()
     try:
+        # Detach children first — parent_id has no ON DELETE action, and we
+        # want to recompute their new parent from scratch anyway.
+        conn.execute("UPDATE ipam_subnets SET parent_id = NULL WHERE parent_id = ?", (subnet_id,))
         cur = conn.execute("DELETE FROM ipam_subnets WHERE id = ?", (subnet_id,))
+        # Any subnets nested under the deleted one are promoted to its
+        # parent (or to top-level if it had none) — recomputed purely from
+        # the remaining CIDRs, same as everywhere else.
+        recompute_subnet_hierarchy(conn)
         conn.commit()
         return cur.rowcount > 0
     finally:
