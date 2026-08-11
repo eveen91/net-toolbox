@@ -185,6 +185,13 @@
   font-family: var(--mono);
 }
 
+.ip-child-row {
+  cursor: pointer;
+}
+.ip-child-row:hover {
+  background: #17233688;
+}
+
 .tool-table-wrap.ip-table-wrap-full {
   max-height: none;
   overflow: visible;

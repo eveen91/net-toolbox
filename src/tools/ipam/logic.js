@@ -55,3 +55,31 @@ export const STATUS_LABELS = {
   free: "Free",
   reserved: "Reserved",
 };
+
+// Groups a flat subnets list (each with a parentId) into a tree. Preserves
+// the incoming order (already sorted by network address) within each level.
+export function buildSubnetTree(subnets) {
+  const byId = new Map(subnets.map((s) => [s.id, { ...s, children: [] }]));
+  const roots = [];
+  for (const node of byId.values()) {
+    if (node.parentId != null && byId.has(node.parentId)) {
+      byId.get(node.parentId).children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+  return roots;
+}
+
+// Walks parentId links to build the list of ancestors (top-level first),
+// for a breadcrumb above the selected subnet's detail.
+export function ancestorChain(subnets, subnetId) {
+  const byId = new Map(subnets.map((s) => [s.id, s]));
+  const chain = [];
+  let current = byId.get(subnetId);
+  while (current && current.parentId != null && byId.has(current.parentId)) {
+    current = byId.get(current.parentId);
+    chain.unshift(current);
+  }
+  return chain;
+}

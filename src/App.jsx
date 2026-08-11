@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import Toolbar from "./components/Toolbar.jsx";
+import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import HomePage from "./pages/HomePage.jsx";
 import { TOOLS } from "./tools/registry.js";
 import "./tools/shared.css";
@@ -20,7 +21,9 @@ export default function App() {
             <button className="nt-back" onClick={() => setActive("home")}>
               ← All tools
             </button>
-            <activeTool.Component />
+            <ErrorBoundary resetKey={active}>
+              <activeTool.Component />
+            </ErrorBoundary>
           </>
         )}
       </div>

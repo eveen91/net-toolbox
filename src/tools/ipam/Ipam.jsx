@@ -285,7 +285,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
 
   const unallocated = subnet.totalAddresses - subnet.recordedCount;
   const ancestors = ancestorChain(subnets, subnet.id);
-  const nestedCount = subnets.filter((s) => s.parentId === subnet.id).length;
+  const children = subnets.filter((s) => s.parentId === subnet.id);
 
   return (
     <>
@@ -340,8 +340,10 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
             {subnet.cidr}
             <span className="tool-hint">
               {formatVlan(subnet.vlan)} · {subnet.description || "no description"}
-              {nestedCount > 0 ? ` · ${nestedCount} nested subnet${nestedCount !== 1 ? "s" : ""}` : ""} · saved{" "}
-              {formatTimestamp(subnet.updatedAt)}
+              {children.length > 0
+                ? ` · ${children.length} nested subnet${children.length !== 1 ? "s" : ""}`
+                : ""}{" "}
+              · saved {formatTimestamp(subnet.updatedAt)}
             </span>
             <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEditHeader}>
               Edit
@@ -405,6 +407,38 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           <div className="l">Not recorded</div>
         </div>
       </div>
+
+      {children.length > 0 && (
+        <>
+          <h3 className="ip-section-sub-title">
+            Nested subnets <span className="tool-hint">{children.length}</span>
+          </h3>
+          <div className="tool-table-wrap ip-table-wrap-full">
+            <table className="tool-table">
+              <thead>
+                <tr>
+                  <th>CIDR</th>
+                  <th>VLAN</th>
+                  <th>Description</th>
+                  <th>Recorded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {children.map((c) => (
+                  <tr key={c.id} className="ip-child-row" onClick={() => onSelectSubnet(c.id)}>
+                    <td className="ip-mono">{c.cidr}</td>
+                    <td>{formatVlan(c.vlan)}</td>
+                    <td>{c.description || "—"}</td>
+                    <td>
+                      {c.usedCount}u · {c.reservedCount}r · {c.freeCount}f
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
 
       <h3 className="ip-section-sub-title">Addresses</h3>
       {rowError && <div className="tool-error">{rowError}</div>}
