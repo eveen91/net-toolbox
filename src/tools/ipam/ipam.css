@@ -155,6 +155,21 @@
   min-width: 0;
 }
 
+/* The old .tool-layout breakpoint stacked the left subnet tree under the
+   detail panel — no longer relevant since IPAM is a single full-width
+   panel now. What's narrow-screen-sensitive here is the header row: the
+   search box and "Add subnet" trigger/popover side by side get cramped
+   below ~860px, so stack them instead. */
+@media (max-width: 860px) {
+  .ip-header-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ip-header-row .ip-add-subnet-trigger {
+    align-self: flex-start;
+  }
+}
+
 /* Full-width subnet search/jump control (replaces the left-side tree). */
 .ip-search {
   position: relative;

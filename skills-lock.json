@@ -7,17 +7,17 @@
       "skillPath": "skills/sqlite/SKILL.md",
       "computedHash": "0e75baa1c3159dba4c6db79330634327039c9813410256b73357dcbb0ed9d0ea"
     },
+    "fastapi-expert": {
+      "source": "martinholovsky/claude-skills-generator",
+      "sourceType": "github",
+      "skillPath": "skills/fastapi-expert/SKILL.md",
+      "computedHash": "e39bc5387bb44ff2f949a94a9ba3b90a121b80d24714af70c945894b7bab920e"
+    },
     "frontend-design": {
       "source": "anthropics/skills",
       "sourceType": "github",
       "skillPath": "skills/frontend-design/SKILL.md",
       "computedHash": "4eabc66183767153e404b39d1b839b1c37f2d82d86f0a0d7e880a579d8d62336"
-    },
-    "nextjs": {
-      "source": "vercel-labs/vercel-plugin",
-      "sourceType": "github",
-      "skillPath": "skills/nextjs/SKILL.md",
-      "computedHash": "228adbce76c9036e79d1177e5b9fe05062569b8aea7effb89152f83f6d4603b2"
     },
     "vercel-react-best-practices": {
       "source": "vercel-labs/agent-skills",
