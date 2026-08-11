@@ -215,6 +215,114 @@
   color: #06211f99;
 }
 
+/* "Add a subnet" trigger button + popover form (used in the new header
+   row instead of a permanently-visible left-column form). */
+.ip-add-subnet-trigger {
+  white-space: nowrap;
+}
+.ip-add-subnet-popover {
+  position: relative;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 10px;
+}
+.ip-add-subnet-popover .ip-add-subnet-form .tool-field {
+  margin-bottom: 10px;
+}
+
+/* Full-width subnet search/jump control (replaces the left-side tree). */
+.ip-search {
+  position: relative;
+}
+.ip-search-field {
+  position: relative;
+}
+.ip-search-input {
+  width: 100%;
+  padding-right: 32px !important;
+}
+.ip-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.ip-search-clear:hover {
+  color: var(--text);
+}
+.ip-search-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.ip-search-empty {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.ip-search-option {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.ip-search-option:last-child {
+  border-bottom: none;
+}
+.ip-search-option:hover,
+.ip-search-option.highlighted {
+  background: #17233688;
+}
+.ip-search-option.current {
+  background: var(--accent);
+}
+.ip-search-option.current .ip-search-option-cidr,
+.ip-search-option.current .tool-hint,
+.ip-search-option.current .ip-subnet-counts {
+  color: #06211f;
+}
+.ip-search-option-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ip-search-option-cidr {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ip-search-option-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 /* Breadcrumb above a nested subnet's detail, linking back up through its
    ancestors to the top-level block it lives inside. */
 .ip-breadcrumb {

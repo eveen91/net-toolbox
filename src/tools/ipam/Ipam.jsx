@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import "./ipam.css";
+import SubnetSearch from "./SubnetSearch.jsx";
+import AddSubnetForm from "./AddSubnetForm.jsx";
 import {
   formatVlan,
   formatTimestamp,
@@ -640,53 +642,21 @@ export default function Ipam() {
 
       <div className="tool-layout">
         <div className="tool-panel">
-          <div className="ip-section-label">Add a subnet</div>
-          <form className="ip-add-subnet-form" onSubmit={handleCreate}>
-            <div className="tool-field">
-              <div className="tool-label">
-                <span>CIDR</span>
-              </div>
-              <input
-                className="tool-input"
-                placeholder="10.0.1.0/24"
-                value={newCidr}
-                onChange={(e) => setNewCidr(e.target.value)}
-              />
-            </div>
-            <div className="tool-field">
-              <div className="tool-label">
-                <span>
-                  VLAN <span className="tool-hint">optional</span>
-                </span>
-              </div>
-              <input
-                className="tool-input"
-                placeholder="e.g. 120"
-                value={newVlan}
-                onChange={(e) => setNewVlan(e.target.value)}
-              />
-            </div>
-            <div className="tool-field">
-              <div className="tool-label">
-                <span>
-                  Description <span className="tool-hint">optional</span>
-                </span>
-              </div>
-              <input
-                className="tool-input"
-                placeholder="e.g. App servers — east DC"
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-              />
-            </div>
-            <div className="tool-actions">
-              <button className="tool-btn tool-btn-primary" type="submit" disabled={creating || !newCidr.trim()}>
-                {creating ? "Adding…" : "Add subnet"}
-              </button>
-            </div>
-            {createError && <div className="tool-error">{createError}</div>}
-          </form>
+          {/* TEMPORARY for this session only — AddSubnetForm is being tried
+              out here in place of the old inline form; Session 3 moves it
+              into the new header row next to SubnetSearch. */}
+          <AddSubnetForm
+            onCreated={async (created) => {
+              await refreshList();
+              await selectSubnet(created.id);
+            }}
+          />
 
+          <div className="ip-divider" />
+          {/* TEMPORARY for this session only — SubnetSearch is being tried
+              out here; Session 3 moves it into the new full-width layout
+              and removes the tree below it. */}
+          <SubnetSearch subnets={subnets} selectedId={selectedId} onSelect={selectSubnet} />
           <div className="ip-divider" />
           <div className="ip-section-label">
             Subnets <span className="tool-hint">{subnets.length}</span>
