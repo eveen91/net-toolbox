@@ -7,16 +7,6 @@
   margin: 16px 0;
 }
 
-.ip-section-label {
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--accent-2);
-  margin-bottom: 10px;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
 .ip-section-sub-title {
   font-family: var(--mono);
   font-size: 11px;
@@ -26,66 +16,10 @@
   color: var(--accent-2);
   margin: 18px 0 8px;
 }
-.ip-refresh {
-  margin-left: auto;
-  padding: 2px 8px !important;
-  font-size: 11px !important;
-}
-
 .ip-add-subnet-form .tool-field {
   margin-bottom: 10px;
 }
 
-.ip-subnet-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 420px;
-  overflow-y: auto;
-}
-
-.ip-subnet-item {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 8px 10px;
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-.ip-subnet-item:hover {
-  background: #17233688;
-}
-.ip-subnet-item.active {
-  background: var(--accent);
-}
-.ip-subnet-item.active .ip-subnet-cidr,
-.ip-subnet-item.active .ip-subnet-vlan {
-  color: #06211f;
-}
-.ip-subnet-item.active .tool-hint,
-.ip-subnet-item.active .ip-subnet-counts {
-  color: #06211f99;
-}
-
-.ip-subnet-item-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.ip-subnet-cidr {
-  font-family: var(--mono);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .ip-subnet-vlan {
   font-family: var(--mono);
   font-size: 10.5px;
@@ -95,12 +29,6 @@
   border-radius: 999px;
   padding: 1px 7px;
   flex-shrink: 0;
-}
-.ip-subnet-item-bottom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 .ip-subnet-counts {
   font-size: 11px;
@@ -197,24 +125,6 @@
   overflow: visible;
 }
 
-/* Nested subnet tree in the left panel: each level indents further (see
-   inline paddingLeft in SubnetNode), with a collapse/expand caret for any
-   subnet that has children. */
-.ip-subnet-toggle {
-  flex-shrink: 0;
-  width: 14px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 10px;
-  cursor: pointer;
-}
-.ip-subnet-toggle-spacer {
-  cursor: default;
-}
-.ip-subnet-item.active .ip-subnet-toggle {
-  color: #06211f99;
-}
-
 /* "Add a subnet" trigger button + popover form (used in the new header
    row instead of a permanently-visible left-column form). */
 .ip-add-subnet-trigger {
@@ -231,6 +141,18 @@
 }
 .ip-add-subnet-popover .ip-add-subnet-form .tool-field {
   margin-bottom: 10px;
+}
+
+/* Header row for the full-width panel: search grows to fill the space,
+   the add-subnet trigger/popover sits beside it. */
+.ip-header-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ip-header-row .ip-search {
+  flex: 1;
+  min-width: 0;
 }
 
 /* Full-width subnet search/jump control (replaces the left-side tree). */
