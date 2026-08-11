@@ -563,9 +563,13 @@ export default function Ipam() {
 
         <div className="ip-divider" />
 
-        {!selectedId && (
+        {!selectedId && !listError && (
           <div className="tool-empty">
-            {listLoading ? "Loading subnets…" : "Search for a subnet above to view and manage its addresses."}
+            {listLoading
+              ? "Loading subnets…"
+              : subnets.length === 0
+              ? "No subnets yet — add one above to get started."
+              : "Search above to jump to a subnet by CIDR."}
           </div>
         )}
 

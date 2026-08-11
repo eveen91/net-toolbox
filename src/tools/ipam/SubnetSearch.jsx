@@ -80,7 +80,11 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
           autoFocus={autoFocus}
           className="tool-input ip-search-input"
           placeholder={
-            selectedSubnet ? `${selectedSubnet.cidr} — search to jump to another subnet` : "Search subnets by CIDR…"
+            selectedSubnet
+              ? `${selectedSubnet.cidr} — search to jump to another subnet`
+              : subnets.length === 0
+              ? "No subnets yet — add one to get started"
+              : "Search subnets by CIDR…"
           }
           value={query}
           onChange={(e) => {
