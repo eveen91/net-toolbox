@@ -1,6 +1,6 @@
 import React, { useCallback, useState } from "react";
 import "./ip-calculator.css";
-import { calculate, EXAMPLE } from "./logic.js";
+import { calculateFromInputs, EXAMPLE } from "./logic.js";
 
 // Turns a 32-bit int into "11000000.10101000.00000001.10000000" with the
 // network-bit portion (the first `prefix` bits) wrapped separately from the
@@ -43,8 +43,7 @@ export default function IpCalculator() {
   const compute = useCallback(() => {
     setError(null);
     try {
-      if (!ip.trim()) throw new Error("Enter an IPv4 address, e.g. 192.168.1.130");
-      setResult(calculate(ip.trim(), netmask));
+      setResult(calculateFromInputs(ip, netmask));
     } catch (e) {
       setError(e.message);
       setResult(null);
@@ -61,13 +60,17 @@ export default function IpCalculator() {
       <div className="tool-layout">
         <div className="tool-panel">
           <div className="tool-field">
-            <div className="tool-label">IP address</div>
+            <div className="tool-label">
+              <span>
+                IP address <span className="tool-hint">plain, or combined as ip/prefix</span>
+              </span>
+            </div>
             <input
               className="tool-input"
               value={ip}
               onChange={(e) => setIp(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && compute()}
-              placeholder="192.168.1.130"
+              placeholder="192.168.1.130 or 192.168.1.130/24"
             />
           </div>
 
@@ -83,7 +86,13 @@ export default function IpCalculator() {
               onChange={(e) => setNetmask(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && compute()}
               placeholder="24, /24, 255.255.255.0, or 0.0.0.255"
+              disabled={ip.includes("/")}
             />
+            {ip.includes("/") && (
+              <div className="tool-hint" style={{ marginTop: 4 }}>
+                Using the prefix from the IP field above — clear it there to enter a netmask separately.
+              </div>
+            )}
           </div>
 
           <div className="tool-actions">

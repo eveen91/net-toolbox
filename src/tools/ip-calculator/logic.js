@@ -139,6 +139,35 @@ export function specialUse(ipInt) {
   return null;
 }
 
+// Splits a combined "ip/prefix" (or "ip/dotted-mask") input like
+// "192.168.1.130/24" into its two parts. `netmask` is null when the input
+// has no "/", so callers can fall back to a separately entered netmask
+// field rather than treating the absence as an error themselves.
+export function splitCombinedInput(input) {
+  if (typeof input !== "string") return { ip: input, netmask: null };
+  const idx = input.indexOf("/");
+  if (idx === -1) return { ip: input.trim(), netmask: null };
+  return { ip: input.slice(0, idx).trim(), netmask: input.slice(idx + 1).trim() };
+}
+
+// Same as calculate(), but accepts the IP field either as a bare address
+// ("192.168.1.130", paired with a separate netmask input) or as a combined
+// "address/prefix" or "address/dotted-mask" CIDR-style value
+// ("192.168.1.130/24") — in which case the suffix after "/" is used as the
+// netmask and the separate netmask field is ignored. This is the form the
+// UI calls; calculate() itself still expects the two apart.
+export function calculateFromInputs(ipInput, netmaskInput) {
+  const { ip, netmask: netmaskFromIp } = splitCombinedInput(ipInput);
+  if (!ip) throw new Error("Enter an IPv4 address, e.g. 192.168.1.130 or 192.168.1.130/24");
+  const effectiveNetmask = netmaskFromIp !== null ? netmaskFromIp : netmaskInput;
+  if (!effectiveNetmask || !effectiveNetmask.trim()) {
+    throw new Error(
+      "Enter a netmask (e.g. 24, /24, 255.255.255.0), or include it in the IP field as 192.168.1.130/24"
+    );
+  }
+  return calculate(ip, effectiveNetmask);
+}
+
 // Full network calculation for a given IP + prefix length. /31 (RFC 3021
 // point-to-point) has no network/broadcast distinction — both addresses are
 // usable hosts. /32 is a single host with no usable range at all.
