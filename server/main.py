@@ -418,6 +418,10 @@ class AddressEntry(BaseModel):
     status: Literal["used", "free", "reserved"]
     hostname: Optional[str] = None
     description: Optional[str] = None
+    team: Optional[str] = None
+    machineType: Optional[Literal["physical", "vm"]] = None
+    vmCluster: Optional[str] = None
+    environment: Optional[Literal["prod", "test", "dev"]] = None
     updatedAt: str
 
 
@@ -430,6 +434,10 @@ class AddressRequest(BaseModel):
     status: Literal["used", "free", "reserved"] = "used"
     hostname: Optional[str] = None
     description: Optional[str] = None
+    team: Optional[str] = None
+    machineType: Optional[Literal["physical", "vm"]] = None
+    vmCluster: Optional[str] = None
+    environment: Optional[Literal["prod", "test", "dev"]] = None
 
 
 @app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
@@ -472,7 +480,10 @@ def delete_subnet(subnet_id: int):
 @app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail)
 def create_address(subnet_id: int, req: AddressRequest):
     try:
-        return db.add_address(subnet_id, req.address, req.status, req.hostname, req.description)
+        return db.add_address(
+            subnet_id, req.address, req.status, req.hostname, req.description,
+            req.team, req.machineType, req.vmCluster, req.environment,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -480,7 +491,10 @@ def create_address(subnet_id: int, req: AddressRequest):
 @app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail)
 def edit_address(subnet_id: int, address_id: int, req: AddressRequest):
     try:
-        return db.update_address(subnet_id, address_id, req.address, req.status, req.hostname, req.description)
+        return db.update_address(
+            subnet_id, address_id, req.address, req.status, req.hostname, req.description,
+            req.team, req.machineType, req.vmCluster, req.environment,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

@@ -40,6 +40,9 @@ function UtilizationBar({ subnet }) {
 }
 
 /** Row for one recorded address: view mode + an inline edit mode, plus a delete confirm step. */
+const MACHINE_TYPE_LABELS = { physical: "Physical", vm: "VM" };
+const ENVIRONMENT_LABELS = { prod: "Prod", test: "Test", dev: "Dev" };
+
 function AddressRow({ subnetId, addr, onUpdated, onError }) {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -49,6 +52,10 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
     status: addr.status,
     hostname: addr.hostname || "",
     description: addr.description || "",
+    team: addr.team || "",
+    machineType: addr.machineType || "",
+    vmCluster: addr.vmCluster || "",
+    environment: addr.environment || "",
   });
 
   const startEdit = () => {
@@ -57,6 +64,10 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
       status: addr.status,
       hostname: addr.hostname || "",
       description: addr.description || "",
+      team: addr.team || "",
+      machineType: addr.machineType || "",
+      vmCluster: addr.vmCluster || "",
+      environment: addr.environment || "",
     });
     setEditing(true);
   };
@@ -71,7 +82,11 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
         draft.address.trim(),
         draft.status,
         draft.hostname.trim() || null,
-        draft.description.trim() || null
+        draft.description.trim() || null,
+        draft.team.trim() || null,
+        draft.machineType || null,
+        draft.machineType === "vm" ? draft.vmCluster.trim() || null : null,
+        draft.environment || null
       );
       onUpdated(updated);
       setEditing(false);
@@ -125,13 +140,58 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
             placeholder="hostname"
           />
         </td>
-        <td>
+<td>
           <input
             className="tool-input ip-row-input"
             value={draft.description}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
             placeholder="description"
           />
+        </td>
+        <td>
+          <input
+            className="tool-input ip-row-input"
+            value={draft.team}
+            onChange={(e) => setDraft({ ...draft, team: e.target.value })}
+            placeholder="team"
+          />
+        </td>
+        <td>
+          <select
+            className="tool-input ip-row-input"
+            value={draft.machineType}
+            onChange={(e) => setDraft({ ...draft, machineType: e.target.value, vmCluster: "" })}
+          >
+            <option value="">—</option>
+            {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </td>
+        <td>
+          <input
+            className="tool-input ip-row-input"
+            value={draft.vmCluster}
+            onChange={(e) => setDraft({ ...draft, vmCluster: e.target.value })}
+            placeholder="cluster"
+            disabled={draft.machineType !== "vm"}
+          />
+        </td>
+        <td>
+          <select
+            className="tool-input ip-row-input"
+            value={draft.environment}
+            onChange={(e) => setDraft({ ...draft, environment: e.target.value })}
+          >
+            <option value="">—</option>
+            {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </select>
         </td>
         <td className="ip-actions-cell">
           <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={save} disabled={saving}>
@@ -153,6 +213,10 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
       </td>
       <td>{addr.hostname || "—"}</td>
       <td>{addr.description || "—"}</td>
+      <td>{addr.team || "—"}</td>
+      <td>{addr.machineType ? MACHINE_TYPE_LABELS[addr.machineType] : "—"}</td>
+      <td>{addr.machineType === "vm" ? addr.vmCluster || "—" : "—"}</td>
+      <td>{addr.environment ? ENVIRONMENT_LABELS[addr.environment] : "—"}</td>
       <td className="ip-actions-cell">
         {confirmingDelete ? (
           <>
@@ -187,6 +251,10 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
   const [status, setStatus] = useState("used");
   const [hostname, setHostname] = useState("");
   const [description, setDescription] = useState("");
+  const [team, setTeam] = useState("");
+  const [machineType, setMachineType] = useState("");
+  const [vmCluster, setVmCluster] = useState("");
+  const [environment, setEnvironment] = useState("");
   const [adding, setAdding] = useState(false);
 
   const submit = async (e) => {
@@ -195,12 +263,26 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
     onError(null);
     setAdding(true);
     try {
-      const updated = await addAddress(subnetId, address.trim(), status, hostname.trim() || null, description.trim() || null);
+      const updated = await addAddress(
+        subnetId,
+        address.trim(),
+        status,
+        hostname.trim() || null,
+        description.trim() || null,
+        team.trim() || null,
+        machineType || null,
+        machineType === "vm" ? vmCluster.trim() || null : null,
+        environment || null
+      );
       onAdded(updated);
       setAddress("");
       setHostname("");
       setDescription("");
       setStatus("used");
+      setTeam("");
+      setMachineType("");
+      setVmCluster("");
+      setEnvironment("");
     } catch (e2) {
       onError(e2.message);
     } finally {
@@ -236,6 +318,48 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
         value={description}
         onChange={(e) => setDescription(e.target.value)}
       />
+      <input
+        className="tool-input"
+        placeholder="team (optional)"
+        value={team}
+        onChange={(e) => setTeam(e.target.value)}
+      />
+      <select
+        className="tool-input"
+        style={{ maxWidth: 110 }}
+        value={machineType}
+        onChange={(e) => {
+          setMachineType(e.target.value);
+          setVmCluster("");
+        }}
+      >
+        <option value="">Type…</option>
+        {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
+          <option key={v} value={v}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        className="tool-input"
+        placeholder="vm cluster"
+        value={vmCluster}
+        onChange={(e) => setVmCluster(e.target.value)}
+        disabled={machineType !== "vm"}
+      />
+      <select
+        className="tool-input"
+        style={{ maxWidth: 110 }}
+        value={environment}
+        onChange={(e) => setEnvironment(e.target.value)}
+      >
+        <option value="">Env…</option>
+        {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
+          <option key={v} value={v}>
+            {label}
+          </option>
+        ))}
+      </select>
       <button className="tool-btn tool-btn-primary" type="submit" disabled={adding || !address.trim()}>
         {adding ? "Adding…" : "Add"}
       </button>
@@ -455,6 +579,10 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
                 <th>Status</th>
                 <th>Hostname</th>
                 <th>Description</th>
+                <th>Team</th>
+                <th>Type</th>
+                <th>VM Cluster</th>
+                <th>Env</th>
                 <th></th>
               </tr>
             </thead>

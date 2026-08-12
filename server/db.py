@@ -110,7 +110,21 @@ def init_db() -> None:
         ipam_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_subnets)").fetchall()}
         if "parent_id" not in ipam_cols:
             conn.execute("ALTER TABLE ipam_subnets ADD COLUMN parent_id INTEGER REFERENCES ipam_subnets(id)")
+
+        # Migration: add the host metadata columns (team / machine type / vm
+        # cluster / environment) to databases created before they existed.
+        ipam_addr_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_addresses)").fetchall()}
+        if "team" not in ipam_addr_cols:
+            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN team TEXT")
+        if "machine_type" not in ipam_addr_cols:
+            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN machine_type TEXT")
+        if "vm_cluster" not in ipam_addr_cols:
+            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN vm_cluster TEXT")
+        if "environment" not in ipam_addr_cols:
+            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN environment TEXT")
+
         conn.commit()
+
     finally:
         conn.close()
 
@@ -363,6 +377,8 @@ def delete_host(host: str) -> bool:
 # ---------------------------------------------------------------------------
 
 IPAM_STATUSES = ("used", "free", "reserved")
+IPAM_MACHINE_TYPES = ("physical", "vm")
+IPAM_ENVIRONMENTS = ("prod", "test", "dev")
 
 
 def validate_cidr(cidr: str) -> str:
@@ -383,6 +399,24 @@ def validate_vlan(vlan: Optional[int]) -> None:
 def validate_status(status: str) -> None:
     if status not in IPAM_STATUSES:
         raise ValueError(f'"{status}" is not a valid status (use one of: {", ".join(IPAM_STATUSES)})')
+
+
+def validate_machine_type(machine_type: Optional[str]) -> None:
+    if machine_type is None:
+        return
+    if machine_type not in IPAM_MACHINE_TYPES:
+        raise ValueError(
+            f'"{machine_type}" is not a valid machine type (use one of: {", ".join(IPAM_MACHINE_TYPES)})'
+        )
+
+
+def validate_environment(environment: Optional[str]) -> None:
+    if environment is None:
+        return
+    if environment not in IPAM_ENVIRONMENTS:
+        raise ValueError(
+            f'"{environment}" is not a valid environment (use one of: {", ".join(IPAM_ENVIRONMENTS)})'
+        )
 
 
 def validate_address_in_subnet(address: str, cidr: str) -> None:
@@ -464,6 +498,10 @@ def _address_dict(row: sqlite3.Row) -> Dict:
         "status": row["status"],
         "hostname": row["hostname"],
         "description": row["description"],
+        "team": row["team"],
+        "machineType": row["machine_type"],
+        "vmCluster": row["vm_cluster"],
+        "environment": row["environment"],
         "updatedAt": row["updated_at"],
     }
 
@@ -574,7 +612,15 @@ def delete_subnet(subnet_id: int) -> bool:
 
 
 def add_address(
-    subnet_id: int, address: str, status: str = "used", hostname: Optional[str] = None, description: Optional[str] = None
+    subnet_id: int,
+    address: str,
+    status: str = "used",
+    hostname: Optional[str] = None,
+    description: Optional[str] = None,
+    team: Optional[str] = None,
+    machine_type: Optional[str] = None,
+    vm_cluster: Optional[str] = None,
+    environment: Optional[str] = None,
 ) -> Dict:
     conn = get_connection()
     try:
@@ -583,14 +629,19 @@ def add_address(
             raise ValueError("Subnet not found")
         validate_address_in_subnet(address, subnet_row["cidr"])
         validate_status(status)
+        validate_machine_type(machine_type)
+        validate_environment(environment)
+        if machine_type != "vm":
+            vm_cluster = None
         address = str(ipaddress.ip_address(address.strip()))
         try:
             conn.execute(
                 """
-                INSERT INTO ipam_addresses (subnet_id, address, status, hostname, description, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO ipam_addresses
+                    (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (subnet_id, address, status, hostname, description, _now()),
+                (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, _now()),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'"{address}" is already recorded in this subnet')
@@ -607,6 +658,10 @@ def update_address(
     status: str = "used",
     hostname: Optional[str] = None,
     description: Optional[str] = None,
+    team: Optional[str] = None,
+    machine_type: Optional[str] = None,
+    vm_cluster: Optional[str] = None,
+    environment: Optional[str] = None,
 ) -> Dict:
     conn = get_connection()
     try:
@@ -620,15 +675,24 @@ def update_address(
             raise ValueError("Address not found")
         validate_address_in_subnet(address, subnet_row["cidr"])
         validate_status(status)
+        validate_machine_type(machine_type)
+        validate_environment(environment)
+        if machine_type != "vm":
+            vm_cluster = None
         address = str(ipaddress.ip_address(address.strip()))
         try:
             conn.execute(
                 """
                 UPDATE ipam_addresses
-                SET address = ?, status = ?, hostname = ?, description = ?, updated_at = ?
+                SET address = ?, status = ?, hostname = ?, description = ?,
+                    team = ?, machine_type = ?, vm_cluster = ?, environment = ?, updated_at = ?
                 WHERE id = ? AND subnet_id = ?
                 """,
-                (address, status, hostname, description, _now(), address_id, subnet_id),
+                (
+                    address, status, hostname, description,
+                    team, machine_type, vm_cluster, environment,
+                    _now(), address_id, subnet_id,
+                ),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'"{address}" is already recorded in this subnet')

@@ -52,20 +52,59 @@ export async function deleteSubnet(subnetId) {
   return handle(res);
 }
 
-export async function addAddress(subnetId, address, status, hostname, description) {
+export async function addAddress(
+  subnetId,
+  address,
+  status,
+  hostname,
+  description,
+  team,
+  machineType,
+  vmCluster,
+  environment
+) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ address, status, hostname, description }),
+    body: JSON.stringify({
+      address,
+      status,
+      hostname,
+      description,
+      team,
+      machineType,
+      vmCluster,
+      environment,
+    }),
   });
   return handle(res);
 }
 
-export async function updateAddress(subnetId, addressId, address, status, hostname, description) {
+export async function updateAddress(
+  subnetId,
+  addressId,
+  address,
+  status,
+  hostname,
+  description,
+  team,
+  machineType,
+  vmCluster,
+  environment
+) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ address, status, hostname, description }),
+    body: JSON.stringify({
+      address,
+      status,
+      hostname,
+      description,
+      team,
+      machineType,
+      vmCluster,
+      environment,
+    }),
   });
   return handle(res);
 }
