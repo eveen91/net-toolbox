@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 import db
+import ipam_scan
 
 app = FastAPI(title="net::toolbox API")
 
@@ -47,6 +48,16 @@ app.add_middleware(
 
 HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]+$")
 EXECUTOR = ThreadPoolExecutor(max_workers=16)
+
+# IPAM subnet scanning (ping_host + reverse_dns per address) is a distinct
+# workload from Connection Test's SSH/WinRM sessions — one scan can fan out
+# over hundreds of addresses, so it gets its own bounded pool rather than
+# competing with EXECUTOR's 16 slots.
+SCAN_EXECUTOR = ThreadPoolExecutor(max_workers=32)
+
+# subnet_id's currently being scanned, so a second scan on the same subnet
+# can be rejected/deduped instead of running concurrently with the first.
+SCANS_IN_PROGRESS: set[int] = set()
 
 
 # ---------------------------------------------------------------------------
@@ -506,3 +517,17 @@ def remove_address(subnet_id: int, address_id: int):
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
+
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover")
+async def autodiscover_subnet(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+
+    if subnet_id in SCANS_IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
+    SCANS_IN_PROGRESS.add(subnet_id)
+    try:
+        return {"status": "not implemented yet"}
+    finally:
+        SCANS_IN_PROGRESS.discard(subnet_id)
