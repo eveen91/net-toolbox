@@ -122,6 +122,19 @@ def init_db() -> None:
             conn.execute("ALTER TABLE ipam_addresses ADD COLUMN vm_cluster TEXT")
         if "environment" not in ipam_addr_cols:
             conn.execute("ALTER TABLE ipam_addresses ADD COLUMN environment TEXT")
+        if "locked" not in ipam_addr_cols:
+            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN locked INTEGER DEFAULT 0")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_scan_excludes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                address TEXT NOT NULL,
+                UNIQUE(subnet_id, address)
+            )
+            """
+        )
 
         conn.commit()
 
@@ -502,6 +515,7 @@ def _address_dict(row: sqlite3.Row) -> Dict:
         "machineType": row["machine_type"],
         "vmCluster": row["vm_cluster"],
         "environment": row["environment"],
+        "locked": bool(row["locked"]),
         "updatedAt": row["updated_at"],
     }
 
@@ -621,6 +635,7 @@ def add_address(
     machine_type: Optional[str] = None,
     vm_cluster: Optional[str] = None,
     environment: Optional[str] = None,
+    locked: bool = False,
 ) -> Dict:
     conn = get_connection()
     try:
@@ -638,10 +653,10 @@ def add_address(
             conn.execute(
                 """
                 INSERT INTO ipam_addresses
-                    (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, locked, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, _now()),
+                (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, locked, _now()),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'"{address}" is already recorded in this subnet')
@@ -662,6 +677,7 @@ def update_address(
     machine_type: Optional[str] = None,
     vm_cluster: Optional[str] = None,
     environment: Optional[str] = None,
+    locked: bool = False,
 ) -> Dict:
     conn = get_connection()
     try:
@@ -685,12 +701,12 @@ def update_address(
                 """
                 UPDATE ipam_addresses
                 SET address = ?, status = ?, hostname = ?, description = ?,
-                    team = ?, machine_type = ?, vm_cluster = ?, environment = ?, updated_at = ?
+                    team = ?, machine_type = ?, vm_cluster = ?, environment = ?, locked = ?, updated_at = ?
                 WHERE id = ? AND subnet_id = ?
                 """,
                 (
                     address, status, hostname, description,
-                    team, machine_type, vm_cluster, environment,
+                    team, machine_type, vm_cluster, environment, locked,
                     _now(), address_id, subnet_id,
                 ),
             )
@@ -713,3 +729,38 @@ def delete_address(subnet_id: int, address_id: int) -> Dict:
     finally:
         conn.close()
     return get_subnet(subnet_id)
+
+
+def list_scan_excludes(subnet_id: int) -> List[str]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT address FROM ipam_scan_excludes WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        return [row["address"] for row in rows]
+    finally:
+        conn.close()
+
+
+def add_scan_exclude(subnet_id: int, address: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR IGNORE INTO ipam_scan_excludes (subnet_id, address) VALUES (?, ?)",
+            (subnet_id, address),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_scan_exclude(subnet_id: int, address: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM ipam_scan_excludes WHERE subnet_id = ? AND address = ?",
+            (subnet_id, address),
+        )
+        conn.commit()
+    finally:
+        conn.close()
