@@ -451,6 +451,20 @@ class AddressRequest(BaseModel):
     environment: Optional[Literal["prod", "test", "dev"]] = None
 
 
+class AutodiscoverResult(BaseModel):
+    address: str
+    alive: bool
+    hostname: Optional[str] = None
+
+
+class AutodiscoverResponse(BaseModel):
+    scannedCount: int
+    usedCount: int
+    freeCount: int
+    skippedCount: int
+    results: List[AutodiscoverResult]
+
+
 @app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
 def get_subnets():
     return db.list_subnets()
@@ -518,7 +532,7 @@ def remove_address(subnet_id: int, address_id: int):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/autodiscover")
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse)
 async def autodiscover_subnet(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -528,6 +542,46 @@ async def autodiscover_subnet(subnet_id: int):
         raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
     SCANS_IN_PROGRESS.add(subnet_id)
     try:
-        return {"status": "not implemented yet"}
+        excludes = set(db.list_scan_excludes(subnet_id))
+        excludes.update(
+            addr["address"]
+            for addr in data["addresses"]
+            if addr["status"] == "reserved" or addr["locked"]
+        )
+
+        try:
+            targets = ipam_scan.enumerate_scan_targets(data["cidr"], excludes)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        loop = asyncio.get_event_loop()
+        results = await asyncio.gather(*[
+            loop.run_in_executor(
+                SCAN_EXECUTOR,
+                ipam_scan.scan_one,
+                address,
+                ipam_scan.DEFAULT_PING_TIMEOUT,
+                ipam_scan.DEFAULT_PING_ATTEMPTS,
+                ipam_scan.DEFAULT_DNS_TIMEOUT,
+            )
+            for address in targets
+        ])
+
+        alive_count = 0
+        free_count = 0
+        for result in results:
+            db.apply_scan_result(subnet_id, result["address"], result["alive"], result["hostname"])
+            if result["alive"]:
+                alive_count += 1
+            else:
+                free_count += 1
+
+        return {
+            "scannedCount": len(targets),
+            "usedCount": alive_count,
+            "freeCount": free_count,
+            "skippedCount": len(excludes),
+            "results": results,
+        }
     finally:
         SCANS_IN_PROGRESS.discard(subnet_id)
