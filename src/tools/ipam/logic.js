@@ -83,3 +83,21 @@ export function ancestorChain(subnets, subnetId) {
   }
   return chain;
 }
+
+export function addressesToCsv(addresses) {
+  const headers = [
+    "address", "status", "hostname", "description",
+    "team", "machineType", "vmCluster", "environment", "locked", "updatedAt",
+  ];
+  const escape = (value) => {
+    const str = value === null || value === undefined ? "" : String(value);
+    if (/[",\n]/.test(str)) {
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+  };
+  const rows = addresses.map((addr) =>
+    headers.map((h) => escape(addr[h])).join(",")
+  );
+  return [headers.join(","), ...rows].join("\r\n");
+}

@@ -8,6 +8,7 @@ import {
   utilizationPercent,
   STATUS_LABELS,
   ancestorChain,
+  addressesToCsv,
 } from "./logic.js";
 import {
   listSubnets,
@@ -17,6 +18,7 @@ import {
   addAddress,
   updateAddress,
   deleteAddress,
+  rescanAddress,
   autodiscoverSubnet,
   listSubnetScans,
   listScanExcludes,
@@ -52,6 +54,7 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [rescanning, setRescanning] = useState(false);
   const [draft, setDraft] = useState({
     address: addr.address,
     status: addr.status,
@@ -114,6 +117,19 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
     } catch (e) {
       onError(e.message);
       setSaving(false);
+    }
+  };
+
+  const rescan = async () => {
+    onError(null);
+    setRescanning(true);
+    try {
+      const updated = await rescanAddress(subnetId, addr.id);
+      onUpdated(updated);
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setRescanning(false);
     }
   };
 
@@ -249,6 +265,15 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
           </>
         ) : (
           <>
+            {addr.status !== "reserved" && (
+              <button
+                className="tool-btn tool-btn-ghost ip-row-btn"
+                onClick={rescan}
+                disabled={rescanning}
+              >
+                {rescanning ? "…" : "Rescan"}
+              </button>
+            )}
             <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEdit}>
               Edit
             </button>
@@ -559,6 +584,19 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     }
   };
 
+  const downloadCsv = () => {
+    const csv = addressesToCsv(subnet.addresses || []);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${subnet.cidr.replace("/", "_")}-addresses.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const unallocated = subnet.totalAddresses - subnet.recordedCount;
   const ancestors = ancestorChain(subnets, subnet.id);
   const children = subnets.filter((s) => s.parentId === subnet.id);
@@ -633,6 +671,15 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
             onClick={() => setConfirmingScan(true)}
           >
             Autodiscover
+          </button>
+        )}
+        {!editingHeader && !confirmingDelete && !confirmingScan && (
+          <button
+            className="tool-btn tool-btn-ghost ip-row-btn"
+            onClick={downloadCsv}
+            disabled={!subnet.addresses || subnet.addresses.length === 0}
+          >
+            Export CSV
           </button>
         )}
         {!editingHeader && !confirmingScan &&

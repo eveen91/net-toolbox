@@ -15,7 +15,10 @@ Run it with:
 """
 
 import asyncio
+import json
 import re
+import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import List, Literal, Optional
@@ -24,6 +27,7 @@ import paramiko
 import winrm
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 import db
@@ -58,6 +62,12 @@ SCAN_EXECUTOR = ThreadPoolExecutor(max_workers=32)
 # subnet_id's currently being scanned, so a second scan on the same subnet
 # can be rejected/deduped instead of running concurrently with the first.
 SCANS_IN_PROGRESS: set[int] = set()
+
+# Background scan jobs, keyed by job id. Each value:
+# {"subnet_id": int, "completed": int, "total": int,
+#  "status": "running" | "done" | "error",
+#  "result": dict | None, "error": str | None, "created_at": float}
+SCAN_JOBS: dict[str, dict] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +642,104 @@ def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
     return db.list_scan_excludes_detailed(subnet_id)
 
 
+async def perform_scan(subnet_id: int, on_progress=None) -> dict:
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+
+    excludes = set(db.list_scan_excludes(subnet_id))
+    excludes.update(
+        addr["address"]
+        for addr in data["addresses"]
+        if addr["status"] == "reserved" or addr["locked"]
+    )
+
+    try:
+        targets = ipam_scan.enumerate_scan_targets(data["cidr"], excludes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    started_at = now_str()
+    existing_by_address = {a["address"]: a for a in db.get_addresses_by_subnet(subnet_id)}
+    snapshot = {
+        address: {
+            "status": existing_by_address[address]["status"] if address in existing_by_address else "free",
+            "hostname": existing_by_address[address]["hostname"] if address in existing_by_address else None,
+        }
+        for address in targets
+    }
+
+    loop = asyncio.get_event_loop()
+    total_count = len(targets)
+    completed_count = 0
+    results = []
+    tasks = [
+        loop.run_in_executor(
+            SCAN_EXECUTOR,
+            ipam_scan.scan_one,
+            address,
+            ipam_scan.DEFAULT_PING_TIMEOUT,
+            ipam_scan.DEFAULT_PING_ATTEMPTS,
+            ipam_scan.DEFAULT_DNS_TIMEOUT,
+        )
+        for address in targets
+    ]
+    for coro in asyncio.as_completed(tasks):
+        result = await coro
+        results.append(result)
+        completed_count += 1
+        if on_progress is not None:
+            on_progress(completed_count, total_count)
+
+    alive_count = 0
+    free_count = 0
+    newly_used = []
+    went_quiet = []
+    hostname_changed = []
+    for result in results:
+        address = result["address"]
+        db.apply_scan_result(subnet_id, address, result["alive"], result["hostname"])
+        if result["alive"]:
+            alive_count += 1
+        else:
+            free_count += 1
+
+        prior = snapshot[address]
+        if prior["status"] != "used" and result["alive"]:
+            newly_used.append(address)
+        if prior["status"] == "used" and not result["alive"]:
+            went_quiet.append(address)
+        if result["hostname"] != prior["hostname"]:
+            hostname_changed.append(
+                {
+                    "address": address,
+                    "oldHostname": prior["hostname"],
+                    "newHostname": result["hostname"],
+                }
+            )
+
+    diff = {
+        "newlyUsed": newly_used,
+        "wentQuiet": went_quiet,
+        "hostnameChanged": hostname_changed,
+    }
+
+    finished_at = now_str()
+    scan_record = db.record_scan(
+        subnet_id, started_at, finished_at, len(targets), alive_count, free_count, len(excludes), diff
+    )
+
+    return {
+        "scanId": scan_record["id"],
+        "scannedCount": len(targets),
+        "usedCount": alive_count,
+        "freeCount": free_count,
+        "skippedCount": len(excludes),
+        "results": results,
+        "diff": diff,
+    }
+
+
 @app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse)
 async def autodiscover_subnet(subnet_id: int):
     data = db.get_subnet(subnet_id)
@@ -642,90 +750,93 @@ async def autodiscover_subnet(subnet_id: int):
         raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
     SCANS_IN_PROGRESS.add(subnet_id)
     try:
-        excludes = set(db.list_scan_excludes(subnet_id))
-        excludes.update(
-            addr["address"]
-            for addr in data["addresses"]
-            if addr["status"] == "reserved" or addr["locked"]
-        )
-
-        try:
-            targets = ipam_scan.enumerate_scan_targets(data["cidr"], excludes)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-
-        started_at = now_str()
-        existing_by_address = {a["address"]: a for a in db.get_addresses_by_subnet(subnet_id)}
-        snapshot = {
-            address: {
-                "status": existing_by_address[address]["status"] if address in existing_by_address else "free",
-                "hostname": existing_by_address[address]["hostname"] if address in existing_by_address else None,
-            }
-            for address in targets
-        }
-
-        loop = asyncio.get_event_loop()
-        results = await asyncio.gather(*[
-            loop.run_in_executor(
-                SCAN_EXECUTOR,
-                ipam_scan.scan_one,
-                address,
-                ipam_scan.DEFAULT_PING_TIMEOUT,
-                ipam_scan.DEFAULT_PING_ATTEMPTS,
-                ipam_scan.DEFAULT_DNS_TIMEOUT,
-            )
-            for address in targets
-        ])
-
-        alive_count = 0
-        free_count = 0
-        newly_used = []
-        went_quiet = []
-        hostname_changed = []
-        for result in results:
-            address = result["address"]
-            db.apply_scan_result(subnet_id, address, result["alive"], result["hostname"])
-            if result["alive"]:
-                alive_count += 1
-            else:
-                free_count += 1
-
-            prior = snapshot[address]
-            if prior["status"] != "used" and result["alive"]:
-                newly_used.append(address)
-            if prior["status"] == "used" and not result["alive"]:
-                went_quiet.append(address)
-            if result["hostname"] != prior["hostname"]:
-                hostname_changed.append(
-                    {
-                        "address": address,
-                        "oldHostname": prior["hostname"],
-                        "newHostname": result["hostname"],
-                    }
-                )
-
-        diff = {
-            "newlyUsed": newly_used,
-            "wentQuiet": went_quiet,
-            "hostnameChanged": hostname_changed,
-        }
-
-        finished_at = now_str()
-        scan_record = db.record_scan(
-            subnet_id, started_at, finished_at, len(targets), alive_count, free_count, len(excludes), diff
-        )
-
-        return {
-            "scanId": scan_record["id"],
-            "scannedCount": len(targets),
-            "usedCount": alive_count,
-            "freeCount": free_count,
-            "skippedCount": len(excludes),
-            "results": results,
-            "diff": diff,
-        }
+        return await perform_scan(subnet_id)
     finally:
         SCANS_IN_PROGRESS.discard(subnet_id)
+
+
+def cleanup_old_scan_jobs(max_age_seconds: float = 300.0) -> None:
+    now = time.time()
+    stale_ids = [
+        job_id
+        for job_id, job in SCAN_JOBS.items()
+        if job["status"] in ("done", "error") and now - job["created_at"] > max_age_seconds
+    ]
+    for job_id in stale_ids:
+        del SCAN_JOBS[job_id]
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover/start")
+async def start_autodiscover_job(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+
+    if subnet_id in SCANS_IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
+
+    cleanup_old_scan_jobs()
+
+    job_id = str(uuid.uuid4())
+    SCANS_IN_PROGRESS.add(subnet_id)
+    SCAN_JOBS[job_id] = {
+        "subnet_id": subnet_id,
+        "completed": 0,
+        "total": 0,
+        "status": "running",
+        "result": None,
+        "error": None,
+        "created_at": time.time(),
+    }
+
+    async def run_job():
+        try:
+            def on_progress(completed, total):
+                SCAN_JOBS[job_id]["completed"] = completed
+                SCAN_JOBS[job_id]["total"] = total
+
+            result = await perform_scan(subnet_id, on_progress=on_progress)
+            SCAN_JOBS[job_id]["status"] = "done"
+            SCAN_JOBS[job_id]["result"] = result
+        except Exception as exc:
+            SCAN_JOBS[job_id]["status"] = "error"
+            SCAN_JOBS[job_id]["error"] = str(exc)
+        finally:
+            SCANS_IN_PROGRESS.discard(subnet_id)
+
+    asyncio.create_task(run_job())
+    return {"jobId": job_id}
+
+
+@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}")
+async def stream_autodiscover_job(subnet_id: int, job_id: str):
+    if job_id not in SCAN_JOBS:
+        raise HTTPException(status_code=404, detail="Scan job not found")
+
+    async def event_generator():
+        while True:
+            job = SCAN_JOBS.get(job_id)
+            if job is None:
+                break
+            payload = json.dumps({
+                "completed": job["completed"],
+                "total": job["total"],
+                "status": job["status"],
+            })
+            yield f"data: {payload}\n\n"
+            if job["status"] in ("done", "error"):
+                final_payload = json.dumps({
+                    "completed": job["completed"],
+                    "total": job["total"],
+                    "status": job["status"],
+                    "result": job["result"],
+                    "error": job["error"],
+                })
+                yield f"data: {final_payload}\n\n"
+                break
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @app.get("/api/ipam/subnets/{subnet_id}/scans", response_model=List[ScanSummary])
