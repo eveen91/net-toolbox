@@ -457,12 +457,26 @@ class AutodiscoverResult(BaseModel):
     hostname: Optional[str] = None
 
 
+class HostnameChange(BaseModel):
+    address: str
+    oldHostname: Optional[str] = None
+    newHostname: Optional[str] = None
+
+
+class ScanDiff(BaseModel):
+    newlyUsed: List[str]
+    wentQuiet: List[str]
+    hostnameChanged: List[HostnameChange]
+
+
 class AutodiscoverResponse(BaseModel):
+    scanId: int
     scannedCount: int
     usedCount: int
     freeCount: int
     skippedCount: int
     results: List[AutodiscoverResult]
+    diff: ScanDiff
 
 
 @app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
@@ -554,6 +568,16 @@ async def autodiscover_subnet(subnet_id: int):
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
+        started_at = now_str()
+        existing_by_address = {a["address"]: a for a in db.get_addresses_by_subnet(subnet_id)}
+        snapshot = {
+            address: {
+                "status": existing_by_address[address]["status"] if address in existing_by_address else "free",
+                "hostname": existing_by_address[address]["hostname"] if address in existing_by_address else None,
+            }
+            for address in targets
+        }
+
         loop = asyncio.get_event_loop()
         results = await asyncio.gather(*[
             loop.run_in_executor(
@@ -569,19 +593,50 @@ async def autodiscover_subnet(subnet_id: int):
 
         alive_count = 0
         free_count = 0
+        newly_used = []
+        went_quiet = []
+        hostname_changed = []
         for result in results:
-            db.apply_scan_result(subnet_id, result["address"], result["alive"], result["hostname"])
+            address = result["address"]
+            db.apply_scan_result(subnet_id, address, result["alive"], result["hostname"])
             if result["alive"]:
                 alive_count += 1
             else:
                 free_count += 1
 
+            prior = snapshot[address]
+            if prior["status"] != "used" and result["alive"]:
+                newly_used.append(address)
+            if prior["status"] == "used" and not result["alive"]:
+                went_quiet.append(address)
+            if result["hostname"] != prior["hostname"]:
+                hostname_changed.append(
+                    {
+                        "address": address,
+                        "oldHostname": prior["hostname"],
+                        "newHostname": result["hostname"],
+                    }
+                )
+
+        diff = {
+            "newlyUsed": newly_used,
+            "wentQuiet": went_quiet,
+            "hostnameChanged": hostname_changed,
+        }
+
+        finished_at = now_str()
+        scan_record = db.record_scan(
+            subnet_id, started_at, finished_at, len(targets), alive_count, free_count, len(excludes), diff
+        )
+
         return {
+            "scanId": scan_record["id"],
             "scannedCount": len(targets),
             "usedCount": alive_count,
             "freeCount": free_count,
             "skippedCount": len(excludes),
             "results": results,
+            "diff": diff,
         }
     finally:
         SCANS_IN_PROGRESS.discard(subnet_id)

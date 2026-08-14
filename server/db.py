@@ -16,6 +16,7 @@ Saving a host's table replaces its entire set of routes and interfaces.
 """
 
 import ipaddress
+import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -132,6 +133,25 @@ def init_db() -> None:
                 subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
                 address TEXT NOT NULL,
                 UNIQUE(subnet_id, address)
+            )
+            """
+        )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_scans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                started_at TEXT NOT NULL,
+                finished_at TEXT NOT NULL,
+                scanned_count INTEGER NOT NULL,
+                used_count INTEGER NOT NULL,
+                free_count INTEGER NOT NULL,
+                skipped_count INTEGER NOT NULL,
+                newly_used_count INTEGER NOT NULL,
+                went_quiet_count INTEGER NOT NULL,
+                hostname_changed_count INTEGER NOT NULL,
+                diff_json TEXT NOT NULL
             )
             """
         )
@@ -520,6 +540,17 @@ def _address_dict(row: sqlite3.Row) -> Dict:
     }
 
 
+def get_addresses_by_subnet(subnet_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        return [_address_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
 def get_subnet(subnet_id: int) -> Optional[Dict]:
     conn = get_connection()
     try:
@@ -810,5 +841,75 @@ def apply_scan_result(subnet_id: int, address: str, alive: bool, hostname: Optio
                 )
 
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _scan_dict(row: sqlite3.Row) -> Dict:
+    return {
+        "id": row["id"],
+        "subnet_id": row["subnet_id"],
+        "startedAt": row["started_at"],
+        "finishedAt": row["finished_at"],
+        "scannedCount": row["scanned_count"],
+        "usedCount": row["used_count"],
+        "freeCount": row["free_count"],
+        "skippedCount": row["skipped_count"],
+        "newlyUsedCount": row["newly_used_count"],
+        "wentQuietCount": row["went_quiet_count"],
+        "hostnameChangedCount": row["hostname_changed_count"],
+        "diff": json.loads(row["diff_json"]),
+    }
+
+
+def record_scan(
+    subnet_id: int,
+    started_at: str,
+    finished_at: str,
+    scanned_count: int,
+    used_count: int,
+    free_count: int,
+    skipped_count: int,
+    diff: dict,
+) -> Dict:
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO ipam_scans
+                (subnet_id, started_at, finished_at, scanned_count, used_count, free_count,
+                 skipped_count, newly_used_count, went_quiet_count, hostname_changed_count, diff_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                subnet_id,
+                started_at,
+                finished_at,
+                scanned_count,
+                used_count,
+                free_count,
+                skipped_count,
+                len(diff["newlyUsed"]),
+                len(diff["wentQuiet"]),
+                len(diff["hostnameChanged"]),
+                json.dumps(diff),
+            ),
+        )
+        scan_id = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM ipam_scans WHERE id = ?", (scan_id,)).fetchone()
+        return _scan_dict(row)
+    finally:
+        conn.close()
+
+
+def list_scans(subnet_id: int, limit: int = 20) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM ipam_scans WHERE subnet_id = ? ORDER BY started_at DESC LIMIT ?",
+            (subnet_id, limit),
+        ).fetchall()
+        return [_scan_dict(row) for row in rows]
     finally:
         conn.close()
