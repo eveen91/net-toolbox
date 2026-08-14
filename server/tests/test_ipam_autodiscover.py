@@ -187,3 +187,71 @@ def test_scan_preserves_metadata_fields(client):
     assert addr["machineType"] == "vm"
     assert addr["vmCluster"] == "cluster-a"
     assert addr["environment"] == "prod"
+
+
+def test_scan_diff_reports_newly_used_address(client):
+    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
+    assert create_resp.status_code == 200
+    subnet_id = create_resp.json()["id"]
+
+    target_address = "10.0.0.3"
+
+    def fake_ping_host(address, *args, **kwargs):
+        return address == target_address
+
+    with patch.object(ipam_scan, "ping_host", side_effect=fake_ping_host), \
+         patch.object(ipam_scan, "reverse_dns", return_value=None):
+        scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
+    assert scan_resp.status_code == 200
+
+    diff = scan_resp.json()["diff"]
+    assert target_address in diff["newlyUsed"]
+
+
+def test_scan_diff_reports_went_quiet_address(client):
+    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
+    assert create_resp.status_code == 200
+    subnet_id = create_resp.json()["id"]
+
+    stale_address = "10.0.0.4"
+    add_resp = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": stale_address, "status": "used", "hostname": "oldhost.local"},
+    )
+    assert add_resp.status_code == 200
+
+    with patch.object(ipam_scan, "ping_host", return_value=False), \
+         patch.object(ipam_scan, "reverse_dns", return_value=None):
+        scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
+    assert scan_resp.status_code == 200
+
+    diff = scan_resp.json()["diff"]
+    assert stale_address in diff["wentQuiet"]
+
+
+def test_scan_history_is_recorded(client):
+    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
+    assert create_resp.status_code == 200
+    subnet_id = create_resp.json()["id"]
+
+    target_address = "10.0.0.3"
+
+    def fake_ping_host(address, *args, **kwargs):
+        return address == target_address
+
+    with patch.object(ipam_scan, "ping_host", side_effect=fake_ping_host), \
+         patch.object(ipam_scan, "reverse_dns", return_value=None):
+        scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
+    assert scan_resp.status_code == 200
+    scan_json = scan_resp.json()
+
+    history_resp = client.get(f"/api/ipam/subnets/{subnet_id}/scans")
+    assert history_resp.status_code == 200
+    history = history_resp.json()
+    assert len(history) >= 1
+
+    entry = next(h for h in history if h["id"] == scan_json["scanId"])
+    assert entry["scannedCount"] == scan_json["scannedCount"]
+    assert entry["usedCount"] == scan_json["usedCount"]
+    assert entry["freeCount"] == scan_json["freeCount"]
+    assert entry["diff"] == scan_json["diff"]

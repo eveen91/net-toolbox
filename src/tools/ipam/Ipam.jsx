@@ -18,6 +18,7 @@ import {
   updateAddress,
   deleteAddress,
   autodiscoverSubnet,
+  listSubnetScans,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -383,6 +384,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
   const [scanResult, setScanResult] = useState(null);
+  const [lastScan, setLastScan] = useState(null);
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -393,6 +395,17 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     setScanning(false);
     setScanError(null);
     setScanResult(null);
+    setLastScan(null);
+
+    (async () => {
+      try {
+        const scans = await listSubnetScans(subnet.id);
+        setLastScan(scans.length > 0 ? scans[0] : null);
+      } catch {
+        // Scan history is a nice-to-have on this screen — if it fails to
+        // load, leave lastScan null rather than surfacing another error.
+      }
+    })();
   }, [subnet.id]);
 
   const startEditHeader = () => {
@@ -422,6 +435,17 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     try {
       const result = await autodiscoverSubnet(subnet.id);
       setScanResult(result);
+      // autodiscoverSubnet's response has no startedAt/finishedAt (only
+      // scanId/scannedCount/usedCount/freeCount/skippedCount/diff), so
+      // hand-building lastScan from it left "last scanned" blank right
+      // after a scan. Pull the just-recorded entry from history instead,
+      // which has the full record_scan shape including finishedAt.
+      try {
+        const scans = await listSubnetScans(subnet.id);
+        setLastScan(scans.length > 0 ? scans[0] : null);
+      } catch {
+        // Non-critical — leave lastScan as whatever it was before.
+      }
       const refreshed = await getSubnet(subnet.id);
       onDetailUpdated(refreshed);
     } catch (e) {
@@ -493,6 +517,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
                 ? ` · ${children.length} nested subnet${children.length !== 1 ? "s" : ""}`
                 : ""}{" "}
               · saved {formatTimestamp(subnet.updatedAt)}
+              {lastScan && ` · last scanned ${formatTimestamp(lastScan.finishedAt)}`}
             </span>
             <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEditHeader}>
               Edit
@@ -572,6 +597,16 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           >
             Dismiss
           </button>
+          {scanResult.diff &&
+            (scanResult.diff.newlyUsed.length > 0 ||
+              scanResult.diff.wentQuiet.length > 0 ||
+              scanResult.diff.hostnameChanged.length > 0) && (
+                <div className="tool-hint ip-scan-diff">
+                {scanResult.diff.newlyUsed.length} new · {scanResult.diff.wentQuiet.length} went
+                offline · {scanResult.diff.hostnameChanged.length} hostname change
+                {scanResult.diff.hostnameChanged.length === 1 ? "" : "s"}
+              </div>
+            )}
         </div>
       )}
 

@@ -479,6 +479,21 @@ class AutodiscoverResponse(BaseModel):
     diff: ScanDiff
 
 
+class ScanSummary(BaseModel):
+    id: int
+    subnet_id: int
+    startedAt: str
+    finishedAt: str
+    scannedCount: int
+    usedCount: int
+    freeCount: int
+    skippedCount: int
+    newlyUsedCount: int
+    wentQuietCount: int
+    hostnameChangedCount: int
+    diff: ScanDiff
+
+
 @app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
 def get_subnets():
     return db.list_subnets()
@@ -640,3 +655,11 @@ async def autodiscover_subnet(subnet_id: int):
         }
     finally:
         SCANS_IN_PROGRESS.discard(subnet_id)
+
+
+@app.get("/api/ipam/subnets/{subnet_id}/scans", response_model=List[ScanSummary])
+def get_subnet_scans(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return db.list_scans(subnet_id)

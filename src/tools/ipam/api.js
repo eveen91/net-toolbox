@@ -122,3 +122,8 @@ export async function autodiscoverSubnet(subnetId) {
   });
   return handle(res);
 }
+
+export async function listSubnetScans(subnetId) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scans`);
+  return handle(res);
+}
