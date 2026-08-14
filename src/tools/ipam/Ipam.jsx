@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import "./ipam.css";
 import SubnetSearch from "./SubnetSearch.jsx";
 import AddSubnetForm from "./AddSubnetForm.jsx";
@@ -20,6 +20,8 @@ import {
   deleteAddress,
   rescanAddress,
   autodiscoverSubnet,
+  startAutodiscoverJob,
+  autodiscoverStreamUrl,
   listSubnetScans,
   listScanExcludes,
   addScanExclude,
@@ -513,8 +515,14 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const [scanError, setScanError] = useState(null);
   const [scanResult, setScanResult] = useState(null);
   const [lastScan, setLastScan] = useState(null);
+  const [scanProgress, setScanProgress] = useState(null);
+  const eventSourceRef = useRef(null);
 
   useEffect(() => {
+    if (eventSourceRef.current !== null) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
     setConfirmingDelete(false);
     setEditingHeader(false);
     setHeaderError(null);
@@ -524,6 +532,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     setScanError(null);
     setScanResult(null);
     setLastScan(null);
+    setScanProgress(null);
 
     (async () => {
       try {
@@ -560,27 +569,60 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const runAutodiscover = async () => {
     setScanError(null);
     setScanning(true);
+    setScanProgress({ completed: 0, total: 0 });
     try {
-      const result = await autodiscoverSubnet(subnet.id);
-      setScanResult(result);
-      // autodiscoverSubnet's response has no startedAt/finishedAt (only
-      // scanId/scannedCount/usedCount/freeCount/skippedCount/diff), so
-      // hand-building lastScan from it left "last scanned" blank right
-      // after a scan. Pull the just-recorded entry from history instead,
-      // which has the full record_scan shape including finishedAt.
-      try {
-        const scans = await listSubnetScans(subnet.id);
-        setLastScan(scans.length > 0 ? scans[0] : null);
-      } catch {
-        // Non-critical — leave lastScan as whatever it was before.
-      }
-      const refreshed = await getSubnet(subnet.id);
-      onDetailUpdated(refreshed);
+      const { jobId } = await startAutodiscoverJob(subnet.id);
+      const es = new EventSource(autodiscoverStreamUrl(subnet.id, jobId));
+      eventSourceRef.current = es;
+      let settled = false;
+      es.onmessage = async (event) => {
+        const payload = JSON.parse(event.data);
+        setScanProgress({ completed: payload.completed, total: payload.total });
+        if (payload.status === "done") {
+          settled = true;
+          setScanResult(payload.result);
+          es.close();
+          eventSourceRef.current = null;
+          // payload.result has no finishedAt (only
+          // scannedCount/usedCount/freeCount/skippedCount/diff), so
+          // hand-building lastScan from it leaves "last scanned" blank.
+          // Pull the just-recorded entry from history instead, which has
+          // the full record_scan shape including finishedAt.
+          try {
+            const scans = await listSubnetScans(subnet.id);
+            setLastScan(scans.length > 0 ? scans[0] : null);
+          } catch {
+            // Non-critical — leave lastScan as whatever it was before.
+          }
+          const refreshed = await getSubnet(subnet.id);
+          onDetailUpdated(refreshed);
+          setScanning(false);
+          setConfirmingScan(false);
+          setScanProgress(null);
+        } else if (payload.status === "error") {
+          settled = true;
+          setScanError(payload.error || "Scan failed");
+          es.close();
+          eventSourceRef.current = null;
+          setScanning(false);
+          setConfirmingScan(false);
+          setScanProgress(null);
+        }
+      };
+      es.onerror = () => {
+        if (settled) return;
+        setScanError("Lost connection to the scan progress stream.");
+        es.close();
+        eventSourceRef.current = null;
+        setScanning(false);
+        setConfirmingScan(false);
+        setScanProgress(null);
+      };
     } catch (e) {
       setScanError(e.message);
-    } finally {
       setScanning(false);
       setConfirmingScan(false);
+      setScanProgress(null);
     }
   };
 
@@ -723,7 +765,11 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
               onClick={runAutodiscover}
               disabled={scanning}
             >
-              {scanning ? "Scanning…" : "Confirm scan"}
+              {scanning
+                ? scanProgress && scanProgress.total > 0
+                  ? `Scanning ${scanProgress.completed}/${scanProgress.total}…`
+                  : "Starting…"
+                : "Confirm scan"}
             </button>
             <button
               className="tool-btn tool-btn-ghost ip-row-btn"
