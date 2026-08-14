@@ -1,0 +1,8 @@
+[Unit]
+Description=Run IPAM autodiscovery for all subnets
+
+[Service]
+Type=oneshot
+Environment=IPAM_BASE_URL=http://localhost:8000
+ExecStart=/usr/bin/python3 /path/to/net-toolbox/server/scripts/scan_all_subnets.py
+WorkingDirectory=/path/to/net-toolbox
