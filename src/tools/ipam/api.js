@@ -145,6 +145,11 @@ export function autodiscoverStreamUrl(subnetId, jobId) {
   return `${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/stream/${jobId}`;
 }
 
+export async function getActiveAutodiscoverJob(subnetId) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/active`);
+  return handle(res);
+}
+
 export async function listSubnetScans(subnetId) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scans`);
   return handle(res);

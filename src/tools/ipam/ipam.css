@@ -317,3 +317,54 @@
   justify-content: space-between;
   gap: 8px;
 }
+.ip-scan-status-icon-wrap {
+  position: relative;
+  display: inline-block;
+}
+.ip-scan-status-icon {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.ip-scan-status-icon.scanning {
+  background: var(--accent);
+  animation: ip-scan-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ip-scan-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.ip-scan-status-popover {
+  display: none;
+  position: absolute;
+  top: 18px;
+  left: 0;
+  z-index: 20;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.ip-scan-status-icon-wrap:hover .ip-scan-status-popover {
+  display: block;
+}
+.ip-scan-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+}
+.ip-scan-status-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.ip-scan-status-badge.pending { color: var(--muted); }
+.ip-scan-status-badge.in_progress { color: var(--accent-2); }

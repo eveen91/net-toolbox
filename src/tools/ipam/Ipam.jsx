@@ -22,6 +22,7 @@ import {
   autodiscoverSubnet,
   startAutodiscoverJob,
   autodiscoverStreamUrl,
+  getActiveAutodiscoverJob,
   listSubnetScans,
   listScanExcludes,
   addScanExclude,
@@ -708,12 +709,15 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           </>
         )}
         {!editingHeader && !confirmingDelete && !confirmingScan && (
-          <button
-            className="tool-btn tool-btn-ghost ip-row-btn"
-            onClick={() => setConfirmingScan(true)}
-          >
-            Autodiscover
-          </button>
+          <>
+            <button
+              className="tool-btn tool-btn-ghost ip-row-btn"
+              onClick={() => setConfirmingScan(true)}
+            >
+              Autodiscover
+            </button>
+            <ScanStatusIcon subnetId={subnet.id} />
+          </>
         )}
         {!editingHeader && !confirmingDelete && !confirmingScan && (
           <button
@@ -902,6 +906,86 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
 
       <ScanExcludeManager subnetId={subnet.id} />
     </>
+  );
+}
+
+function ScanStatusIcon({ subnetId }) {
+  const [scanning, setScanning] = useState(false);
+  const [addresses, setAddresses] = useState([]);
+  const [jobId, setJobId] = useState(null);
+  const esRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkActive = async () => {
+      try {
+        const result = await getActiveAutodiscoverJob(subnetId);
+        if (cancelled) return;
+        if (result.jobId != null) {
+          if (esRef.current == null) {
+            setScanning(true);
+            setJobId(result.jobId);
+            const es = new EventSource(autodiscoverStreamUrl(subnetId, result.jobId));
+            esRef.current = es;
+            es.onmessage = (event) => {
+              const payload = JSON.parse(event.data);
+              setAddresses(payload.addresses || []);
+              if (payload.status === "done" || payload.status === "error") {
+                es.close();
+                esRef.current = null;
+                setScanning(false);
+              }
+            };
+          }
+        } else {
+          setScanning(false);
+        }
+      } catch {
+        // Best-effort polling — a failed check just waits for the next tick.
+      }
+    };
+
+    checkActive();
+    const intervalId = setInterval(checkActive, 5000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+      if (esRef.current !== null) {
+        esRef.current.close();
+        esRef.current = null;
+      }
+    };
+  }, [subnetId]);
+
+  return (
+    <span className="ip-scan-status-icon-wrap">
+      <span className={`ip-scan-status-icon ${scanning ? "scanning" : "idle"}`} />
+      {addresses.length > 0 && (
+        <div className="ip-scan-status-popover">
+          <div className="tool-hint">
+            {scanning ? "Scan in progress" : "Last scan"}
+          </div>
+          <div className="ip-scan-status-list">
+            {addresses.map((a) => (
+              <div key={a.address} className="ip-scan-status-row">
+                <span className="ip-scan-status-addr">{a.address}</span>
+                <span className={`ip-scan-status-badge ${a.status}`}>
+                  {a.status === "pending"
+                    ? "pending"
+                    : a.status === "in_progress"
+                    ? "scanning…"
+                    : a.alive
+                    ? "used"
+                    : "free"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </span>
   );
 }
 
