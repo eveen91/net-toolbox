@@ -92,6 +92,13 @@
   gap: 8px;
 }
 
+.ip-scan-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .ip-add-row {
   display: flex;
   gap: 8px;

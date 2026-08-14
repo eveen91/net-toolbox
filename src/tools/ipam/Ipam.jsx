@@ -17,6 +17,7 @@ import {
   addAddress,
   updateAddress,
   deleteAddress,
+  autodiscoverSubnet,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -378,12 +379,20 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const [headerError, setHeaderError] = useState(null);
   const [headerSaving, setHeaderSaving] = useState(false);
   const [rowError, setRowError] = useState(null);
+  const [confirmingScan, setConfirmingScan] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
 
   useEffect(() => {
     setConfirmingDelete(false);
     setEditingHeader(false);
     setHeaderError(null);
     setRowError(null);
+    setConfirmingScan(false);
+    setScanning(false);
+    setScanError(null);
+    setScanResult(null);
   }, [subnet.id]);
 
   const startEditHeader = () => {
@@ -404,6 +413,22 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
       setHeaderError(e.message);
     } finally {
       setHeaderSaving(false);
+    }
+  };
+
+  const runAutodiscover = async () => {
+    setScanError(null);
+    setScanning(true);
+    try {
+      const result = await autodiscoverSubnet(subnet.id);
+      setScanResult(result);
+      const refreshed = await getSubnet(subnet.id);
+      onDetailUpdated(refreshed);
+    } catch (e) {
+      setScanError(e.message);
+    } finally {
+      setScanning(false);
+      setConfirmingScan(false);
     }
   };
 
@@ -474,7 +499,15 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
             </button>
           </>
         )}
-        {!editingHeader &&
+        {!editingHeader && !confirmingDelete && !confirmingScan && (
+          <button
+            className="tool-btn tool-btn-ghost ip-row-btn"
+            onClick={() => setConfirmingScan(true)}
+          >
+            Autodiscover
+          </button>
+        )}
+        {!editingHeader && !confirmingScan &&
           (confirmingDelete ? (
             <span className="ip-delete-confirm">
               <span className="tool-hint">Delete subnet "{subnet.cidr}"? This can't be undone.</span>
@@ -505,8 +538,42 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
               Delete subnet
             </button>
           ))}
+        {confirmingScan && (
+          <span className="ip-delete-confirm">
+            <span className="tool-hint">
+              Ping every address in {subnet.cidr}? This may take a while.
+            </span>
+            <button
+              className="tool-btn tool-btn-ghost ip-row-btn"
+              onClick={runAutodiscover}
+              disabled={scanning}
+            >
+              {scanning ? "Scanning…" : "Confirm scan"}
+            </button>
+            <button
+              className="tool-btn tool-btn-ghost ip-row-btn"
+              onClick={() => setConfirmingScan(false)}
+              disabled={scanning}
+            >
+              Cancel
+            </button>
+          </span>
+        )}
       </div>
       {headerError && <div className="tool-error">{headerError}</div>}
+      {scanError && <div className="tool-error">{scanError}</div>}
+      {scanResult && !scanError && (
+        <div className="tool-hint ip-scan-summary">
+          Scanned {scanResult.scannedCount} · {scanResult.usedCount} used ·{" "}
+          {scanResult.freeCount} free · {scanResult.skippedCount} skipped
+          <button
+            className="tool-btn tool-btn-ghost ip-row-btn"
+            onClick={() => setScanResult(null)}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <UtilizationBar subnet={subnet} />
       <div className="tool-summary">

@@ -115,3 +115,10 @@ export async function deleteAddress(subnetId, addressId) {
   });
   return handle(res);
 }
+
+export async function autodiscoverSubnet(subnetId) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover`, {
+    method: "POST",
+  });
+  return handle(res);
+}
