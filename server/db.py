@@ -764,3 +764,51 @@ def remove_scan_exclude(subnet_id: int, address: str) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def apply_scan_result(subnet_id: int, address: str, alive: bool, hostname: Optional[str]) -> None:
+    """
+    Reconcile one scan_one() result into ipam_addresses.
+
+    Locked rows are never touched. Otherwise: a live address is recorded
+    as 'used' (creating the row if needed); a dead address only reverts
+    an existing 'used' row back to 'free' — it never touches rows that
+    are already 'free' or 'reserved', and never creates a row for an
+    address nobody had recorded. This function only ever writes status,
+    hostname, and updated_at — team/machine_type/vm_cluster/environment
+    are left completely alone.
+    """
+    conn = get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT status, locked FROM ipam_addresses WHERE subnet_id = ? AND address = ?",
+            (subnet_id, address),
+        ).fetchone()
+
+        if existing is not None and existing["locked"]:
+            return
+
+        if alive:
+            if existing is not None:
+                conn.execute(
+                    "UPDATE ipam_addresses SET status = ?, hostname = ?, updated_at = ? WHERE subnet_id = ? AND address = ?",
+                    ("used", hostname, _now(), subnet_id, address),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO ipam_addresses (subnet_id, address, status, hostname, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (subnet_id, address, "used", hostname, _now()),
+                )
+        else:
+            if existing is not None and existing["status"] == "used":
+                conn.execute(
+                    "UPDATE ipam_addresses SET status = ?, hostname = NULL, updated_at = ? WHERE subnet_id = ? AND address = ?",
+                    ("free", _now(), subnet_id, address),
+                )
+
+        conn.commit()
+    finally:
+        conn.close()
