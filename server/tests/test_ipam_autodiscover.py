@@ -255,3 +255,90 @@ def test_scan_history_is_recorded(client):
     assert entry["usedCount"] == scan_json["usedCount"]
     assert entry["freeCount"] == scan_json["freeCount"]
     assert entry["diff"] == scan_json["diff"]
+
+
+def test_rescan_single_address_updates_status(client):
+    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
+    assert create_resp.status_code == 200
+    subnet_id = create_resp.json()["id"]
+
+    target_address = "10.0.0.3"
+    add_resp = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": target_address, "status": "free"},
+    )
+    assert add_resp.status_code == 200
+    address_id = next(
+        a["id"] for a in add_resp.json()["addresses"] if a["address"] == target_address
+    )
+
+    def fake_ping_host(address, *args, **kwargs):
+        return address == target_address
+
+    def fake_reverse_dns(address, *args, **kwargs):
+        return "single.local" if address == target_address else None
+
+    with patch.object(ipam_scan, "ping_host", side_effect=fake_ping_host), \
+         patch.object(ipam_scan, "reverse_dns", side_effect=fake_reverse_dns):
+        rescan_resp = client.post(
+            f"/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan"
+        )
+    assert rescan_resp.status_code == 200
+
+    addr = next(a for a in rescan_resp.json()["addresses"] if a["address"] == target_address)
+    assert addr["status"] == "used"
+    assert addr["hostname"] == "single.local"
+
+
+def test_rescan_skips_reserved_address(client):
+    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
+    assert create_resp.status_code == 200
+    subnet_id = create_resp.json()["id"]
+
+    reserved_address = "10.0.0.5"
+    add_resp = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": reserved_address, "status": "reserved"},
+    )
+    assert add_resp.status_code == 200
+    address_id = next(
+        a["id"] for a in add_resp.json()["addresses"] if a["address"] == reserved_address
+    )
+
+    with patch.object(ipam_scan, "ping_host", return_value=True) as mock_ping, \
+         patch.object(ipam_scan, "reverse_dns", return_value=None):
+        rescan_resp = client.post(
+            f"/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan"
+        )
+    assert rescan_resp.status_code == 200
+
+    mock_ping.assert_not_called()
+
+    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
+    addr = next(a for a in detail["addresses"] if a["address"] == reserved_address)
+    assert addr["status"] == "reserved"
+
+
+def test_rescan_rejects_while_subnet_scan_in_progress(client):
+    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
+    assert create_resp.status_code == 200
+    subnet_id = create_resp.json()["id"]
+
+    target_address = "10.0.0.3"
+    add_resp = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": target_address, "status": "free"},
+    )
+    assert add_resp.status_code == 200
+    address_id = next(
+        a["id"] for a in add_resp.json()["addresses"] if a["address"] == target_address
+    )
+
+    main.SCANS_IN_PROGRESS.add(subnet_id)
+    try:
+        rescan_resp = client.post(
+            f"/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan"
+        )
+        assert rescan_resp.status_code == 409
+    finally:
+        main.SCANS_IN_PROGRESS.discard(subnet_id)

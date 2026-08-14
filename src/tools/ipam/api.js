@@ -120,6 +120,13 @@ export async function deleteAddress(subnetId, addressId) {
   return handle(res);
 }
 
+export async function rescanAddress(subnetId, addressId) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}/rescan`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+
 export async function autodiscoverSubnet(subnetId) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover`, {
     method: "POST",

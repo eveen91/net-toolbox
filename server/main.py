@@ -572,6 +572,36 @@ def remove_address(subnet_id: int, address_id: int):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+@app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail)
+async def rescan_address(subnet_id: int, address_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+
+    address_row = next((addr for addr in data["addresses"] if addr["id"] == address_id), None)
+    if address_row is None:
+        raise HTTPException(status_code=404, detail="Address not found")
+
+    if subnet_id in SCANS_IN_PROGRESS:
+        raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
+
+    if address_row["status"] == "reserved":
+        # Reserved addresses are intentionally never pinged.
+        return db.get_subnet(subnet_id)
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        SCAN_EXECUTOR,
+        ipam_scan.scan_one,
+        address_row["address"],
+        ipam_scan.DEFAULT_PING_TIMEOUT,
+        ipam_scan.DEFAULT_PING_ATTEMPTS,
+        ipam_scan.DEFAULT_DNS_TIMEOUT,
+    )
+    db.apply_scan_result(subnet_id, address_row["address"], result["alive"], result["hostname"])
+    return db.get_subnet(subnet_id)
+
+
 @app.get("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry])
 def list_subnet_scan_excludes(subnet_id: int):
     data = db.get_subnet(subnet_id)
