@@ -61,7 +61,8 @@ export async function addAddress(
   team,
   machineType,
   vmCluster,
-  environment
+  environment,
+  locked
 ) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses`, {
     method: "POST",
@@ -75,6 +76,7 @@ export async function addAddress(
       machineType,
       vmCluster,
       environment,
+      locked,
     }),
   });
   return handle(res);
@@ -90,7 +92,8 @@ export async function updateAddress(
   team,
   machineType,
   vmCluster,
-  environment
+  environment,
+  locked
 ) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
     method: "PUT",
@@ -104,6 +107,7 @@ export async function updateAddress(
       machineType,
       vmCluster,
       environment,
+      locked,
     }),
   });
   return handle(res);
@@ -125,5 +129,26 @@ export async function autodiscoverSubnet(subnetId) {
 
 export async function listSubnetScans(subnetId) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scans`);
+  return handle(res);
+}
+
+export async function listScanExcludes(subnetId) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes`);
+  return handle(res);
+}
+
+export async function addScanExclude(subnetId, address) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address }),
+  });
+  return handle(res);
+}
+
+export async function removeScanExclude(subnetId, excludeId) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes/${excludeId}`, {
+    method: "DELETE",
+  });
   return handle(res);
 }

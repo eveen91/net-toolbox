@@ -773,6 +773,18 @@ def list_scan_excludes(subnet_id: int) -> List[str]:
         conn.close()
 
 
+def list_scan_excludes_detailed(subnet_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT id, address FROM ipam_scan_excludes WHERE subnet_id = ? ORDER BY address",
+            (subnet_id,),
+        ).fetchall()
+        return [{"id": row["id"], "address": row["address"]} for row in rows]
+    finally:
+        conn.close()
+
+
 def add_scan_exclude(subnet_id: int, address: str) -> None:
     conn = get_connection()
     try:
@@ -791,6 +803,18 @@ def remove_scan_exclude(subnet_id: int, address: str) -> None:
         conn.execute(
             "DELETE FROM ipam_scan_excludes WHERE subnet_id = ? AND address = ?",
             (subnet_id, address),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_scan_exclude_by_id(subnet_id: int, exclude_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM ipam_scan_excludes WHERE id = ? AND subnet_id = ?",
+            (exclude_id, subnet_id),
         )
         conn.commit()
     finally:

@@ -433,6 +433,7 @@ class AddressEntry(BaseModel):
     machineType: Optional[Literal["physical", "vm"]] = None
     vmCluster: Optional[str] = None
     environment: Optional[Literal["prod", "test", "dev"]] = None
+    locked: bool = False
     updatedAt: str
 
 
@@ -449,6 +450,16 @@ class AddressRequest(BaseModel):
     machineType: Optional[Literal["physical", "vm"]] = None
     vmCluster: Optional[str] = None
     environment: Optional[Literal["prod", "test", "dev"]] = None
+    locked: bool = False
+
+
+class ScanExcludeEntry(BaseModel):
+    id: int
+    address: str
+
+
+class ScanExcludeRequest(BaseModel):
+    address: str
 
 
 class AutodiscoverResult(BaseModel):
@@ -536,7 +547,7 @@ def create_address(subnet_id: int, req: AddressRequest):
     try:
         return db.add_address(
             subnet_id, req.address, req.status, req.hostname, req.description,
-            req.team, req.machineType, req.vmCluster, req.environment,
+            req.team, req.machineType, req.vmCluster, req.environment, req.locked,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -547,7 +558,7 @@ def edit_address(subnet_id: int, address_id: int, req: AddressRequest):
     try:
         return db.update_address(
             subnet_id, address_id, req.address, req.status, req.hostname, req.description,
-            req.team, req.machineType, req.vmCluster, req.environment,
+            req.team, req.machineType, req.vmCluster, req.environment, req.locked,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -559,6 +570,36 @@ def remove_address(subnet_id: int, address_id: int):
         return db.delete_address(subnet_id, address_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry])
+def list_subnet_scan_excludes(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return db.list_scan_excludes_detailed(subnet_id)
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry])
+def create_subnet_scan_exclude(subnet_id: int, req: ScanExcludeRequest):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    try:
+        db.validate_address_in_subnet(req.address, data["cidr"])
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.add_scan_exclude(subnet_id, req.address.strip())
+    return db.list_scan_excludes_detailed(subnet_id)
+
+
+@app.delete("/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}", response_model=List[ScanExcludeEntry])
+def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    db.remove_scan_exclude_by_id(subnet_id, exclude_id)
+    return db.list_scan_excludes_detailed(subnet_id)
 
 
 @app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse)

@@ -19,6 +19,9 @@ import {
   deleteAddress,
   autodiscoverSubnet,
   listSubnetScans,
+  listScanExcludes,
+  addScanExclude,
+  removeScanExclude,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -58,6 +61,7 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
     machineType: addr.machineType || "",
     vmCluster: addr.vmCluster || "",
     environment: addr.environment || "",
+    locked: addr.locked || false,
   });
 
   const startEdit = () => {
@@ -70,6 +74,7 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
       machineType: addr.machineType || "",
       vmCluster: addr.vmCluster || "",
       environment: addr.environment || "",
+      locked: addr.locked || false,
     });
     setEditing(true);
   };
@@ -88,7 +93,8 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
         draft.team.trim() || null,
         draft.machineType || null,
         draft.machineType === "vm" ? draft.vmCluster.trim() || null : null,
-        draft.environment || null
+        draft.environment || null,
+        draft.locked
       );
       onUpdated(updated);
       setEditing(false);
@@ -195,6 +201,13 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
             ))}
           </select>
         </td>
+        <td>
+          <input
+            type="checkbox"
+            checked={draft.locked}
+            onChange={(e) => setDraft({ ...draft, locked: e.target.checked })}
+          />
+        </td>
         <td className="ip-actions-cell">
           <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={save} disabled={saving}>
             {saving ? "Saving…" : "Save"}
@@ -219,6 +232,7 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
       <td>{addr.machineType ? MACHINE_TYPE_LABELS[addr.machineType] : "—"}</td>
       <td>{addr.machineType === "vm" ? addr.vmCluster || "—" : "—"}</td>
       <td>{addr.environment ? ENVIRONMENT_LABELS[addr.environment] : "—"}</td>
+      <td>{addr.locked ? "🔒" : "—"}</td>
       <td className="ip-actions-cell">
         {confirmingDelete ? (
           <>
@@ -257,6 +271,7 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
   const [machineType, setMachineType] = useState("");
   const [vmCluster, setVmCluster] = useState("");
   const [environment, setEnvironment] = useState("");
+  const [locked, setLocked] = useState(false);
   const [adding, setAdding] = useState(false);
 
   const submit = async (e) => {
@@ -274,7 +289,8 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
         team.trim() || null,
         machineType || null,
         machineType === "vm" ? vmCluster.trim() || null : null,
-        environment || null
+        environment || null,
+        locked
       );
       onAdded(updated);
       setAddress("");
@@ -285,6 +301,7 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
       setMachineType("");
       setVmCluster("");
       setEnvironment("");
+      setLocked(false);
     } catch (e2) {
       onError(e2.message);
     } finally {
@@ -362,10 +379,96 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
           </option>
         ))}
       </select>
+      <label className="tool-hint" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+        <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
+        Locked
+      </label>
       <button className="tool-btn tool-btn-primary" type="submit" disabled={adding || !address.trim()}>
         {adding ? "Adding…" : "Add"}
       </button>
     </form>
+  );
+}
+
+function ScanExcludeManager({ subnetId }) {
+  const [excludes, setExcludes] = useState([]);
+  const [newAddress, setNewAddress] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setError(null);
+    setLoading(true);
+    (async () => {
+      try {
+        const data = await listScanExcludes(subnetId);
+        setExcludes(data);
+      } catch (e) {
+        setError(e.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [subnetId]);
+
+  const addExclude = async (e) => {
+    e.preventDefault();
+    if (!newAddress.trim()) return;
+    setError(null);
+    try {
+      const updated = await addScanExclude(subnetId, newAddress.trim());
+      setExcludes(updated);
+      setNewAddress("");
+    } catch (e2) {
+      setError(e2.message);
+    }
+  };
+
+  const removeExclude = async (id) => {
+    setError(null);
+    try {
+      const updated = await removeScanExclude(subnetId, id);
+      setExcludes(updated);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  return (
+    <div className="ip-scan-excludes">
+      <div className="tool-hint">Scan excludes</div>
+      {error && <div className="tool-error">{error}</div>}
+      {!loading && excludes.length === 0 && (
+        <div className="tool-hint">No excluded addresses.</div>
+      )}
+      {excludes.length > 0 && (
+        <ul className="ip-scan-exclude-list">
+          {excludes.map((ex) => (
+            <li key={ex.id}>
+              <span className="ip-mono">{ex.address}</span>
+              <button
+                className="tool-btn tool-btn-ghost ip-row-btn"
+                onClick={() => removeExclude(ex.id)}
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="ip-add-row" onSubmit={addExclude}>
+        <input
+          className="tool-input"
+          style={{ maxWidth: 160 }}
+          placeholder="10.0.1.10"
+          value={newAddress}
+          onChange={(e) => setNewAddress(e.target.value)}
+        />
+        <button className="tool-btn tool-btn-primary" type="submit" disabled={!newAddress.trim()}>
+          Add
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -685,6 +788,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
                 <th>Type</th>
                 <th>VM Cluster</th>
                 <th>Env</th>
+                <th>Locked</th>
                 <th></th>
               </tr>
             </thead>
@@ -702,6 +806,8 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           </table>
         </div>
       )}
+
+      <ScanExcludeManager subnetId={subnet.id} />
     </>
   );
 }
