@@ -120,6 +120,15 @@ export async function deleteAddress(subnetId, addressId) {
   return handle(res);
 }
 
+export async function bulkUpdateAddresses(subnetId, addressIds, fields) {
+  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/bulk`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ addressIds, ...fields }),
+  });
+  return handle(res);
+}
+
 export async function rescanAddress(subnetId, addressId) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}/rescan`, {
     method: "POST",
