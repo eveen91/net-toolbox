@@ -25,12 +25,15 @@ from typing import List, Literal, Optional
 
 import paramiko
 import winrm
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response, Request, Cookie
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import db
+import auth
+import auth_db
 import ipam_scan
 
 app = FastAPI(title="net::toolbox API")
@@ -39,16 +42,46 @@ app = FastAPI(title="net::toolbox API")
 @app.on_event("startup")
 def _init_db():
     db.init_db()
+    auth_db.init_auth_db()
 
 
 # In development the frontend runs on a different port (Vite), so allow it.
 # Lock this down to your actual frontend origin in production.
+FRONTEND_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=FRONTEND_ORIGINS,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+PUBLIC_PATHS = {
+    "/api/health",
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/session",
+}
+
+
+@app.middleware("http")
+async def require_auth_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    if request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        return await call_next(request)
+    if not auth_db.is_login_required():
+        return await call_next(request)
+    token = request.cookies.get(SESSION_COOKIE_NAME)
+    if not token or auth_db.get_user_by_session_token(token) is None:
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+    return await call_next(request)
 
 HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]+$")
 EXECUTOR = ThreadPoolExecutor(max_workers=16)
@@ -86,6 +119,22 @@ class Source(BaseModel):
 class Credentials(BaseModel):
     username: str
     password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UserPublic(BaseModel):
+    id: int
+    username: str
+    role: str
+
+
+class SessionInfoResponse(BaseModel):
+    loginRequired: bool
+    user: Optional[UserPublic] = None
 
 
 class RunRequest(BaseModel):
@@ -270,6 +319,46 @@ def test_windows_source(
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+SESSION_COOKIE_NAME = "session_token"
+
+
+@app.post("/api/auth/login")
+def login(req: LoginRequest, response: Response):
+    user = auth_db.get_user_by_username(req.username)
+    if user is None or not auth.verify_password(req.password, user["passwordHash"]):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token = auth.generate_session_token()
+    auth_db.create_session(user["id"], token)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=auth.SESSION_TTL_DAYS * 24 * 60 * 60,
+    )
+    return UserPublic(id=user["id"], username=user["username"], role=user["role"])
+
+
+@app.post("/api/auth/logout")
+def logout(response: Response, session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
+    if session_token:
+        auth_db.delete_session_by_token(session_token)
+    response.delete_cookie(key=SESSION_COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.get("/api/auth/session", response_model=SessionInfoResponse)
+def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
+    login_required = auth_db.is_login_required()
+    user = None
+    if session_token:
+        found = auth_db.get_user_by_session_token(session_token)
+        if found:
+            user = UserPublic(id=found["id"], username=found["username"], role=found["role"])
+    return SessionInfoResponse(loginRequired=login_required, user=user)
 
 
 @app.post("/api/connection-test/run", response_model=RunResponse)
