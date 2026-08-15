@@ -18,6 +18,7 @@ import {
   addAddress,
   updateAddress,
   deleteAddress,
+  bulkUpdateAddresses,
   rescanAddress,
   autodiscoverSubnet,
   startAutodiscoverJob,
@@ -53,7 +54,7 @@ function UtilizationBar({ subnet }) {
 const MACHINE_TYPE_LABELS = { physical: "Physical", vm: "VM" };
 const ENVIRONMENT_LABELS = { prod: "Prod", test: "Test", dev: "Dev" };
 
-function AddressRow({ subnetId, addr, onUpdated, onError }) {
+function AddressRow({ subnetId, addr, selected, onToggleSelect, onUpdated, onError }) {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -139,6 +140,13 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
   if (editing) {
     return (
       <tr>
+        <td>
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(addr.id)}
+          />
+        </td>
         <td>
           <input
             className="tool-input ip-row-input"
@@ -241,6 +249,13 @@ function AddressRow({ subnetId, addr, onUpdated, onError }) {
 
   return (
     <tr>
+      <td>
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect(addr.id)}
+        />
+      </td>
       <td className="ip-mono">{addr.address}</td>
       <td>
         <span className={`tool-pill ${STATUS_PILL_CLASS[addr.status]}`}>{STATUS_LABELS[addr.status]}</span>
@@ -418,6 +433,116 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
   );
 }
 
+function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
+  const [status, setStatus] = useState("");
+  const [team, setTeam] = useState("");
+  const [machineType, setMachineType] = useState("");
+  const [vmCluster, setVmCluster] = useState("");
+  const [environment, setEnvironment] = useState("");
+  const [locked, setLocked] = useState("");
+  const [applying, setApplying] = useState(false);
+
+  const resetFields = () => {
+    setStatus("");
+    setTeam("");
+    setMachineType("");
+    setVmCluster("");
+    setEnvironment("");
+    setLocked("");
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    onError(null);
+
+    const fields = {};
+    if (status !== "") fields.status = status;
+    if (team !== "") fields.team = team;
+    if (machineType !== "") fields.machineType = machineType;
+    if (vmCluster !== "") fields.vmCluster = vmCluster;
+    if (environment !== "") fields.environment = environment;
+    if (locked === "lock") fields.locked = true;
+    else if (locked === "unlock") fields.locked = false;
+
+    if (Object.keys(fields).length === 0) {
+      onError("Set at least one field to apply.");
+      return;
+    }
+
+    setApplying(true);
+    try {
+      const result = await bulkUpdateAddresses(subnetId, Array.from(selectedIds), fields);
+      onApplied(result);
+      resetFields();
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  return (
+    <form className="ip-add-row ip-bulk-edit-bar" onSubmit={submit}>
+      <span className="tool-hint">{selectedIds.size} selected</span>
+      <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <option value="">Don't change</option>
+        {Object.entries(STATUS_LABELS).map(([v, label]) => (
+          <option key={v} value={v}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        className="tool-input"
+        placeholder="team"
+        value={team}
+        onChange={(e) => setTeam(e.target.value)}
+      />
+      <select
+        className="tool-input"
+        value={machineType}
+        onChange={(e) => setMachineType(e.target.value)}
+      >
+        <option value="">Don't change</option>
+        {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
+          <option key={v} value={v}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        className="tool-input"
+        placeholder="vm cluster"
+        value={vmCluster}
+        onChange={(e) => setVmCluster(e.target.value)}
+      />
+      <select
+        className="tool-input"
+        value={environment}
+        onChange={(e) => setEnvironment(e.target.value)}
+      >
+        <option value="">Don't change</option>
+        {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
+          <option key={v} value={v}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <select className="tool-input" value={locked} onChange={(e) => setLocked(e.target.value)}>
+        <option value="">Don't change</option>
+        <option value="lock">Lock</option>
+        <option value="unlock">Unlock</option>
+      </select>
+      <button className="tool-btn tool-btn-primary" type="submit" disabled={applying}>
+        {applying ? "Applying…" : "Apply"}
+      </button>
+      <button type="button" className="tool-btn tool-btn-ghost" onClick={onClear}>
+        Clear selection
+      </button>
+    </form>
+  );
+}
+
 function ScanExcludeManager({ subnetId }) {
   const [excludes, setExcludes] = useState([]);
   const [newAddress, setNewAddress] = useState("");
@@ -517,7 +642,24 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const [scanResult, setScanResult] = useState(null);
   const [lastScan, setLastScan] = useState(null);
   const [scanProgress, setScanProgress] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const eventSourceRef = useRef(null);
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) =>
+      prev.size === subnet.addresses.length
+        ? new Set()
+        : new Set(subnet.addresses.map((a) => a.id))
+    );
+  };
 
   useEffect(() => {
     if (eventSourceRef.current !== null) {
@@ -534,6 +676,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     setScanResult(null);
     setLastScan(null);
     setScanProgress(null);
+    setSelectedIds(new Set());
 
     (async () => {
       try {
@@ -870,6 +1013,19 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
       {rowError && <div className="tool-error">{rowError}</div>}
       <AddAddressForm subnetId={subnet.id} onAdded={onDetailUpdated} onError={setRowError} />
 
+      {selectedIds.size > 0 && (
+        <BulkEditBar
+          subnetId={subnet.id}
+          selectedIds={selectedIds}
+          onApplied={(updated) => {
+            onDetailUpdated(updated);
+            setSelectedIds(new Set());
+          }}
+          onClear={() => setSelectedIds(new Set())}
+          onError={setRowError}
+        />
+      )}
+
       {subnet.addresses.length === 0 ? (
         <div className="tool-empty">No addresses recorded yet — add one above.</div>
       ) : (
@@ -877,6 +1033,13 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           <table className="tool-table">
             <thead>
               <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.size > 0 && selectedIds.size === subnet.addresses.length}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
                 <th>Address</th>
                 <th>Status</th>
                 <th>Hostname</th>
@@ -895,6 +1058,8 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
                   key={addr.id}
                   subnetId={subnet.id}
                   addr={addr}
+                  selected={selectedIds.has(addr.id)}
+                  onToggleSelect={toggleSelect}
                   onUpdated={onDetailUpdated}
                   onError={setRowError}
                 />
