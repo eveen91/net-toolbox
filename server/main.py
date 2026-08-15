@@ -21,11 +21,11 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
 import paramiko
 import winrm
-from fastapi import FastAPI, HTTPException, Response, Request, Cookie
+from fastapi import FastAPI, HTTPException, Response, Request, Cookie, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.responses import JSONResponse
@@ -135,6 +135,20 @@ class UserPublic(BaseModel):
 class SessionInfoResponse(BaseModel):
     loginRequired: bool
     user: Optional[UserPublic] = None
+
+
+class CreateUserRequest(BaseModel):
+    username: str
+    password: str
+    role: Literal["admin", "user"] = "user"
+
+
+class ResetPasswordRequest(BaseModel):
+    newPassword: str
+
+
+class RequireLoginRequest(BaseModel):
+    enabled: bool
 
 
 class RunRequest(BaseModel):

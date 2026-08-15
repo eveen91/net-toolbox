@@ -174,3 +174,42 @@ def set_setting(key: str, value: str) -> None:
 
 def is_login_required() -> bool:
     return get_setting("require_login", "false") == "true"
+
+
+def list_users() -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM users ORDER BY username").fetchall()
+        return [_user_dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def count_admin_users() -> int:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").fetchone()
+        return row["c"]
+    finally:
+        conn.close()
+
+
+def delete_user(user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def update_user_password(user_id: int, password_hash: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (password_hash, user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
