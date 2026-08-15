@@ -546,6 +546,46 @@ class ScanSummary(BaseModel):
     diff: ScanDiff
 
 
+class DashboardEntry(BaseModel):
+    id: int
+    cidr: str
+    vlan: Optional[int] = None
+    description: Optional[str] = None
+    totalAddresses: int
+    usedCount: int
+    freeCount: int
+    reservedCount: int
+    recordedCount: int
+    lastScannedAt: Optional[str] = None
+    lastScanNewlyUsed: Optional[int] = None
+    lastScanWentQuiet: Optional[int] = None
+    lastScanHostnameChanged: Optional[int] = None
+
+
+@app.get("/api/ipam/dashboard", response_model=List[DashboardEntry])
+def get_ipam_dashboard():
+    subnets = db.list_subnets()
+    entries = []
+    for s in subnets:
+        last_scan = db.get_last_scan(s["id"])
+        entries.append({
+            "id": s["id"],
+            "cidr": s["cidr"],
+            "vlan": s["vlan"],
+            "description": s["description"],
+            "totalAddresses": s["totalAddresses"],
+            "usedCount": s["usedCount"],
+            "freeCount": s["freeCount"],
+            "reservedCount": s["reservedCount"],
+            "recordedCount": s["recordedCount"],
+            "lastScannedAt": last_scan["finishedAt"] if last_scan else None,
+            "lastScanNewlyUsed": last_scan["newlyUsedCount"] if last_scan else None,
+            "lastScanWentQuiet": last_scan["wentQuietCount"] if last_scan else None,
+            "lastScanHostnameChanged": last_scan["hostnameChangedCount"] if last_scan else None,
+        })
+    return entries
+
+
 @app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
 def get_subnets():
     return db.list_subnets()

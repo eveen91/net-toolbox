@@ -1002,9 +1002,14 @@ def list_scans(subnet_id: int, limit: int = 20) -> List[Dict]:
     conn = get_connection()
     try:
         rows = conn.execute(
-            "SELECT * FROM ipam_scans WHERE subnet_id = ? ORDER BY started_at DESC LIMIT ?",
+            "SELECT * FROM ipam_scans WHERE subnet_id = ? ORDER BY started_at DESC, id DESC LIMIT ?",
             (subnet_id, limit),
         ).fetchall()
         return [_scan_dict(row) for row in rows]
     finally:
         conn.close()
+
+
+def get_last_scan(subnet_id: int) -> Optional[Dict]:
+    scans = list_scans(subnet_id, limit=1)
+    return scans[0] if scans else None
