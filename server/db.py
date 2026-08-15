@@ -413,6 +413,17 @@ IPAM_STATUSES = ("used", "free", "reserved")
 IPAM_MACHINE_TYPES = ("physical", "vm")
 IPAM_ENVIRONMENTS = ("prod", "test", "dev")
 
+# Maps the API's camelCase field names (as sent by BulkAddressUpdateRequest)
+# to their actual ipam_addresses column names, for bulk_update_addresses.
+BULK_ADDRESS_FIELD_COLUMNS = {
+    "status": "status",
+    "team": "team",
+    "machineType": "machine_type",
+    "vmCluster": "vm_cluster",
+    "environment": "environment",
+    "locked": "locked",
+}
+
 
 def validate_cidr(cidr: str) -> str:
     """Validate a subnet CIDR and normalize it to its network address (e.g. '10.0.1.5/24' -> '10.0.1.0/24')."""
@@ -756,6 +767,66 @@ def delete_address(subnet_id: int, address_id: int) -> Dict:
         if subnet_row is None:
             raise ValueError("Subnet not found")
         conn.execute("DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)
+
+
+def bulk_update_addresses(subnet_id: int, address_ids: List[int], fields: Dict) -> Dict:
+    """
+    Apply the same field updates to many addresses within one subnet, in a
+    single transaction.
+
+    `fields` must contain ONLY the keys the caller actually wants to
+    change (API-style camelCase: status/team/machineType/vmCluster/
+    environment/locked) - a key's mere presence in `fields` means "set
+    this column", matching the exclude_unset contract of
+    BulkAddressUpdateRequest. Never assume any particular key is present.
+
+    address_ids not belonging to subnet_id are silently skipped (the
+    WHERE clause simply won't match them) rather than raising.
+    """
+    fields = dict(fields)  # don't mutate the caller's dict
+
+    if "status" in fields:
+        validate_status(fields["status"])
+    if "machineType" in fields:
+        validate_machine_type(fields["machineType"])
+    if "environment" in fields:
+        validate_environment(fields["environment"])
+
+    # Same force-null-vm_cluster rule as add_address/update_address: setting
+    # machineType to anything other than "vm" clears vm_cluster too - unless
+    # the caller ALSO explicitly sent vmCluster, in which case their
+    # explicit value wins over the force-null rule.
+    if "machineType" in fields and fields["machineType"] != "vm" and "vmCluster" not in fields:
+        fields["vmCluster"] = None
+
+    set_columns = []
+    params: List = []
+    for api_key, column in BULK_ADDRESS_FIELD_COLUMNS.items():
+        if api_key in fields:
+            set_columns.append(f"{column} = ?")
+            params.append(fields[api_key])
+    set_columns.append("updated_at = ?")
+    params.append(_now())
+
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if subnet_row is None:
+            raise ValueError("Subnet not found")
+
+        placeholders = ",".join("?" for _ in address_ids)
+        conn.execute(
+            f"""
+            UPDATE ipam_addresses
+            SET {", ".join(set_columns)}
+            WHERE subnet_id = ? AND id IN ({placeholders})
+            """,
+            (*params, subnet_id, *address_ids),
+        )
         conn.commit()
     finally:
         conn.close()

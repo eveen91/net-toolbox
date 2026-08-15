@@ -467,6 +467,33 @@ class AddressRequest(BaseModel):
     locked: bool = False
 
 
+class BulkAddressUpdateRequest(BaseModel):
+    """
+    Bulk-edit a set of addresses (by id) within one subnet.
+
+    Every field below besides addressIds is optional so a request only
+    touches what it explicitly sends. This depends on Pydantic v2's
+    exclude_unset behavior: a field key that's simply absent from the
+    request body never lands in `model_fields_set`, while a field sent
+    as `null` DOES land in `model_fields_set` (with a value of None) -
+    so `req.model_dump(exclude_unset=True)` distinguishes "leave this
+    field alone" (key absent) from "clear this field" (key present,
+    value null) from "set this field" (key present, real value).
+    Do NOT special-case any of these fields with `is not None` checks
+    downstream - that collapses "not sent" and "explicitly cleared"
+    into the same branch, which is exactly what this model exists to
+    avoid.
+    """
+
+    addressIds: List[int]
+    status: Optional[Literal["used", "free", "reserved"]] = None
+    team: Optional[str] = None
+    machineType: Optional[Literal["physical", "vm"]] = None
+    vmCluster: Optional[str] = None
+    environment: Optional[Literal["prod", "test", "dev"]] = None
+    locked: Optional[bool] = None
+
+
 class ScanExcludeEntry(BaseModel):
     id: int
     address: str
@@ -584,6 +611,17 @@ def remove_address(subnet_id: int, address_id: int):
         return db.delete_address(subnet_id, address_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetDetail)
+def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
+    if not req.addressIds:
+        raise HTTPException(status_code=400, detail="No addresses selected")
+    try:
+        fields = req.dict(exclude_unset=True, exclude={"addressIds"})
+        return db.bulk_update_addresses(subnet_id, req.addressIds, fields)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail)
