@@ -29,9 +29,28 @@ In production, put a reverse proxy in front that does the same, or set
 
 The Subnet Splitter tool needs no backend — it's pure client-side computation.
 
+**Docker** (Windows / Docker Desktop, auto-updating from GitHub)
+
+```powershell
+cd docker
+copy .env.example .env    # then set ROUTER_IP in it
+docker compose up -d --build
+```
+
+Runs the frontend on `:3000` and backend on `:8000`, pulls the latest commit
+from this repo on every container restart, and persists `toolbox.db` in a
+named volume. See [`docker/README.md`](docker/README.md) for the full setup,
+troubleshooting, and how to track a different branch or fork.
+
 ## Project layout
 
 ```
+docker/
+  Dockerfile                    # backend/frontend image (role picked via ROLE env var)
+  entrypoint.sh                 # re-clones this repo from GitHub on every container start
+  docker-compose.yml            # backend + frontend services, persistent DB volume
+  .env.example                  # ROUTER_IP / REPO_URL / BRANCH overrides
+  README.md                     # full Docker setup + troubleshooting guide
 src/
   App.jsx                     # shell only: toolbar + routing between home/tools
   index.css                   # theme, toolbar, home page, tool-header styles

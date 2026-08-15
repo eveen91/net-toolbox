@@ -1,0 +1,41 @@
+services:
+  backend:
+    build: .
+    image: net-toolbox:local
+    container_name: net-toolbox-backend
+    environment:
+      ROLE: backend
+      REPO_URL: ${REPO_URL:-https://github.com/eveen91/net-toolbox.git}
+      BRANCH: ${BRANCH:-main}
+    dns:
+      - ${ROUTER_IP:-192.168.1.1}  # <-- set to your router's LAN IP; it's the
+                                    #     one resolving names like pc.home.
+                                    #     Override via .env (ROUTER_IP=...)
+                                    #     rather than editing this line.
+    ports:
+      - "8000:8000"
+    volumes:
+      - toolbox-data:/data
+    restart: unless-stopped
+
+  frontend:
+    build: .
+    image: net-toolbox:local
+    container_name: net-toolbox-frontend
+    environment:
+      ROLE: frontend
+      REPO_URL: ${REPO_URL:-https://github.com/eveen91/net-toolbox.git}
+      BRANCH: ${BRANCH:-main}
+      # Browser-facing address of the backend. localhost works because both
+      # ports are published to the Windows host - the browser calls the
+      # backend directly (its CORS policy already allows any origin).
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  toolbox-data:
+    name: net-toolbox-data
