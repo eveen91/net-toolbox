@@ -368,3 +368,7 @@
 }
 .ip-scan-status-badge.pending { color: var(--muted); }
 .ip-scan-status-badge.in_progress { color: var(--accent-2); }
+
+.ip-dashboard-unscanned {
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}

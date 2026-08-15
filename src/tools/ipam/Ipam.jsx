@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import "./ipam.css";
 import SubnetSearch from "./SubnetSearch.jsx";
 import AddSubnetForm from "./AddSubnetForm.jsx";
+import IpamDashboard from "./IpamDashboard.jsx";
 import {
   formatVlan,
   formatTimestamp,
@@ -1158,6 +1159,7 @@ export default function Ipam() {
   const [subnets, setSubnets] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState(null);
+  const [viewMode, setViewMode] = useState("search"); // "search" | "dashboard"
 
   const [selectedId, setSelectedId] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null);
@@ -1236,33 +1238,53 @@ export default function Ipam() {
               await selectSubnet(created.id);
             }}
           />
+          <button
+            className="tool-btn tool-btn-ghost ip-row-btn"
+            onClick={() => setViewMode(viewMode === "dashboard" ? "search" : "dashboard")}
+          >
+            {viewMode === "dashboard" ? "Back to search" : "Dashboard"}
+          </button>
         </div>
-        {listError && <div className="tool-error">{listError}</div>}
 
-        <div className="ip-divider" />
+        {viewMode === "search" && (
+          <>
+            {listError && <div className="tool-error">{listError}</div>}
 
-        {!selectedId && !listError && (
-          <div className="tool-empty">
-            {listLoading
-              ? "Loading subnets…"
-              : subnets.length === 0
-              ? "No subnets yet — add one above to get started."
-              : "Search above to jump to a subnet by CIDR."}
-          </div>
+            <div className="ip-divider" />
+
+            {!selectedId && !listError && (
+              <div className="tool-empty">
+                {listLoading
+                  ? "Loading subnets…"
+                  : subnets.length === 0
+                  ? "No subnets yet — add one above to get started."
+                  : "Search above to jump to a subnet by CIDR."}
+              </div>
+            )}
+
+            {selectedId && detailLoading && <div className="tool-empty">Loading…</div>}
+
+            {selectedId && !detailLoading && detailError && <div className="tool-error">{detailError}</div>}
+
+            {selectedId && !detailLoading && selectedDetail && (
+              <SubnetDetail
+                subnet={selectedDetail}
+                subnets={subnets}
+                deleting={deleting}
+                onDelete={handleDelete}
+                onDetailUpdated={handleDetailUpdated}
+                onSelectSubnet={selectSubnet}
+              />
+            )}
+          </>
         )}
 
-        {selectedId && detailLoading && <div className="tool-empty">Loading…</div>}
-
-        {selectedId && !detailLoading && detailError && <div className="tool-error">{detailError}</div>}
-
-        {selectedId && !detailLoading && selectedDetail && (
-          <SubnetDetail
-            subnet={selectedDetail}
-            subnets={subnets}
-            deleting={deleting}
-            onDelete={handleDelete}
-            onDetailUpdated={handleDetailUpdated}
-            onSelectSubnet={selectSubnet}
+        {viewMode === "dashboard" && (
+          <IpamDashboard
+            onSelectSubnet={(id) => {
+              setViewMode("search");
+              selectSubnet(id);
+            }}
           />
         )}
       </div>

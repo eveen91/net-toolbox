@@ -22,6 +22,11 @@ export async function listSubnets() {
   return handle(res);
 }
 
+export async function getIpamDashboard() {
+  const res = await fetch(`${BASE_URL}/api/ipam/dashboard`);
+  return handle(res);
+}
+
 export async function getSubnet(subnetId) {
   const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`);
   return handle(res);
