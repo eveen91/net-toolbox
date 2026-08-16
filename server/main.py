@@ -338,6 +338,21 @@ def health():
 SESSION_COOKIE_NAME = "session_token"
 
 
+def require_admin_user(
+    session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> Optional[Dict]:
+    if not auth_db.is_login_required():
+        return None
+    user = None
+    if session_token:
+        user = auth_db.get_user_by_session_token(session_token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 @app.post("/api/auth/login")
 def login(req: LoginRequest, response: Response):
     user = auth_db.get_user_by_username(req.username)
@@ -373,6 +388,74 @@ def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=S
         if found:
             user = UserPublic(id=found["id"], username=found["username"], role=found["role"])
     return SessionInfoResponse(loginRequired=login_required, user=user)
+
+
+@app.get("/api/admin/users", response_model=List[UserPublic])
+def list_admin_users(admin: Optional[Dict] = Depends(require_admin_user)):
+    users = auth_db.list_users()
+    return [UserPublic(id=u["id"], username=u["username"], role=u["role"]) for u in users]
+
+
+@app.post("/api/admin/users", response_model=UserPublic)
+def create_admin_user(req: CreateUserRequest, admin: Optional[Dict] = Depends(require_admin_user)):
+    try:
+        password_hash = auth.hash_password(req.password)
+        user = auth_db.create_user(req.username, password_hash, req.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return UserPublic(id=user["id"], username=user["username"], role=user["role"])
+
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_admin_user(user_id: int, admin: Optional[Dict] = Depends(require_admin_user)):
+    target = auth_db.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    if admin is not None and admin["id"] == user_id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    if target["role"] == "admin" and auth_db.count_admin_users() <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last remaining admin user")
+    auth_db.delete_user(user_id)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def reset_user_password(user_id: int, req: ResetPasswordRequest, admin: Optional[Dict] = Depends(require_admin_user)):
+    target = auth_db.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    password_hash = auth.hash_password(req.newPassword)
+    auth_db.update_user_password(user_id, password_hash)
+    return {"ok": True}
+
+
+@app.post("/api/admin/settings/require-login")
+def set_require_login(
+    payload: RequireLoginRequest,
+    session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+):
+    current_user = None
+    if session_token:
+        current_user = auth_db.get_user_by_session_token(session_token)
+
+    if auth_db.is_login_required():
+        if current_user is None or current_user["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Admin access required")
+
+    if payload.enabled:
+        if current_user is None or current_user["role"] != "admin":
+            raise HTTPException(
+                status_code=403,
+                detail="You must be logged in as an admin to enable login requirement",
+            )
+        if auth_db.count_admin_users() < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot enable login requirement: no admin users exist yet",
+            )
+
+    auth_db.set_setting("require_login", "true" if payload.enabled else "false")
+    return {"loginRequired": auth_db.is_login_required()}
 
 
 @app.post("/api/connection-test/run", response_model=RunResponse)
