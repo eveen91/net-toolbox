@@ -156,6 +156,15 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+
         conn.commit()
 
     finally:
@@ -1013,3 +1022,50 @@ def list_scans(subnet_id: int, limit: int = 20) -> List[Dict]:
 def get_last_scan(subnet_id: int) -> Optional[Dict]:
     scans = list_scans(subnet_id, limit=1)
     return scans[0] if scans else None
+
+
+def get_ipam_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT value FROM ipam_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+    finally:
+        conn.close()
+
+
+def set_ipam_setting(key: str, value: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO ipam_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+SCAN_CONCURRENCY_DEFAULT = 32
+SCAN_CONCURRENCY_MIN = 1
+SCAN_CONCURRENCY_MAX = 256
+
+
+def get_scan_concurrency_limit() -> int:
+    raw = get_ipam_setting("scan_concurrency_limit", str(SCAN_CONCURRENCY_DEFAULT))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return SCAN_CONCURRENCY_DEFAULT
+    if value < SCAN_CONCURRENCY_MIN or value > SCAN_CONCURRENCY_MAX:
+        return SCAN_CONCURRENCY_DEFAULT
+    return value
+
+
+def set_scan_concurrency_limit(value: int) -> int:
+    if value < SCAN_CONCURRENCY_MIN or value > SCAN_CONCURRENCY_MAX:
+        raise ValueError(
+            f"Concurrency limit must be between {SCAN_CONCURRENCY_MIN} and {SCAN_CONCURRENCY_MAX}"
+        )
+    set_ipam_setting("scan_concurrency_limit", str(value))
+    return value

@@ -90,7 +90,7 @@ EXECUTOR = ThreadPoolExecutor(max_workers=16)
 # workload from Connection Test's SSH/WinRM sessions — one scan can fan out
 # over hundreds of addresses, so it gets its own bounded pool rather than
 # competing with EXECUTOR's 16 slots.
-SCAN_EXECUTOR = ThreadPoolExecutor(max_workers=32)
+SCAN_EXECUTOR = ThreadPoolExecutor(max_workers=256)
 
 # subnet_id's currently being scanned, so a second scan on the same subnet
 # can be rejected/deduped instead of running concurrently with the first.
@@ -666,6 +666,16 @@ class SubnetDetail(SubnetSummary):
     addresses: List[AddressEntry] = []
 
 
+class IpamSettingsResponse(BaseModel):
+    scanConcurrencyLimit: int
+    scanConcurrencyMin: int
+    scanConcurrencyMax: int
+
+
+class UpdateIpamSettingsRequest(BaseModel):
+    scanConcurrencyLimit: int
+
+
 class AddressRequest(BaseModel):
     address: str
     status: Literal["used", "free", "reserved"] = "used"
@@ -800,6 +810,28 @@ def get_ipam_dashboard():
 @app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
 def get_subnets():
     return db.list_subnets()
+
+
+@app.get("/api/ipam/settings", response_model=IpamSettingsResponse)
+def get_ipam_settings():
+    return IpamSettingsResponse(
+        scanConcurrencyLimit=db.get_scan_concurrency_limit(),
+        scanConcurrencyMin=db.SCAN_CONCURRENCY_MIN,
+        scanConcurrencyMax=db.SCAN_CONCURRENCY_MAX,
+    )
+
+
+@app.put("/api/ipam/settings", response_model=IpamSettingsResponse)
+def update_ipam_settings(req: UpdateIpamSettingsRequest):
+    try:
+        db.set_scan_concurrency_limit(req.scanConcurrencyLimit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return IpamSettingsResponse(
+        scanConcurrencyLimit=db.get_scan_concurrency_limit(),
+        scanConcurrencyMin=db.SCAN_CONCURRENCY_MIN,
+        scanConcurrencyMax=db.SCAN_CONCURRENCY_MAX,
+    )
 
 
 @app.post("/api/ipam/subnets", response_model=SubnetDetail)
@@ -970,11 +1002,13 @@ async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, 
     completed_count = 0
     results = []
     tasks = []
-    for address in targets:
-        if on_address_update is not None:
-            on_address_update(address, "in_progress")
-        tasks.append(
-            loop.run_in_executor(
+
+    concurrency_limit = db.get_scan_concurrency_limit()
+    semaphore = asyncio.Semaphore(concurrency_limit)
+
+    async def scan_one_task(address):
+        async with semaphore:
+            return await loop.run_in_executor(
                 SCAN_EXECUTOR,
                 ipam_scan.scan_one,
                 address,
@@ -982,7 +1016,11 @@ async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, 
                 ipam_scan.DEFAULT_PING_ATTEMPTS,
                 ipam_scan.DEFAULT_DNS_TIMEOUT,
             )
-        )
+
+    for address in targets:
+        if on_address_update is not None:
+            on_address_update(address, "in_progress")
+        tasks.append(scan_one_task(address))
     for coro in asyncio.as_completed(tasks):
         result = await coro
         results.append(result)
