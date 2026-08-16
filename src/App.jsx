@@ -3,11 +3,22 @@ import Toolbar from "./components/Toolbar.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import HomePage from "./pages/HomePage.jsx";
 import { TOOLS } from "./tools/registry.js";
+import { AuthProvider, useAuth } from "./auth/AuthContext.jsx";
+import LoginPage from "./auth/LoginPage.jsx";
 import "./tools/shared.css";
 
-export default function App() {
+function AppShell() {
   const [active, setActive] = useState("home");
+  const { loading, loginRequired, user } = useAuth();
   const activeTool = TOOLS.find((t) => t.id === active);
+
+  if (loading) {
+    return <div className="nt-auth-loading">Loading…</div>;
+  }
+
+  if (loginRequired && !user) {
+    return <LoginPage />;
+  }
 
   return (
     <div>
@@ -28,5 +39,13 @@ export default function App() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

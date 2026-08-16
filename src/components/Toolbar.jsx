@@ -1,7 +1,10 @@
 import React from "react";
 import { TOOLS } from "../tools/registry.js";
+import { useAuth } from "../auth/AuthContext.jsx";
 
 export default function Toolbar({ active, onNavigate }) {
+  const { user, logout } = useAuth();
+
   return (
     <div className="nt-toolbar">
       <button className="nt-logo" onClick={() => onNavigate("home")}>
@@ -27,6 +30,15 @@ export default function Toolbar({ active, onNavigate }) {
           {tool.name}
         </button>
       ))}
+
+      {user && (
+        <div className="nt-toolbar-user">
+          <span className="nt-toolbar-username">{user.username}</span>
+          <button className="nt-navbtn" onClick={logout}>
+            Log out
+          </button>
+        </div>
+      )}
     </div>
   );
 }
