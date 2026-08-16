@@ -130,6 +130,7 @@ class UserPublic(BaseModel):
     id: int
     username: str
     role: str
+    permissions: List[str] = []
 
 
 class SessionInfoResponse(BaseModel):
@@ -140,11 +141,31 @@ class SessionInfoResponse(BaseModel):
 class CreateUserRequest(BaseModel):
     username: str
     password: str
-    role: Literal["admin", "user"] = "user"
+    role: str = "user"
+
+
+class UpdateUserRoleRequest(BaseModel):
+    role: str
 
 
 class ResetPasswordRequest(BaseModel):
     newPassword: str
+
+
+class RolePublic(BaseModel):
+    id: int
+    name: str
+    permissions: List[str]
+    isBuiltin: bool
+
+
+class CreateRoleRequest(BaseModel):
+    name: str
+    permissions: List[str] = []
+
+
+class UpdateRoleRequest(BaseModel):
+    permissions: List[str]
 
 
 class ChangePasswordRequest(BaseModel):
@@ -369,6 +390,45 @@ def require_logged_in_user(
     return user
 
 
+def user_permissions(user: Dict) -> List[str]:
+    return auth_db.role_permissions_for_name(user["role"])
+
+
+def _user_public(user: Dict) -> UserPublic:
+    return UserPublic(
+        id=user["id"],
+        username=user["username"],
+        role=user["role"],
+        permissions=user_permissions(user),
+    )
+
+
+def require_feature(feature_id: str):
+    """Dependency factory: gates a tool's backend endpoints behind the
+    caller's role permissions, the same permissions the Config Panel's
+    Roles editor manages. A no-op when login isn't required, matching the
+    rest of the app's behavior in that mode."""
+
+    def _dependency(
+        session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    ) -> Optional[Dict]:
+        if not auth_db.is_login_required():
+            return None
+        user = None
+        if session_token:
+            user = auth_db.get_user_by_session_token(session_token)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        permissions = user_permissions(user)
+        if "*" not in permissions and feature_id not in permissions:
+            raise HTTPException(
+                status_code=403, detail=f'Your role does not have access to "{feature_id}"'
+            )
+        return user
+
+    return _dependency
+
+
 @app.post("/api/auth/login")
 def login(req: LoginRequest, response: Response):
     user = auth_db.get_user_by_username(req.username)
@@ -384,7 +444,7 @@ def login(req: LoginRequest, response: Response):
         secure=False,
         max_age=auth.SESSION_TTL_DAYS * 24 * 60 * 60,
     )
-    return UserPublic(id=user["id"], username=user["username"], role=user["role"])
+    return _user_public(user)
 
 
 @app.post("/api/auth/logout")
@@ -402,7 +462,7 @@ def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=S
     if session_token:
         found = auth_db.get_user_by_session_token(session_token)
         if found:
-            user = UserPublic(id=found["id"], username=found["username"], role=found["role"])
+            user = _user_public(found)
     return SessionInfoResponse(loginRequired=login_required, user=user)
 
 
@@ -418,17 +478,40 @@ def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require
 @app.get("/api/admin/users", response_model=List[UserPublic])
 def list_admin_users(admin: Optional[Dict] = Depends(require_admin_user)):
     users = auth_db.list_users()
-    return [UserPublic(id=u["id"], username=u["username"], role=u["role"]) for u in users]
+    return [_user_public(u) for u in users]
 
 
 @app.post("/api/admin/users", response_model=UserPublic)
 def create_admin_user(req: CreateUserRequest, admin: Optional[Dict] = Depends(require_admin_user)):
+    role = req.role.strip()
+    if role != auth_db.ADMIN_ROLE_NAME and auth_db.get_role_by_name(role) is None:
+        raise HTTPException(status_code=400, detail=f'Role "{role}" does not exist')
     try:
         password_hash = auth.hash_password(req.password)
-        user = auth_db.create_user(req.username, password_hash, req.role)
+        user = auth_db.create_user(req.username, password_hash, role)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return UserPublic(id=user["id"], username=user["username"], role=user["role"])
+    return _user_public(user)
+
+
+@app.patch("/api/admin/users/{user_id}/role", response_model=UserPublic)
+def update_admin_user_role(
+    user_id: int, req: UpdateUserRoleRequest, admin: Optional[Dict] = Depends(require_admin_user)
+):
+    target = auth_db.get_user_by_id(user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    role = req.role.strip()
+    if role != auth_db.ADMIN_ROLE_NAME and auth_db.get_role_by_name(role) is None:
+        raise HTTPException(status_code=400, detail=f'Role "{role}" does not exist')
+    if (
+        target["role"] == auth_db.ADMIN_ROLE_NAME
+        and role != auth_db.ADMIN_ROLE_NAME
+        and auth_db.count_admin_users() <= 1
+    ):
+        raise HTTPException(status_code=400, detail="Cannot demote the last remaining admin user")
+    auth_db.update_user_role(user_id, role)
+    return _user_public(auth_db.get_user_by_id(user_id))
 
 
 @app.delete("/api/admin/users/{user_id}")
@@ -451,6 +534,38 @@ def reset_user_password(user_id: int, req: ResetPasswordRequest, admin: Optional
         raise HTTPException(status_code=404, detail="User not found")
     password_hash = auth.hash_password(req.newPassword)
     auth_db.update_user_password(user_id, password_hash)
+    return {"ok": True}
+
+
+@app.get("/api/admin/roles", response_model=List[RolePublic])
+def list_admin_roles(admin: Optional[Dict] = Depends(require_admin_user)):
+    return auth_db.list_roles()
+
+
+@app.post("/api/admin/roles", response_model=RolePublic)
+def create_admin_role(req: CreateRoleRequest, admin: Optional[Dict] = Depends(require_admin_user)):
+    try:
+        return auth_db.create_role(req.name, req.permissions)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.put("/api/admin/roles/{role_id}", response_model=RolePublic)
+def update_admin_role(
+    role_id: int, req: UpdateRoleRequest, admin: Optional[Dict] = Depends(require_admin_user)
+):
+    try:
+        return auth_db.update_role_permissions(role_id, req.permissions)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/api/admin/roles/{role_id}")
+def delete_admin_role(role_id: int, admin: Optional[Dict] = Depends(require_admin_user)):
+    try:
+        auth_db.delete_role(role_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
 
 
@@ -483,7 +598,11 @@ def set_require_login(
     return {"loginRequired": auth_db.is_login_required()}
 
 
-@app.post("/api/connection-test/run", response_model=RunResponse)
+@app.post(
+    "/api/connection-test/run",
+    response_model=RunResponse,
+    dependencies=[Depends(require_feature("connection-test"))],
+)
 async def run_connection_test(req: RunRequest):
     destinations = [validate_host(d) for d in req.destinations]
     ports = [validate_port(p) for p in req.ports]
@@ -577,7 +696,11 @@ class RoutingHostDetail(BaseModel):
     interfaces: List[InterfaceEntry] = []
 
 
-@app.get("/api/routing/hosts", response_model=List[RoutingHostSummary])
+@app.get(
+    "/api/routing/hosts",
+    response_model=List[RoutingHostSummary],
+    dependencies=[Depends(require_feature("routing-map"))],
+)
 def get_routing_hosts():
     rows = db.list_hosts()
     return [
@@ -591,12 +714,20 @@ def get_routing_hosts():
     ]
 
 
-@app.get("/api/routing/export", response_model=List[RoutingHostDetail])
+@app.get(
+    "/api/routing/export",
+    response_model=List[RoutingHostDetail],
+    dependencies=[Depends(require_feature("routing-map"))],
+)
 def export_routing_hosts():
     return db.export_all()
 
 
-@app.get("/api/routing/hosts/{host}", response_model=RoutingHostDetail)
+@app.get(
+    "/api/routing/hosts/{host}",
+    response_model=RoutingHostDetail,
+    dependencies=[Depends(require_feature("routing-map"))],
+)
 def get_routing_host(host: str):
     data = db.get_host(host)
     if data is None:
@@ -604,7 +735,11 @@ def get_routing_host(host: str):
     return data
 
 
-@app.put("/api/routing/hosts/{host}", response_model=RoutingHostDetail)
+@app.put(
+    "/api/routing/hosts/{host}",
+    response_model=RoutingHostDetail,
+    dependencies=[Depends(require_feature("routing-map"))],
+)
 def put_routing_host(host: str, req: SaveRoutingHostRequest):
     try:
         return db.save_host(
@@ -616,7 +751,10 @@ def put_routing_host(host: str, req: SaveRoutingHostRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.delete("/api/routing/hosts/{host}")
+@app.delete(
+    "/api/routing/hosts/{host}",
+    dependencies=[Depends(require_feature("routing-map"))],
+)
 def delete_routing_host(host: str):
     deleted = db.delete_host(host)
     if not deleted:
@@ -783,7 +921,7 @@ class DashboardEntry(BaseModel):
     lastScanHostnameChanged: Optional[int] = None
 
 
-@app.get("/api/ipam/dashboard", response_model=List[DashboardEntry])
+@app.get("/api/ipam/dashboard", response_model=List[DashboardEntry], dependencies=[Depends(require_feature("ipam"))])
 def get_ipam_dashboard():
     subnets = db.list_subnets()
     entries = []
@@ -807,12 +945,12 @@ def get_ipam_dashboard():
     return entries
 
 
-@app.get("/api/ipam/subnets", response_model=List[SubnetSummary])
+@app.get("/api/ipam/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_feature("ipam"))])
 def get_subnets():
     return db.list_subnets()
 
 
-@app.get("/api/ipam/settings", response_model=IpamSettingsResponse)
+@app.get("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_feature("ipam"))])
 def get_ipam_settings():
     return IpamSettingsResponse(
         scanConcurrencyLimit=db.get_scan_concurrency_limit(),
@@ -821,7 +959,7 @@ def get_ipam_settings():
     )
 
 
-@app.put("/api/ipam/settings", response_model=IpamSettingsResponse)
+@app.put("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_feature("ipam"))])
 def update_ipam_settings(req: UpdateIpamSettingsRequest):
     try:
         db.set_scan_concurrency_limit(req.scanConcurrencyLimit)
@@ -834,7 +972,7 @@ def update_ipam_settings(req: UpdateIpamSettingsRequest):
     )
 
 
-@app.post("/api/ipam/subnets", response_model=SubnetDetail)
+@app.post("/api/ipam/subnets", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def create_subnet(req: SubnetRequest):
     try:
         return db.create_subnet(req.cidr, req.vlan, req.description)
@@ -842,7 +980,7 @@ def create_subnet(req: SubnetRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail)
+@app.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def get_subnet(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -850,7 +988,7 @@ def get_subnet(subnet_id: int):
     return data
 
 
-@app.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail)
+@app.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def update_subnet(subnet_id: int, req: SubnetRequest):
     try:
         return db.update_subnet(subnet_id, req.cidr, req.vlan, req.description)
@@ -858,7 +996,7 @@ def update_subnet(subnet_id: int, req: SubnetRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}")
+@app.delete("/api/ipam/subnets/{subnet_id}", dependencies=[Depends(require_feature("ipam"))])
 def delete_subnet(subnet_id: int):
     deleted = db.delete_subnet(subnet_id)
     if not deleted:
@@ -866,7 +1004,7 @@ def delete_subnet(subnet_id: int):
     return {"deleted": subnet_id}
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail)
+@app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def create_address(subnet_id: int, req: AddressRequest):
     try:
         return db.add_address(
@@ -877,7 +1015,7 @@ def create_address(subnet_id: int, req: AddressRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail)
+@app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def edit_address(subnet_id: int, address_id: int, req: AddressRequest):
     try:
         return db.update_address(
@@ -888,7 +1026,7 @@ def edit_address(subnet_id: int, address_id: int, req: AddressRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail)
+@app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def remove_address(subnet_id: int, address_id: int):
     try:
         return db.delete_address(subnet_id, address_id)
@@ -896,7 +1034,7 @@ def remove_address(subnet_id: int, address_id: int):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetDetail)
+@app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
     if not req.addressIds:
         raise HTTPException(status_code=400, detail="No addresses selected")
@@ -907,7 +1045,7 @@ def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail)
+@app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 async def rescan_address(subnet_id: int, address_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -937,7 +1075,7 @@ async def rescan_address(subnet_id: int, address_id: int):
     return db.get_subnet(subnet_id)
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry])
+@app.get("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_feature("ipam"))])
 def list_subnet_scan_excludes(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -945,7 +1083,7 @@ def list_subnet_scan_excludes(subnet_id: int):
     return db.list_scan_excludes_detailed(subnet_id)
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry])
+@app.post("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_feature("ipam"))])
 def create_subnet_scan_exclude(subnet_id: int, req: ScanExcludeRequest):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -958,7 +1096,7 @@ def create_subnet_scan_exclude(subnet_id: int, req: ScanExcludeRequest):
     return db.list_scan_excludes_detailed(subnet_id)
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}", response_model=List[ScanExcludeEntry])
+@app.delete("/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_feature("ipam"))])
 def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -1079,7 +1217,7 @@ async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, 
     }
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse)
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse, dependencies=[Depends(require_feature("ipam"))])
 async def autodiscover_subnet(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -1105,7 +1243,7 @@ def cleanup_old_scan_jobs(max_age_seconds: float = 300.0) -> None:
         del SCAN_JOBS[job_id]
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/autodiscover/start")
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover/start", dependencies=[Depends(require_feature("ipam"))])
 async def start_autodiscover_job(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -1171,7 +1309,7 @@ async def start_autodiscover_job(subnet_id: int):
     return {"jobId": job_id}
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/active")
+@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/active", dependencies=[Depends(require_feature("ipam"))])
 def get_active_scan(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -1185,7 +1323,7 @@ def get_active_scan(subnet_id: int):
     return {"jobId": job_id, "completed": job["completed"], "total": job["total"]}
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}")
+@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}", dependencies=[Depends(require_feature("ipam"))])
 async def stream_autodiscover_job(subnet_id: int, job_id: str):
     if job_id not in SCAN_JOBS:
         raise HTTPException(status_code=404, detail="Scan job not found")
@@ -1227,7 +1365,7 @@ async def stream_autodiscover_job(subnet_id: int, job_id: str):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/scans", response_model=List[ScanSummary])
+@app.get("/api/ipam/subnets/{subnet_id}/scans", response_model=List[ScanSummary], dependencies=[Depends(require_feature("ipam"))])
 def get_subnet_scans(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:

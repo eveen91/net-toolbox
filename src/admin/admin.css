@@ -27,3 +27,56 @@
   gap: 8px;
   align-items: flex-start;
 }
+
+.nt-admin-roles {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #333);
+}
+
+.nt-admin-roles h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.nt-roles-table th,
+.nt-roles-table td {
+  text-align: center;
+}
+
+.nt-roles-table th:first-child,
+.nt-roles-table td:first-child {
+  text-align: left;
+}
+
+.nt-role-checkbox-cell {
+  vertical-align: middle;
+}
+
+.nt-role-badge {
+  margin-left: 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border: 1px solid var(--border, #333);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.nt-new-role-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.nt-role-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+}

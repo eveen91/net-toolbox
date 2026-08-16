@@ -1,11 +1,12 @@
 import React, { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { TOOLS } from "../tools/registry.js";
+import { visibleTools } from "../tools/registry.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import AccountPanel from "../auth/AccountPanel.jsx";
 
 export default function Toolbar({ active, onNavigate }) {
   const { user, logout, loginRequired } = useAuth();
+  const tools = visibleTools(user, loginRequired);
   const [showAccount, setShowAccount] = useState(false);
   const [popoverTop, setPopoverTop] = useState(56);
   const toolbarRef = useRef(null);
@@ -61,7 +62,7 @@ export default function Toolbar({ active, onNavigate }) {
         Home
       </button>
 
-      {TOOLS.map((tool) => (
+      {tools.map((tool) => (
         <button
           key={tool.id}
           className={`nt-navbtn ${active === tool.id ? "active" : ""} ${

@@ -50,3 +50,19 @@ export const TOOLS = [
     Component: Ipam,
   },
 ];
+
+// True if `permissions` (a user's role.permissions list) grants access to
+// toolId. "*" is the sentinel the "admin" role's permissions always carry,
+// meaning unrestricted access — see server/auth_db.py's ADMIN_ROLE_NAME.
+export function hasToolAccess(permissions, toolId) {
+  if (!permissions) return false;
+  return permissions.includes("*") || permissions.includes(toolId);
+}
+
+// Live tools a given user is allowed to see, given their role permissions.
+// When login isn't required there's no user/role to check against, so
+// everything stays visible — matches the app's existing "open" behavior.
+export function visibleTools(user, loginRequired) {
+  if (!loginRequired || !user) return TOOLS;
+  return TOOLS.filter((tool) => hasToolAccess(user.permissions, tool.id));
+}

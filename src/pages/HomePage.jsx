@@ -1,7 +1,11 @@
 import React from "react";
-import { TOOLS } from "../tools/registry.js";
+import { visibleTools } from "../tools/registry.js";
+import { useAuth } from "../auth/AuthContext.jsx";
 
 export default function HomePage({ onOpen }) {
+  const { user, loginRequired } = useAuth();
+  const tools = visibleTools(user, loginRequired);
+
   return (
     <div>
       <div className="nt-hero">
@@ -15,7 +19,7 @@ export default function HomePage({ onOpen }) {
       </div>
 
       <div className="nt-grid">
-        {TOOLS.map((tool) => (
+        {tools.map((tool) => (
           <div
             key={tool.id}
             className={`nt-card ${tool.status === "soon" ? "soon" : ""}`}

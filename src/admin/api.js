@@ -37,6 +37,45 @@ export async function deleteUser(userId) {
   return handle(res);
 }
 
+export async function updateUserRole(userId, role) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/users/${userId}/role`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  return handle(res);
+}
+
+export async function listRoles() {
+  const res = await apiFetch(`${BASE_URL}/api/admin/roles`);
+  return handle(res);
+}
+
+export async function createRole(name, permissions) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/roles`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, permissions }),
+  });
+  return handle(res);
+}
+
+export async function updateRole(roleId, permissions) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/roles/${roleId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ permissions }),
+  });
+  return handle(res);
+}
+
+export async function deleteRole(roleId) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/roles/${roleId}`, {
+    method: "DELETE",
+  });
+  return handle(res);
+}
+
 export async function resetPassword(userId, newPassword) {
   const res = await apiFetch(`${BASE_URL}/api/admin/users/${userId}/reset-password`, {
     method: "POST",
