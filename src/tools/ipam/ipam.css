@@ -372,3 +372,26 @@
 .ip-dashboard-unscanned {
   background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
+
+.ip-settings-wrap {
+  position: relative;
+}
+.ip-settings-popover {
+  position: absolute;
+  top: 34px;
+  right: 0;
+  z-index: 20;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ip-settings-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

@@ -190,3 +190,17 @@ export async function removeScanExclude(subnetId, excludeId) {
   });
   return handle(res);
 }
+
+export async function getIpamSettings() {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/settings`);
+  return handle(res);
+}
+
+export async function updateIpamSettings(scanConcurrencyLimit) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ scanConcurrencyLimit }),
+  });
+  return handle(res);
+}

@@ -29,6 +29,8 @@ import {
   listScanExcludes,
   addScanExclude,
   removeScanExclude,
+  getIpamSettings,
+  updateIpamSettings,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -1167,6 +1169,12 @@ export default function Ipam() {
   const [detailError, setDetailError] = useState(null);
   const [deleting, setDeleting] = useState(false);
 
+  const [showSettings, setShowSettings] = useState(false);
+  const [scanConcurrencyLimit, setScanConcurrencyLimit] = useState(null);
+  const [concurrencyBounds, setConcurrencyBounds] = useState({ min: 1, max: 256 });
+  const [settingsError, setSettingsError] = useState(null);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
   const refreshList = async () => {
     setListLoading(true);
     setListError(null);
@@ -1183,6 +1191,35 @@ export default function Ipam() {
   useEffect(() => {
     refreshList();
   }, []);
+
+  const loadSettings = async () => {
+    setSettingsError(null);
+    try {
+      const result = await getIpamSettings();
+      setScanConcurrencyLimit(result.scanConcurrencyLimit);
+      setConcurrencyBounds({ min: result.scanConcurrencyMin, max: result.scanConcurrencyMax });
+    } catch (e) {
+      setSettingsError(e.message);
+    }
+  };
+
+  const openSettings = () => {
+    setShowSettings(true);
+    loadSettings();
+  };
+
+  const saveSettings = async () => {
+    setSettingsError(null);
+    setSettingsSaving(true);
+    try {
+      await updateIpamSettings(Number(scanConcurrencyLimit));
+      setShowSettings(false);
+    } catch (e) {
+      setSettingsError(e.message);
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const selectSubnet = async (id) => {
     setSelectedId(id);
@@ -1244,6 +1281,57 @@ export default function Ipam() {
           >
             {viewMode === "dashboard" ? "Back to search" : "Dashboard"}
           </button>
+          <div className="ip-settings-wrap">
+            <button
+              className="tool-btn tool-btn-ghost ip-row-btn"
+              onClick={openSettings}
+              title="Autodiscovery settings"
+            >
+              ⚙
+            </button>
+            {showSettings && (
+              <div className="ip-settings-popover">
+                <div className="tool-hint">Autodiscovery settings</div>
+                {scanConcurrencyLimit === null ? (
+                  <div className="tool-hint">Loading…</div>
+                ) : (
+                  <>
+                    <label className="tool-hint">
+                      Simultaneous scans (hosts pinged at once)
+                    </label>
+                    <input
+                      className="tool-input"
+                      type="number"
+                      min={concurrencyBounds.min}
+                      max={concurrencyBounds.max}
+                      value={scanConcurrencyLimit}
+                      onChange={(e) => setScanConcurrencyLimit(e.target.value)}
+                    />
+                    <div className="tool-hint">
+                      Range: {concurrencyBounds.min}–{concurrencyBounds.max}
+                    </div>
+                    {settingsError && <div className="tool-error">{settingsError}</div>}
+                    <div className="ip-settings-actions">
+                      <button
+                        className="tool-btn tool-btn-primary"
+                        onClick={saveSettings}
+                        disabled={settingsSaving}
+                      >
+                        {settingsSaving ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        className="tool-btn tool-btn-ghost"
+                        onClick={() => setShowSettings(false)}
+                        disabled={settingsSaving}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {viewMode === "search" && (
