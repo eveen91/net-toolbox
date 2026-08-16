@@ -1,0 +1,29 @@
+.nt-admin-panel {
+  max-width: 700px;
+  margin: 0 auto;
+}
+
+.nt-admin-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.nt-admin-create-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.nt-admin-settings {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border, #333);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}

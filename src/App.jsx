@@ -5,6 +5,7 @@ import HomePage from "./pages/HomePage.jsx";
 import { TOOLS } from "./tools/registry.js";
 import { AuthProvider, useAuth } from "./auth/AuthContext.jsx";
 import LoginPage from "./auth/LoginPage.jsx";
+import AdminPanel from "./admin/AdminPanel.jsx";
 import "./tools/shared.css";
 
 function AppShell() {
@@ -34,6 +35,17 @@ function AppShell() {
             </button>
             <ErrorBoundary resetKey={active}>
               <activeTool.Component />
+            </ErrorBoundary>
+          </>
+        )}
+
+        {active === "admin" && (
+          <>
+            <button className="nt-back" onClick={() => setActive("home")}>
+              ← All tools
+            </button>
+            <ErrorBoundary resetKey={active}>
+              <AdminPanel />
             </ErrorBoundary>
           </>
         )}

@@ -50,8 +50,14 @@ body {
   backdrop-filter: blur(6px);
   overflow-x: auto;
 }
-.nt-toolbar-user {
+.nt-toolbar-right {
   margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.nt-toolbar-user {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -59,7 +65,7 @@ body {
   flex-shrink: 0;
 }
 .nt-toolbar-username {
-  color: var(--muted);
+  color: var(--text);
   font-size: 13px;
 }
 .nt-logo {

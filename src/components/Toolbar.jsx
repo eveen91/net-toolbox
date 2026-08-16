@@ -3,7 +3,7 @@ import { TOOLS } from "../tools/registry.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 
 export default function Toolbar({ active, onNavigate }) {
-  const { user, logout } = useAuth();
+  const { user, logout, loginRequired } = useAuth();
 
   return (
     <div className="nt-toolbar">
@@ -31,14 +31,25 @@ export default function Toolbar({ active, onNavigate }) {
         </button>
       ))}
 
-      {user && (
-        <div className="nt-toolbar-user">
-          <span className="nt-toolbar-username">{user.username}</span>
-          <button className="nt-navbtn" onClick={logout}>
-            Log out
+      <div className="nt-toolbar-right">
+        {(user?.role === "admin" || !loginRequired) && (
+          <button
+            className={`nt-navbtn ${active === "admin" ? "active" : ""}`}
+            onClick={() => onNavigate("admin")}
+          >
+            Config Panel
           </button>
-        </div>
-      )}
+        )}
+
+        {user && (
+          <div className="nt-toolbar-user">
+            <span className="nt-toolbar-username">{user.username}</span>
+            <button className="nt-navbtn" onClick={logout}>
+              Log out
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
