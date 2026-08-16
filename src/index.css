@@ -58,6 +58,7 @@ body {
   flex-shrink: 0;
 }
 .nt-toolbar-user {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -75,17 +76,67 @@ body {
   font: inherit;
   padding: 0;
 }
+
+/* ---------- Account popover ---------- */
+/* Rendered with position: fixed and its `top` set in JS to the toolbar's
+   bottom edge, so it always opens over the main page content below the
+   toolbar rather than clipped inside the (horizontally scrollable) toolbar. */
+.nt-account-popover {
+  position: fixed;
+  right: 24px;
+  width: 280px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  z-index: 50;
+}
+.nt-account-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nt-account-popover-username {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+.nt-account-popover-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+}
+.nt-account-popover-close:hover {
+  color: var(--text);
+}
+.nt-account-popover-role {
+  font-size: 12px;
+  color: var(--muted);
+}
+.nt-account-popover-divider {
+  height: 1px;
+  background: var(--border-soft);
+}
+.nt-account-popover-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
 .nt-change-password-panel {
-  position: absolute;
-  margin-top: 30px;
-  background: var(--panel, #1a1a1a);
-  border: 1px solid var(--border, #333);
-  border-radius: 8px;
-  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 30;
 }
 .nt-change-password-actions {
   display: flex;
