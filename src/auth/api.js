@@ -34,3 +34,12 @@ export async function logout() {
   const res = await apiFetch(`${BASE_URL}/api/auth/logout`, { method: "POST" });
   return handle(res);
 }
+
+export async function changePassword(currentPassword, newPassword) {
+  const res = await apiFetch(`${BASE_URL}/api/auth/change-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  return handle(res);
+}
