@@ -1,9 +1,11 @@
-import React from "react";
+import React, { useState } from "react";
 import { TOOLS } from "../tools/registry.js";
 import { useAuth } from "../auth/AuthContext.jsx";
+import ChangePasswordForm from "../auth/ChangePasswordForm.jsx";
 
 export default function Toolbar({ active, onNavigate }) {
   const { user, logout, loginRequired } = useAuth();
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   return (
     <div className="nt-toolbar">
@@ -43,7 +45,15 @@ export default function Toolbar({ active, onNavigate }) {
 
         {user && (
           <div className="nt-toolbar-user">
-            <span className="nt-toolbar-username">{user.username}</span>
+            <button
+              className="nt-toolbar-username nt-toolbar-username-btn"
+              onClick={() => setShowChangePassword((v) => !v)}
+            >
+              {user.username}
+            </button>
+            {showChangePassword && (
+              <ChangePasswordForm onClose={() => setShowChangePassword(false)} />
+            )}
             <button className="nt-navbtn" onClick={logout}>
               Log out
             </button>

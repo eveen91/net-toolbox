@@ -68,6 +68,30 @@ body {
   color: var(--text);
   font-size: 13px;
 }
+.nt-toolbar-username-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.nt-change-password-panel {
+  position: absolute;
+  margin-top: 30px;
+  background: var(--panel, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 30;
+}
+.nt-change-password-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
 .nt-logo {
   font-family: var(--mono);
   font-weight: 700;

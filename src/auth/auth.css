@@ -20,3 +20,7 @@
   margin: 0;
   font-size: 18px;
 }
+
+.nt-session-expired-note {
+  color: var(--warn, orange);
+}

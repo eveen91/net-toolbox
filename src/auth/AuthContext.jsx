@@ -7,6 +7,7 @@ export function AuthProvider({ children }) {
   const [loginRequired, setLoginRequired] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -25,7 +26,10 @@ export function AuthProvider({ children }) {
   }, [refresh]);
 
   useEffect(() => {
-    const handler = () => refresh();
+    const handler = () => {
+      setSessionExpired(true);
+      refresh();
+    };
     window.addEventListener("nt-auth-required", handler);
     return () => window.removeEventListener("nt-auth-required", handler);
   }, [refresh]);
@@ -33,6 +37,7 @@ export function AuthProvider({ children }) {
   const login = async (username, password) => {
     const loggedInUser = await loginRequest(username, password);
     setUser(loggedInUser);
+    setSessionExpired(false);
     return loggedInUser;
   };
 
@@ -42,7 +47,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ loginRequired, user, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ loginRequired, user, loading, login, logout, refresh, sessionExpired }}>
       {children}
     </AuthContext.Provider>
   );

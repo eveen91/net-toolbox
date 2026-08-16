@@ -147,6 +147,11 @@ class ResetPasswordRequest(BaseModel):
     newPassword: str
 
 
+class ChangePasswordRequest(BaseModel):
+    currentPassword: str
+    newPassword: str
+
+
 class RequireLoginRequest(BaseModel):
     enabled: bool
 
@@ -353,6 +358,17 @@ def require_admin_user(
     return user
 
 
+def require_logged_in_user(
+    session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> Dict:
+    user = None
+    if session_token:
+        user = auth_db.get_user_by_session_token(session_token)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
 @app.post("/api/auth/login")
 def login(req: LoginRequest, response: Response):
     user = auth_db.get_user_by_username(req.username)
@@ -388,6 +404,15 @@ def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=S
         if found:
             user = UserPublic(id=found["id"], username=found["username"], role=found["role"])
     return SessionInfoResponse(loginRequired=login_required, user=user)
+
+
+@app.post("/api/auth/change-password")
+def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require_logged_in_user)):
+    if not auth.verify_password(req.currentPassword, user["passwordHash"]):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    new_hash = auth.hash_password(req.newPassword)
+    auth_db.update_user_password(user["id"], new_hash)
+    return {"ok": True}
 
 
 @app.get("/api/admin/users", response_model=List[UserPublic])

@@ -153,3 +153,60 @@ def test_non_admin_cannot_disable_login_once_enabled(client):
     res = client.post("/api/admin/settings/require-login", json={"enabled": False})
     assert res.status_code == 403
     auth_db.set_setting("require_login", "false")
+
+
+def test_change_password_requires_login(client):
+    res = client.post("/api/auth/change-password", json={"currentPassword": "a", "newPassword": "b"})
+    assert res.status_code == 401
+
+
+def test_change_password_rejects_wrong_current_password(client):
+    import auth_db, auth
+    auth_db.create_user("kevin", auth.hash_password("right-pw"), role="user")
+    client.post("/api/auth/login", json={"username": "kevin", "password": "right-pw"})
+    res = client.post("/api/auth/change-password", json={"currentPassword": "wrong-pw", "newPassword": "new-pw"})
+    assert res.status_code == 400
+
+
+def test_change_password_succeeds_and_new_password_works(client):
+    import auth_db, auth
+    auth_db.create_user("laura", auth.hash_password("old-pw"), role="user")
+    client.post("/api/auth/login", json={"username": "laura", "password": "old-pw"})
+    res = client.post("/api/auth/change-password", json={"currentPassword": "old-pw", "newPassword": "new-pw"})
+    assert res.status_code == 200
+    client.post("/api/auth/logout")
+    login_res = client.post("/api/auth/login", json={"username": "laura", "password": "new-pw"})
+    assert login_res.status_code == 200
+
+
+def test_expired_session_is_rejected(client):
+    import auth_db, auth
+    from datetime import datetime, timezone, timedelta
+
+    user = auth_db.create_user("mallory", auth.hash_password("pw"), role="user")
+    token = auth.generate_session_token()
+    auth_db.create_session(user["id"], token)
+
+    # Manually push this session's expiry into the past, simulating an
+    # old session — create_session always sets a future expiry, so we
+    # go around it here directly against the auth database.
+    conn = auth_db.get_connection()
+    try:
+        token_hash = auth.hash_token(token)
+        past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        conn.execute("UPDATE sessions SET expires_at = ? WHERE token_hash = ?", (past, token_hash))
+        conn.commit()
+    finally:
+        conn.close()
+
+    result = auth_db.get_user_by_session_token(token)
+    assert result is None
+
+
+def test_login_endpoint_reachable_even_when_login_required_and_logged_out(client):
+    import auth_db, auth
+    auth_db.create_user("nate", auth.hash_password("pw"), role="user")
+    auth_db.set_setting("require_login", "true")
+    res = client.post("/api/auth/login", json={"username": "nate", "password": "pw"})
+    assert res.status_code == 200
+    auth_db.set_setting("require_login", "false")  # reset for later tests
