@@ -1,3 +1,4 @@
+import { apiFetch } from "../../apiFetch.js";
 // Talks to the Python backend (server/main.py) which does the actual
 // SSH / WinRM work — the browser can't open those sessions itself.
 //
@@ -8,7 +9,7 @@
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 export async function runConnectionTest(payload) {
-  const res = await fetch(`${BASE_URL}/api/connection-test/run`, {
+  const res = await apiFetch(`${BASE_URL}/api/connection-test/run`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),

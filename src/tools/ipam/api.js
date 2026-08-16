@@ -1,3 +1,4 @@
+import { apiFetch } from "../../apiFetch.js";
 // Talks to the same backend as Routing Map (server/main.py), which stores
 // subnets and their recorded addresses in SQLite (see server/db.py).
 
@@ -18,22 +19,22 @@ async function handle(res) {
 }
 
 export async function listSubnets() {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets`);
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets`);
   return handle(res);
 }
 
 export async function getIpamDashboard() {
-  const res = await fetch(`${BASE_URL}/api/ipam/dashboard`);
+  const res = await apiFetch(`${BASE_URL}/api/ipam/dashboard`);
   return handle(res);
 }
 
 export async function getSubnet(subnetId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`);
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`);
   return handle(res);
 }
 
 export async function createSubnet(cidr, vlan, description) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cidr, vlan, description }),
@@ -42,7 +43,7 @@ export async function createSubnet(cidr, vlan, description) {
 }
 
 export async function updateSubnet(subnetId, cidr, vlan, description) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cidr, vlan, description }),
@@ -51,7 +52,7 @@ export async function updateSubnet(subnetId, cidr, vlan, description) {
 }
 
 export async function deleteSubnet(subnetId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`, {
     method: "DELETE",
   });
   return handle(res);
@@ -69,7 +70,7 @@ export async function addAddress(
   environment,
   locked
 ) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -100,7 +101,7 @@ export async function updateAddress(
   environment,
   locked
 ) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -119,14 +120,14 @@ export async function updateAddress(
 }
 
 export async function deleteAddress(subnetId, addressId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
     method: "DELETE",
   });
   return handle(res);
 }
 
 export async function bulkUpdateAddresses(subnetId, addressIds, fields) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/bulk`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/bulk`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ addressIds, ...fields }),
@@ -135,21 +136,21 @@ export async function bulkUpdateAddresses(subnetId, addressIds, fields) {
 }
 
 export async function rescanAddress(subnetId, addressId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}/rescan`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}/rescan`, {
     method: "POST",
   });
   return handle(res);
 }
 
 export async function autodiscoverSubnet(subnetId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover`, {
     method: "POST",
   });
   return handle(res);
 }
 
 export async function startAutodiscoverJob(subnetId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/start`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/start`, {
     method: "POST",
   });
   return handle(res);
@@ -160,22 +161,22 @@ export function autodiscoverStreamUrl(subnetId, jobId) {
 }
 
 export async function getActiveAutodiscoverJob(subnetId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/active`);
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/active`);
   return handle(res);
 }
 
 export async function listSubnetScans(subnetId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scans`);
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scans`);
   return handle(res);
 }
 
 export async function listScanExcludes(subnetId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes`);
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes`);
   return handle(res);
 }
 
 export async function addScanExclude(subnetId, address) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ address }),
@@ -184,7 +185,7 @@ export async function addScanExclude(subnetId, address) {
 }
 
 export async function removeScanExclude(subnetId, excludeId) {
-  const res = await fetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes/${excludeId}`, {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-excludes/${excludeId}`, {
     method: "DELETE",
   });
   return handle(res);

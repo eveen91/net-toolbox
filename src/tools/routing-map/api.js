@@ -1,3 +1,4 @@
+import { apiFetch } from "../../apiFetch.js";
 // Talks to the same backend as Connection Test (server/main.py), which
 // stores routing tables in SQLite (see server/db.py).
 
@@ -18,22 +19,22 @@ async function handle(res) {
 }
 
 export async function listRoutingHosts() {
-  const res = await fetch(`${BASE_URL}/api/routing/hosts`);
+  const res = await apiFetch(`${BASE_URL}/api/routing/hosts`);
   return handle(res);
 }
 
 export async function exportRoutingHosts() {
-  const res = await fetch(`${BASE_URL}/api/routing/export`);
+  const res = await apiFetch(`${BASE_URL}/api/routing/export`);
   return handle(res);
 }
 
 export async function getRoutingHost(host) {
-  const res = await fetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}`);
+  const res = await apiFetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}`);
   return handle(res);
 }
 
 export async function saveRoutingHost(host, routes, interfaces = []) {
-  const res = await fetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}`, {
+  const res = await apiFetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ routes, interfaces }),
@@ -42,7 +43,7 @@ export async function saveRoutingHost(host, routes, interfaces = []) {
 }
 
 export async function deleteRoutingHost(host) {
-  const res = await fetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}`, {
+  const res = await apiFetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}`, {
     method: "DELETE",
   });
   return handle(res);
