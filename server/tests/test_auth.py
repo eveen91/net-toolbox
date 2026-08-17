@@ -292,3 +292,103 @@ def test_local_login_still_works_after_ad_changes(client):
     auth_db.create_user("rex", auth.hash_password("pw"), role="user")
     res = client.post("/api/auth/login", json={"username": "rex", "password": "pw", "authMethod": "local"})
     assert res.status_code == 200
+
+
+def test_get_ad_settings_defaults(client):
+    res = client.get("/api/admin/settings/ad")
+    assert res.status_code == 200
+    assert res.json()["enabled"] is False
+
+
+def test_update_ad_settings_persists(client):
+    payload = {
+        "enabled": True,
+        "host": "ldap.example.com",
+        "port": 636,
+        "useTls": True,
+        "domainSuffix": "example.com",
+        "requiredGroupDn": "CN=VPN-Users,DC=example,DC=com",
+        "adminGroupDn": None,
+    }
+    res = client.put("/api/admin/settings/ad", json=payload)
+    assert res.status_code == 200
+    assert res.json()["host"] == "ldap.example.com"
+
+    res2 = client.get("/api/admin/settings/ad")
+    assert res2.json()["enabled"] is True
+    assert res2.json()["requiredGroupDn"] == "CN=VPN-Users,DC=example,DC=com"
+
+    # reset so later tests aren't affected
+    client.put("/api/admin/settings/ad", json={**payload, "enabled": False})
+
+
+def test_update_ad_settings_rejects_enabling_without_host(client):
+    res = client.put("/api/admin/settings/ad", json={
+        "enabled": True, "host": "", "port": 636, "useTls": True, "domainSuffix": "example.com",
+    })
+    assert res.status_code == 400
+
+
+def test_update_ad_settings_rejects_invalid_port(client):
+    res = client.put("/api/admin/settings/ad", json={
+        "enabled": False, "host": "ldap.example.com", "port": 99999, "useTls": True, "domainSuffix": "example.com",
+    })
+    assert res.status_code == 400
+
+
+def test_connection_test_reports_reachable(client, monkeypatch):
+    import ldap_auth
+    monkeypatch.setattr(
+        ldap_auth, "test_ad_connection",
+        lambda host, port, use_tls, timeout=5.0: {"reachable": True, "tlsValid": True, "error": None}
+    )
+    res = client.post("/api/admin/settings/ad/test-connection", json={
+        "host": "ldap.example.com", "port": 636, "useTls": True,
+    })
+    assert res.status_code == 200
+    assert res.json()["reachable"] is True
+    assert res.json()["tlsValid"] is True
+
+
+def test_connection_test_reports_unreachable(client, monkeypatch):
+    import ldap_auth
+    monkeypatch.setattr(
+        ldap_auth, "test_ad_connection",
+        lambda host, port, use_tls, timeout=5.0: {"reachable": False, "tlsValid": None, "error": "timed out"}
+    )
+    res = client.post("/api/admin/settings/ad/test-connection", json={
+        "host": "unreachable.example.com", "port": 636, "useTls": True,
+    })
+    assert res.status_code == 200
+    assert res.json()["reachable"] is False
+    assert res.json()["error"] == "timed out"
+
+
+def test_connection_test_falls_back_to_saved_config(client, monkeypatch):
+    import auth_db, ldap_auth
+    auth_db.set_ad_setting("host", "saved-host.example.com")
+    auth_db.set_ad_setting("port", "389")
+    auth_db.set_ad_setting("use_tls", "false")
+
+    captured = {}
+
+    def fake_test(host, port, use_tls, timeout=5.0):
+        captured["host"] = host
+        captured["port"] = port
+        captured["use_tls"] = use_tls
+        return {"reachable": True, "tlsValid": None, "error": None}
+
+    monkeypatch.setattr(ldap_auth, "test_ad_connection", fake_test)
+
+    res = client.post("/api/admin/settings/ad/test-connection", json={})
+    assert res.status_code == 200
+    assert captured["host"] == "saved-host.example.com"
+    assert captured["port"] == 389
+    assert captured["use_tls"] is False
+
+
+def test_connection_test_requires_a_host(client, monkeypatch):
+    import auth_db
+    auth_db.set_ad_setting("host", "")
+    res = client.post("/api/admin/settings/ad/test-connection", json={})
+    assert res.status_code == 400
