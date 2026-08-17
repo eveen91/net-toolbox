@@ -1,3 +1,8 @@
+from unittest.mock import patch
+
+import ipam_scan
+
+
 def _create_subnet(client, cidr):
     resp = client.post("/api/ipam/subnets", json={"cidr": cidr})
     assert resp.status_code == 200
@@ -152,3 +157,38 @@ def test_move_address_preserves_metadata(client):
     assert moved["vmCluster"] == "cluster-a"
     assert moved["environment"] == "prod"
     assert moved["locked"] is True
+
+
+# --- Regression: rescanning a broader subnet must not recreate a host  ---
+# --- that was already moved into a more specific subnet.               ---
+
+
+def test_rescanning_broad_subnet_does_not_recreate_moved_host(client):
+    broad_id = _create_subnet(client, "10.9.0.0/24")
+    narrow_id = _create_subnet(client, "10.9.0.16/28")
+    address_id = _add_address(client, broad_id, "10.9.0.20", hostname="host-a")
+
+    move_resp = client.post(
+        f"/api/ipam/subnets/{broad_id}/addresses/{address_id}/move",
+        json={"targetSubnetId": narrow_id},
+    )
+    assert move_resp.status_code == 200
+
+    def fake_ping_host(address, *args, **kwargs):
+        return address == "10.9.0.20"
+
+    with patch.object(ipam_scan, "ping_host", side_effect=fake_ping_host), \
+         patch.object(ipam_scan, "reverse_dns", return_value="host-a"):
+        scan_resp = client.post(f"/api/ipam/subnets/{broad_id}/autodiscover")
+    assert scan_resp.status_code == 200
+
+    broad_detail = client.get(f"/api/ipam/subnets/{broad_id}").json()
+    assert all(a["address"] != "10.9.0.20" for a in broad_detail["addresses"])
+
+    narrow_detail = client.get(f"/api/ipam/subnets/{narrow_id}").json()
+    assert any(a["address"] == "10.9.0.20" for a in narrow_detail["addresses"])
+
+    # The host must not be re-flagged for another resubnet review either.
+    misplaced_resp = client.get("/api/ipam/misplaced-addresses")
+    assert misplaced_resp.status_code == 200
+    assert all(e["address"] != "10.9.0.20" for e in misplaced_resp.json())

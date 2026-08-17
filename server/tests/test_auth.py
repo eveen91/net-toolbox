@@ -241,7 +241,10 @@ def test_ad_login_succeeds_and_provisions_user(client, monkeypatch):
 
     monkeypatch.setattr(
         ldap_auth, "authenticate_ad_user",
-        lambda *args, **kwargs: {"username": "opal", "memberOf": []}
+        lambda *args, **kwargs: {
+            "username": "opal", "memberOf": [],
+            "isRequiredMember": True, "isAdminMember": False,
+        }
     )
 
     res = client.post("/api/auth/login", json={"username": "opal", "password": "pw", "authMethod": "ad"})
@@ -261,7 +264,10 @@ def test_ad_login_rejected_when_not_in_required_group(client, monkeypatch):
 
     monkeypatch.setattr(
         ldap_auth, "authenticate_ad_user",
-        lambda *args, **kwargs: {"username": "penny", "memberOf": ["CN=Everyone,DC=example,DC=com"]}
+        lambda *args, **kwargs: {
+            "username": "penny", "memberOf": ["CN=Everyone,DC=example,DC=com"],
+            "isRequiredMember": False, "isAdminMember": False,
+        }
     )
 
     res = client.post("/api/auth/login", json={"username": "penny", "password": "pw", "authMethod": "ad"})
@@ -278,7 +284,10 @@ def test_ad_login_does_not_take_over_existing_local_account(client, monkeypatch)
 
     monkeypatch.setattr(
         ldap_auth, "authenticate_ad_user",
-        lambda *args, **kwargs: {"username": "quinn", "memberOf": []}
+        lambda *args, **kwargs: {
+            "username": "quinn", "memberOf": [],
+            "isRequiredMember": True, "isAdminMember": False,
+        }
     )
 
     res = client.post("/api/auth/login", json={"username": "quinn", "password": "whatever", "authMethod": "ad"})

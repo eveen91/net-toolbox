@@ -3,6 +3,7 @@ import "./ipam.css";
 import SubnetSearch from "./SubnetSearch.jsx";
 import AddSubnetForm from "./AddSubnetForm.jsx";
 import IpamDashboard from "./IpamDashboard.jsx";
+import ResubnetReview from "./ResubnetReview.jsx";
 import {
   formatVlan,
   formatTimestamp,
@@ -1161,7 +1162,7 @@ export default function Ipam() {
   const [subnets, setSubnets] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState(null);
-  const [viewMode, setViewMode] = useState("search"); // "search" | "dashboard"
+  const [viewMode, setViewMode] = useState("search"); // "search" | "dashboard" | "resubnet"
 
   const [selectedId, setSelectedId] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null);
@@ -1268,7 +1269,14 @@ export default function Ipam() {
 
       <div className="tool-panel">
         <div className="ip-header-row">
-          <SubnetSearch subnets={subnets} selectedId={selectedId} onSelect={selectSubnet} />
+          <SubnetSearch
+            subnets={subnets}
+            selectedId={selectedId}
+            onSelect={(id) => {
+              setViewMode("search");
+              selectSubnet(id);
+            }}
+          />
           <AddSubnetForm
             onCreated={async (created) => {
               await refreshList();
@@ -1280,6 +1288,12 @@ export default function Ipam() {
             onClick={() => setViewMode(viewMode === "dashboard" ? "search" : "dashboard")}
           >
             {viewMode === "dashboard" ? "Back to search" : "Dashboard"}
+          </button>
+          <button
+            className="tool-btn tool-btn-ghost ip-row-btn"
+            onClick={() => setViewMode(viewMode === "resubnet" ? "search" : "resubnet")}
+          >
+            {viewMode === "resubnet" ? "Back to search" : "Resubnet"}
           </button>
           <div className="ip-settings-wrap">
             <button
@@ -1374,6 +1388,10 @@ export default function Ipam() {
               selectSubnet(id);
             }}
           />
+        )}
+
+        {viewMode === "resubnet" && (
+          <ResubnetReview onMoved={refreshList} />
         )}
       </div>
     </div>

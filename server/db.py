@@ -993,12 +993,19 @@ def apply_scan_result(subnet_id: int, address: str, alive: bool, hostname: Optio
     Reconcile one scan_one() result into ipam_addresses.
 
     Locked rows are never touched. Otherwise: a live address is recorded
-    as 'used' (creating the row if needed); a dead address only reverts
-    an existing 'used' row back to 'free' — it never touches rows that
-    are already 'free' or 'reserved', and never creates a row for an
-    address nobody had recorded. This function only ever writes status,
-    hostname, and updated_at — team/machine_type/vm_cluster/environment
-    are left completely alone.
+    as 'used' (creating the row if needed, unless a more specific subnet
+    already has a row for that same address — see below); a dead address
+    only reverts an existing 'used' row back to 'free' — it never touches
+    rows that are already 'free' or 'reserved', and never creates a row
+    for an address nobody had recorded. This function only ever writes
+    status, hostname, and updated_at — team/machine_type/vm_cluster/
+    environment are left completely alone.
+
+    Creating a new row is skipped when a strictly more specific subnet
+    already has this address recorded (e.g. it was moved there via
+    resubnet review) — otherwise rescanning the broader subnet would keep
+    re-creating a duplicate that resubnet review can never successfully
+    move, since the destination already holds it.
     """
     conn = get_connection()
     try:
@@ -1017,6 +1024,38 @@ def apply_scan_result(subnet_id: int, address: str, alive: bool, hostname: Optio
                     ("used", hostname, _now(), subnet_id, address),
                 )
             else:
+                # Before creating a fresh row here, check whether some
+                # *other* subnet already has this exact address recorded.
+                # CIDR blocks in this app are always either disjoint or
+                # fully nested (see recompute_subnet_hierarchy), so any
+                # other subnet that also contains this address is either
+                # an ancestor or a descendant of the one being scanned
+                # right now. If a more specific (smaller) one already
+                # owns it, don't recreate a duplicate here — this is
+                # exactly what used to happen when a host was moved into
+                # a narrower subnet via resubnet review and its old,
+                # broader subnet got rescanned afterward: the broad scan
+                # would just re-insert the address it no longer owns,
+                # producing a duplicate that couldn't be re-moved because
+                # the destination already held it.
+                this_row = conn.execute(
+                    "SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)
+                ).fetchone()
+                this_size = ipaddress.ip_network(this_row["cidr"]).num_addresses if this_row else None
+                owned_elsewhere = conn.execute(
+                    """
+                    SELECT s.cidr FROM ipam_addresses a
+                    JOIN ipam_subnets s ON s.id = a.subnet_id
+                    WHERE a.address = ? AND a.subnet_id != ?
+                    """,
+                    (address, subnet_id),
+                ).fetchall()
+                more_specific_owner_exists = this_size is not None and any(
+                    ipaddress.ip_network(row["cidr"]).num_addresses < this_size
+                    for row in owned_elsewhere
+                )
+                if more_specific_owner_exists:
+                    return
                 conn.execute(
                     """
                     INSERT INTO ipam_addresses (subnet_id, address, status, hostname, updated_at)

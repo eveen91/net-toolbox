@@ -204,3 +204,20 @@ export async function updateIpamSettings(scanConcurrencyLimit) {
   });
   return handle(res);
 }
+
+export async function getMisplacedAddresses() {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/misplaced-addresses`);
+  return handle(res);
+}
+
+export async function moveAddress(subnetId, addressId, targetSubnetId) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}/move`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetSubnetId }),
+    }
+  );
+  return handle(res);
+}
