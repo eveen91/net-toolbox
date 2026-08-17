@@ -47,15 +47,21 @@ def _init_db():
 
 
 # In development the frontend runs on a different port (Vite), so allow it.
-# Lock this down to your actual frontend origin in production.
+# In Docker (docker/entrypoint.sh) the frontend is served on :3000, but the
+# browser may reach it via localhost, 127.0.0.1, or a LAN IP depending on
+# which machine you're browsing from — so instead of hardcoding one exact
+# origin, allow_origin_regex below matches "any host on port 3000". Lock
+# this down further if you expose the app beyond your own network.
 FRONTEND_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
 ]
+FRONTEND_ORIGIN_REGEX = r"^https?://[^/]+:3000$"
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
+    allow_origin_regex=FRONTEND_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -668,6 +674,12 @@ def set_require_login(
     payload: RequireLoginRequest,
     session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
 ):
+    if auth_db.count_admin_users() == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot change login requirement: no admin users exist yet",
+        )
+
     current_user = None
     if session_token:
         current_user = auth_db.get_user_by_session_token(session_token)

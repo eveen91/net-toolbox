@@ -200,6 +200,8 @@ export default function AdminPanel() {
     loadRoles();
   }, []);
 
+  const hasAdminUser = users.some((u) => u.role === "admin");
+
   if (loading) return <div className="tool-empty">Loading users…</div>;
 
   return (
@@ -445,14 +447,16 @@ export default function AdminPanel() {
         <div className="tool-hint">
           Login is currently <strong>{loginRequired ? "required" : "not required"}</strong>.
         </div>
-        <button className="tool-btn tool-btn-ghost" onClick={handleToggleRequireLogin}>
+        <button
+          className="tool-btn tool-btn-ghost"
+          onClick={handleToggleRequireLogin}
+          disabled={!hasAdminUser}
+        >
           {loginRequired ? "Disable login requirement" : "Enable login requirement"}
         </button>
-        {!loginRequired && (
+        {!hasAdminUser && (
           <p className="tool-hint">
-            You must be logged in as an admin to enable this. If you're not
-            logged in yet, use the account you just created above, then come
-            back here.
+            Create an admin user above before changing this setting.
           </p>
         )}
       </div>
