@@ -495,13 +495,19 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
         return None
 
     result = ldap_auth.authenticate_ad_user(
-        username, password, config["host"], config["port"], config["useTls"], config["domainSuffix"]
+        username,
+        password,
+        config["host"],
+        config["port"],
+        config["useTls"],
+        config["domainSuffix"],
+        required_group_dn=config["requiredGroupDn"],
+        admin_group_dn=config["adminGroupDn"],
     )
     if result is None:
         return None
 
-    member_of = result["memberOf"]
-    if not ldap_auth.is_member_of(member_of, config["requiredGroupDn"]):
+    if not result["isRequiredMember"]:
         return None
 
     existing = auth_db.get_user_by_username(username)
@@ -512,7 +518,7 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
             return None
         return existing
 
-    role = ldap_auth.resolve_role(member_of, config["adminGroupDn"])
+    role = "admin" if result["isAdminMember"] else "user"
     return auth_db.create_user(username, "", role=role, auth_source="ad")
 
 
