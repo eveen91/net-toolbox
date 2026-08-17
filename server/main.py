@@ -145,6 +145,7 @@ class UserPublic(BaseModel):
 
 class SessionInfoResponse(BaseModel):
     loginRequired: bool
+    adEnabled: bool
     user: Optional[UserPublic] = None
 
 
@@ -550,12 +551,13 @@ def logout(response: Response, session_token: Optional[str] = Cookie(default=Non
 @app.get("/api/auth/session", response_model=SessionInfoResponse)
 def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
     login_required = auth_db.is_login_required()
+    ad_enabled = auth_db.get_ad_config()["enabled"]
     user = None
     if session_token:
         found = auth_db.get_user_by_session_token(session_token)
         if found:
             user = _user_public(found)
-    return SessionInfoResponse(loginRequired=login_required, user=user)
+    return SessionInfoResponse(loginRequired=login_required, adEnabled=ad_enabled, user=user)
 
 
 @app.post("/api/auth/change-password")

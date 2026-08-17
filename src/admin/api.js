@@ -107,3 +107,26 @@ export async function setRequireLogin(enabled) {
   });
   return handle(res);
 }
+
+export async function getAdSettings() {
+  const res = await apiFetch(`${BASE_URL}/api/admin/settings/ad`);
+  return handle(res);
+}
+
+export async function updateAdSettings(settings) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/settings/ad`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+  });
+  return handle(res);
+}
+
+export async function testAdConnection(overrides = {}) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/settings/ad/test-connection`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(overrides),
+  });
+  return handle(res);
+}

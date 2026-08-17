@@ -21,11 +21,11 @@ export async function getSessionInfo() {
   return handle(res);
 }
 
-export async function login(username, password) {
+export async function login(username, password, authMethod = "local") {
   const res = await apiFetch(`${BASE_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, authMethod }),
   });
   return handle(res);
 }

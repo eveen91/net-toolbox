@@ -22,6 +22,7 @@ const SESSION_EXPIRED_PENDING_KEY = "nt-session-expired-pending";
 
 export function AuthProvider({ children }) {
   const [loginRequired, setLoginRequired] = useState(false);
+  const [adEnabled, setAdEnabled] = useState(false);
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -30,6 +31,7 @@ export function AuthProvider({ children }) {
     try {
       const info = await getSessionInfo();
       setLoginRequired(info.loginRequired);
+      setAdEnabled(info.adEnabled);
       setUser(info.user);
       if (info.user) {
         localStorage.setItem(HAD_SESSION_KEY, "1");
@@ -63,8 +65,8 @@ export function AuthProvider({ children }) {
     return () => window.removeEventListener("nt-auth-required", handler);
   }, [refresh]);
 
-  const login = async (username, password) => {
-    const loggedInUser = await loginRequest(username, password);
+  const login = async (username, password, authMethod = "local") => {
+    const loggedInUser = await loginRequest(username, password, authMethod);
     setUser(loggedInUser);
     setSessionExpired(false);
     localStorage.setItem(HAD_SESSION_KEY, "1");
@@ -80,7 +82,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ loginRequired, user, loading, login, logout, refresh, sessionExpired }}>
+    <AuthContext.Provider value={{ loginRequired, adEnabled, user, loading, login, logout, refresh, sessionExpired }}>
       {children}
     </AuthContext.Provider>
   );
