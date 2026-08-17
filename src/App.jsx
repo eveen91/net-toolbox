@@ -6,7 +6,7 @@ import { visibleTools } from "./tools/registry.js";
 import { AuthProvider, useAuth } from "./auth/AuthContext.jsx";
 import LoginPage from "./auth/LoginPage.jsx";
 import SessionExpiredModal from "./auth/SessionExpiredModal.jsx";
-import AdminPanel from "./admin/AdminPanel.jsx";
+import AdminGate from "./admin/AdminGate.jsx";
 import "./tools/shared.css";
 
 function AppShell() {
@@ -80,7 +80,7 @@ function AppShell() {
                   ← All tools
                 </button>
                 <ErrorBoundary resetKey={effectiveActive}>
-                  <AdminPanel />
+                  <AdminGate />
                 </ErrorBoundary>
               </>
             )}

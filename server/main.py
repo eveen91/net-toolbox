@@ -66,6 +66,8 @@ PUBLIC_PATHS = {
     "/api/auth/login",
     "/api/auth/logout",
     "/api/auth/session",
+    "/api/admin/bootstrap-status",
+    "/api/admin/bootstrap",
 }
 
 
@@ -177,6 +179,15 @@ class ChangePasswordRequest(BaseModel):
 
 class RequireLoginRequest(BaseModel):
     enabled: bool
+
+
+class BootstrapStatusResponse(BaseModel):
+    adminExists: bool
+
+
+class BootstrapAdminRequest(BaseModel):
+    username: str
+    password: str
 
 
 class RunRequest(BaseModel):
@@ -369,7 +380,15 @@ SESSION_COOKIE_NAME = "session_token"
 def require_admin_user(
     session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
 ) -> Optional[Dict]:
-    if not auth_db.is_login_required():
+    # The Config Panel has its own access gate, separate from the site-wide
+    # "require login" toggle: once an admin user has been created, opening
+    # or calling into the Config Panel always needs a real admin session —
+    # even while regular tools are left open to everyone. The only window
+    # left unauthenticated is before any admin exists yet, which mirrors
+    # the frontend's "create admin" screen and is what lets that screen's
+    # first save go through. Once that first admin is created this branch
+    # never opens again, so every other admin API call requires a session.
+    if not auth_db.is_login_required() and auth_db.count_admin_users() == 0:
         return None
     user = None
     if session_token:
@@ -508,6 +527,46 @@ def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require
     new_hash = auth.hash_password(req.newPassword)
     auth_db.update_user_password(user["id"], new_hash)
     return {"ok": True}
+
+
+@app.get("/api/admin/bootstrap-status", response_model=BootstrapStatusResponse)
+def admin_bootstrap_status():
+    """Public, unauthenticated: lets the frontend decide whether Config
+    Panel access should show the create-admin screen or a login screen,
+    before it knows anything about the current session."""
+    return BootstrapStatusResponse(adminExists=auth_db.count_admin_users() > 0)
+
+
+@app.post("/api/admin/bootstrap", response_model=UserPublic)
+def bootstrap_admin_user(req: BootstrapAdminRequest, response: Response):
+    """Creates the very first admin user. Self-limiting: once any admin
+    user exists this always 400s, so it can't be used to mint additional
+    admins later — that goes through the normal authenticated
+    /api/admin/users endpoint instead."""
+    if auth_db.count_admin_users() > 0:
+        raise HTTPException(status_code=400, detail="An admin user already exists")
+    username = req.username.strip()
+    if not username or not req.password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    password_hash = auth.hash_password(req.password)
+    try:
+        user = auth_db.create_user(username, password_hash, role=auth_db.ADMIN_ROLE_NAME)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    # Log the new admin straight in so the Config Panel opens immediately
+    # instead of bouncing them to a second login screen.
+    token = auth.generate_session_token()
+    auth_db.create_session(user["id"], token)
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=auth.SESSION_TTL_DAYS * 24 * 60 * 60,
+    )
+    return _user_public(user)
 
 
 @app.get("/api/admin/users", response_model=List[UserPublic])

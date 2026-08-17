@@ -85,6 +85,20 @@ export async function resetPassword(userId, newPassword) {
   return handle(res);
 }
 
+export async function getBootstrapStatus() {
+  const res = await apiFetch(`${BASE_URL}/api/admin/bootstrap-status`);
+  return handle(res);
+}
+
+export async function bootstrapAdmin(username, password) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/bootstrap`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  return handle(res);
+}
+
 export async function setRequireLogin(enabled) {
   const res = await apiFetch(`${BASE_URL}/api/admin/settings/require-login`, {
     method: "POST",
