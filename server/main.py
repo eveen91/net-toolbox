@@ -1043,6 +1043,10 @@ class BulkAddressUpdateRequest(BaseModel):
     locked: Optional[bool] = None
 
 
+class BulkAddressDeleteRequest(BaseModel):
+    addressIds: List[int]
+
+
 class ScanExcludeEntry(BaseModel):
     id: int
     address: str
@@ -1274,6 +1278,16 @@ def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
         return db.bulk_update_addresses(subnet_id, req.addressIds, fields)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/addresses/bulk-delete", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+def bulk_delete_addresses(subnet_id: int, req: BulkAddressDeleteRequest):
+    if not req.addressIds:
+        raise HTTPException(status_code=400, detail="No addresses selected")
+    try:
+        return db.bulk_delete_addresses(subnet_id, req.addressIds)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
 
 @app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])

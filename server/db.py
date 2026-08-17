@@ -929,6 +929,31 @@ def bulk_update_addresses(subnet_id: int, address_ids: List[int], fields: Dict) 
     return get_subnet(subnet_id)
 
 
+def bulk_delete_addresses(subnet_id: int, address_ids: List[int]) -> Dict:
+    """
+    Delete many addresses within one subnet in a single transaction.
+
+    address_ids not belonging to subnet_id are silently skipped (the
+    WHERE clause simply won't match them) rather than raising, matching
+    the behavior of bulk_update_addresses.
+    """
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if subnet_row is None:
+            raise ValueError("Subnet not found")
+
+        placeholders = ",".join("?" for _ in address_ids)
+        conn.execute(
+            f"DELETE FROM ipam_addresses WHERE subnet_id = ? AND id IN ({placeholders})",
+            (subnet_id, *address_ids),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)
+
+
 def list_scan_excludes(subnet_id: int) -> List[str]:
     conn = get_connection()
     try:

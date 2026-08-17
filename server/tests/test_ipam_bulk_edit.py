@@ -177,3 +177,83 @@ def test_bulk_update_can_set_status(client):
     by_id = {a["id"]: a for a in detail["addresses"]}
     assert by_id[id1]["status"] == "reserved"
     assert by_id[id2]["status"] == "reserved"
+
+def test_bulk_delete_removes_selected_addresses(client):
+    subnet_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.7.0/29"})
+    subnet_id = subnet_resp.json()["id"]
+
+    add1 = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": "10.0.7.1", "status": "used"},
+    )
+    add2 = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": "10.0.7.2", "status": "used"},
+    )
+    add3 = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": "10.0.7.3", "status": "used"},
+    )
+    addresses_by_ip = {a["address"]: a for a in add3.json()["addresses"]}
+    id1 = addresses_by_ip["10.0.7.1"]["id"]
+    id2 = addresses_by_ip["10.0.7.2"]["id"]
+    id3 = addresses_by_ip["10.0.7.3"]["id"]
+
+    del_resp = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses/bulk-delete",
+        json={"addressIds": [id1, id2]},
+    )
+    assert del_resp.status_code == 200
+
+    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
+    remaining_ids = {a["id"] for a in detail["addresses"]}
+    assert remaining_ids == {id3}
+
+
+def test_bulk_delete_skips_addresses_from_other_subnets(client):
+    subnet_a_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.8.0/29"})
+    subnet_a_id = subnet_a_resp.json()["id"]
+    subnet_b_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.9.0/29"})
+    subnet_b_id = subnet_b_resp.json()["id"]
+
+    add_a = client.post(
+        f"/api/ipam/subnets/{subnet_a_id}/addresses",
+        json={"address": "10.0.8.1", "status": "used"},
+    )
+    address_a_id = add_a.json()["addresses"][0]["id"]
+
+    add_b = client.post(
+        f"/api/ipam/subnets/{subnet_b_id}/addresses",
+        json={"address": "10.0.9.1", "status": "used"},
+    )
+    address_b_id = add_b.json()["addresses"][0]["id"]
+
+    # Delete on subnet A, but sneak in subnet B's address id too.
+    del_resp = client.post(
+        f"/api/ipam/subnets/{subnet_a_id}/addresses/bulk-delete",
+        json={"addressIds": [address_a_id, address_b_id]},
+    )
+    assert del_resp.status_code == 200
+
+    subnet_b_detail = client.get(f"/api/ipam/subnets/{subnet_b_id}").json()
+    remaining_ids = {a["id"] for a in subnet_b_detail["addresses"]}
+    assert remaining_ids == {address_b_id}
+
+
+def test_bulk_delete_rejects_empty_address_list(client):
+    subnet_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.10.0/29"})
+    subnet_id = subnet_resp.json()["id"]
+
+    del_resp = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses/bulk-delete",
+        json={"addressIds": []},
+    )
+    assert del_resp.status_code == 400
+
+
+def test_bulk_delete_404_for_missing_subnet(client):
+    del_resp = client.post(
+        "/api/ipam/subnets/999999/addresses/bulk-delete",
+        json={"addressIds": [1]},
+    )
+    assert del_resp.status_code == 404

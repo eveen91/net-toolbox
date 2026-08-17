@@ -21,6 +21,7 @@ import {
   updateAddress,
   deleteAddress,
   bulkUpdateAddresses,
+  bulkDeleteAddresses,
   rescanAddress,
   autodiscoverSubnet,
   startAutodiscoverJob,
@@ -445,6 +446,7 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
   const [environment, setEnvironment] = useState("");
   const [locked, setLocked] = useState("");
   const [applying, setApplying] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const resetFields = () => {
     setStatus("");
@@ -482,6 +484,28 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
       onError(e.message);
     } finally {
       setApplying(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    onError(null);
+    const count = selectedIds.size;
+    if (
+      !window.confirm(
+        `Delete ${count} selected address${count === 1 ? "" : "es"}? This cannot be undone.`
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      const result = await bulkDeleteAddresses(subnetId, Array.from(selectedIds));
+      onApplied(result);
+      resetFields();
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -537,8 +561,16 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
         <option value="lock">Lock</option>
         <option value="unlock">Unlock</option>
       </select>
-      <button className="tool-btn tool-btn-primary" type="submit" disabled={applying}>
+      <button className="tool-btn tool-btn-primary" type="submit" disabled={applying || deleting}>
         {applying ? "Applying…" : "Apply"}
+      </button>
+      <button
+        type="button"
+        className="tool-btn tool-btn-ghost ip-row-btn-danger"
+        onClick={handleBulkDelete}
+        disabled={applying || deleting}
+      >
+        {deleting ? "Deleting…" : `Delete ${selectedIds.size}`}
       </button>
       <button type="button" className="tool-btn tool-btn-ghost" onClick={onClear}>
         Clear selection
