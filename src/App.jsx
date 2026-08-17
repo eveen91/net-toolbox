@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Toolbar from "./components/Toolbar.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import HomePage from "./pages/HomePage.jsx";
@@ -11,12 +11,42 @@ import "./tools/shared.css";
 
 function AppShell() {
   const [active, setActive] = useState("home");
-  const { loading, loginRequired, user, sessionExpired } = useAuth();
+  const { loading, loginRequired, user, sessionExpired, refresh } = useAuth();
+
+  // Some tools (e.g. Connection Test) make no backend call until the user
+  // submits something, so nothing would ever notice a dead session just
+  // from opening them — unlike IPAM, which happens to fetch its subnet
+  // list the instant it mounts and so discovers a dead session right
+  // away. Re-validating on every navigation makes that immediate-redirect
+  // behavior consistent across every tool, not just ones that happen to
+  // fetch data on mount. getSessionInfo() is a cheap, always-200 read, so
+  // this is safe to call on every tool switch.
+  useEffect(() => {
+    if (active === "home") return;
+    refresh();
+  }, [active, refresh]);
+
   // Only tools the current role has access to — a tool id left over in
   // `active` (e.g. permissions were narrowed while this tab was open)
   // simply won't be found below, so it falls through to the "not found"
   // case rather than rendering.
-  const activeTool = visibleTools(user, loginRequired).find((t) => t.id === active);
+  const tools = visibleTools(user, loginRequired);
+  const activeTool = tools.find((t) => t.id === active);
+  const canAccessAdmin = user?.role === "admin" || !loginRequired;
+
+  // `active` is local state that survives a logout/login inside the same
+  // tab (AppShell never unmounts — only `user` changes). Without this
+  // check, someone who navigated to a restricted page (e.g. an admin
+  // opening Config Panel) and then logs out and back in as a different,
+  // less-privileged role would land right back on that restricted page —
+  // which is exactly the bug this guards against. Recomputed on every
+  // render (not via an effect) so there's no flash of the restricted
+  // page, and so the gated component (e.g. AdminPanel) never mounts and
+  // never fires its own now-unauthorized API calls.
+  const isActiveAuthorized =
+    active === "home" ||
+    (active === "admin" ? canAccessAdmin : !!activeTool);
+  const effectiveActive = isActiveAuthorized ? active : "home";
 
   if (loading) {
     return <div className="nt-auth-loading">Loading…</div>;
@@ -28,28 +58,28 @@ function AppShell() {
         <LoginPage />
       ) : (
         <div>
-          <Toolbar active={active} onNavigate={setActive} />
+          <Toolbar active={effectiveActive} onNavigate={setActive} />
 
           <div className="nt-main">
-            {active === "home" && <HomePage onOpen={setActive} />}
+            {effectiveActive === "home" && <HomePage onOpen={setActive} />}
 
-            {active !== "home" && activeTool && activeTool.Component && (
+            {effectiveActive !== "home" && activeTool && activeTool.Component && (
               <>
                 <button className="nt-back" onClick={() => setActive("home")}>
                   ← All tools
                 </button>
-                <ErrorBoundary resetKey={active}>
+                <ErrorBoundary resetKey={effectiveActive}>
                   <activeTool.Component />
                 </ErrorBoundary>
               </>
             )}
 
-            {active === "admin" && (
+            {effectiveActive === "admin" && canAccessAdmin && (
               <>
                 <button className="nt-back" onClick={() => setActive("home")}>
                   ← All tools
                 </button>
-                <ErrorBoundary resetKey={active}>
+                <ErrorBoundary resetKey={effectiveActive}>
                   <AdminPanel />
                 </ErrorBoundary>
               </>
