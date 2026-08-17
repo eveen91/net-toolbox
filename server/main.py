@@ -1111,6 +1111,26 @@ class DashboardEntry(BaseModel):
     lastScanHostnameChanged: Optional[int] = None
 
 
+class MisplacedAddressEntry(BaseModel):
+    addressId: int
+    address: str
+    status: str
+    hostname: Optional[str] = None
+    currentSubnetId: int
+    currentSubnetCidr: str
+    proposedSubnetId: int
+    proposedSubnetCidr: str
+
+
+class MoveAddressRequest(BaseModel):
+    targetSubnetId: int
+
+
+class MoveAddressResponse(BaseModel):
+    fromSubnet: SubnetDetail
+    toSubnet: SubnetDetail
+
+
 @app.get("/api/ipam/dashboard", response_model=List[DashboardEntry], dependencies=[Depends(require_feature("ipam"))])
 def get_ipam_dashboard():
     subnets = db.list_subnets()
@@ -1138,6 +1158,15 @@ def get_ipam_dashboard():
 @app.get("/api/ipam/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_feature("ipam"))])
 def get_subnets():
     return db.list_subnets()
+
+
+@app.get(
+    "/api/ipam/misplaced-addresses",
+    response_model=List[MisplacedAddressEntry],
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def get_misplaced_addresses():
+    return db.list_misplaced_addresses()
 
 
 @app.get("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_feature("ipam"))])
@@ -1222,6 +1251,18 @@ def remove_address(subnet_id: int, address_id: int):
         return db.delete_address(subnet_id, address_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.post(
+    "/api/ipam/subnets/{subnet_id}/addresses/{address_id}/move",
+    response_model=MoveAddressResponse,
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def move_ipam_address(subnet_id: int, address_id: int, req: MoveAddressRequest):
+    try:
+        return db.move_address(subnet_id, address_id, req.targetSubnetId)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])

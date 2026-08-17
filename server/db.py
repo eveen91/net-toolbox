@@ -510,6 +510,93 @@ def recompute_subnet_hierarchy(conn: sqlite3.Connection) -> None:
     conn.executemany("UPDATE ipam_subnets SET parent_id = ? WHERE id = ?", updates)
 
 
+def find_best_subnet_for_address(address: str, subnets: List[Dict]) -> Optional[Dict]:
+    """
+    Given an address and a list of subnet dicts (each must have "id" and
+    "cidr"), return the subnet dict whose CIDR contains the address and
+    has the smallest number of addresses (i.e. the most specific match).
+    Returns None if no subnet in the list contains the address.
+    """
+    ip = ipaddress.ip_address(address.strip())
+    best = None
+    best_size = None
+    for s in subnets:
+        net = ipaddress.ip_network(s["cidr"])
+        if net.version != ip.version:
+            continue
+        if ip in net:
+            if best_size is None or net.num_addresses < best_size:
+                best, best_size = s, net.num_addresses
+    return best
+
+
+def list_misplaced_addresses() -> List[Dict]:
+    """
+    Scan every recorded address across every subnet and flag the ones
+    that belong in a more specific subnet than the one they're
+    currently filed under.
+    """
+    subnets = list_subnets()
+    subnets_by_id = {s["id"]: s for s in subnets}
+    misplaced = []
+    for subnet in subnets:
+        for addr in get_addresses_by_subnet(subnet["id"]):
+            best = find_best_subnet_for_address(addr["address"], subnets)
+            if best is not None and best["id"] != subnet["id"]:
+                misplaced.append({
+                    "addressId": addr["id"],
+                    "address": addr["address"],
+                    "status": addr["status"],
+                    "hostname": addr["hostname"],
+                    "currentSubnetId": subnet["id"],
+                    "currentSubnetCidr": subnet["cidr"],
+                    "proposedSubnetId": best["id"],
+                    "proposedSubnetCidr": best["cidr"],
+                })
+    return misplaced
+
+
+def move_address(from_subnet_id: int, address_id: int, to_subnet_id: int) -> Dict:
+    conn = get_connection()
+    try:
+        from_row = conn.execute(
+            "SELECT * FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
+            (address_id, from_subnet_id),
+        ).fetchone()
+        if from_row is None:
+            raise ValueError("Address not found in source subnet")
+        to_subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (to_subnet_id,)
+        ).fetchone()
+        if to_subnet_row is None:
+            raise ValueError("Destination subnet not found")
+        validate_address_in_subnet(from_row["address"], to_subnet_row["cidr"])
+        conn.execute(
+            "DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
+            (address_id, from_subnet_id),
+        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO ipam_addresses
+                    (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, locked, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    to_subnet_id, from_row["address"], from_row["status"],
+                    from_row["hostname"], from_row["description"], from_row["team"],
+                    from_row["machine_type"], from_row["vm_cluster"],
+                    from_row["environment"], from_row["locked"], _now(),
+                ),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f'"{from_row["address"]}" is already recorded in the destination subnet')
+        conn.commit()
+    finally:
+        conn.close()
+    return {"fromSubnet": get_subnet(from_subnet_id), "toSubnet": get_subnet(to_subnet_id)}
+
+
 def _subnet_summary(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict:
     counts = {"used": 0, "free": 0, "reserved": 0}
     for r in conn.execute(
