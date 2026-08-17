@@ -48,3 +48,12 @@
   font-size: 18px;
   color: var(--text);
 }
+
+.nt-login-method-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.nt-login-method-toggle .active {
+  border-color: var(--accent, #4caf50);
+}

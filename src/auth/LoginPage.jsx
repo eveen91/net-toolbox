@@ -3,18 +3,19 @@ import { useAuth } from "./AuthContext.jsx";
 import "./auth.css";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, adEnabled } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [authMethod, setAuthMethod] = useState("local");
 
   const submit = async (e) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      await login(username, password);
+      await login(username, password, authMethod);
     } catch (e2) {
       setError(e2.message);
     } finally {
@@ -27,6 +28,24 @@ export default function LoginPage() {
       <form className="nt-login-form" onSubmit={submit}>
         <h1>net::toolbox</h1>
         <p className="tool-hint">Sign in to continue</p>
+        {adEnabled && (
+          <div className="nt-login-method-toggle">
+            <button
+              type="button"
+              className={`tool-btn tool-btn-ghost ${authMethod === "local" ? "active" : ""}`}
+              onClick={() => setAuthMethod("local")}
+            >
+              Local
+            </button>
+            <button
+              type="button"
+              className={`tool-btn tool-btn-ghost ${authMethod === "ad" ? "active" : ""}`}
+              onClick={() => setAuthMethod("ad")}
+            >
+              Active Directory
+            </button>
+          </div>
+        )}
         <input
           className="tool-input"
           placeholder="Username"
