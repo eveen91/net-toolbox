@@ -7,6 +7,7 @@ long-lived directory credential is ever stored by this application.
 from typing import Dict, Optional
 
 from ldap3 import Server, Connection, Tls, SUBTREE
+import socket
 import ssl
 
 
@@ -80,3 +81,28 @@ def resolve_role(member_of: list, admin_group_dn: Optional[str]) -> str:
     if admin_group_dn and is_member_of(member_of, admin_group_dn):
         return "admin"
     return "user"
+
+
+def test_ad_connection(host: str, port: int, use_tls: bool, timeout: float = 5.0) -> Dict:
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except Exception as exc:
+        return {"reachable": False, "tlsValid": None, "error": str(exc)}
+
+    if not use_tls:
+        sock.close()
+        return {"reachable": True, "tlsValid": None, "error": None}
+
+    try:
+        context = ssl.create_default_context()
+        wrapped = context.wrap_socket(sock, server_hostname=host)
+        wrapped.close()
+        return {"reachable": True, "tlsValid": True, "error": None}
+    except ssl.SSLError as exc:
+        try:
+            sock.close()
+        except Exception:
+            pass
+        return {"reachable": True, "tlsValid": False, "error": str(exc)}
+    except Exception as exc:
+        return {"reachable": True, "tlsValid": None, "error": str(exc)}

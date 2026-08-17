@@ -187,6 +187,38 @@ class RequireLoginRequest(BaseModel):
     enabled: bool
 
 
+class AdSettingsResponse(BaseModel):
+    enabled: bool
+    host: str
+    port: int
+    useTls: bool
+    domainSuffix: str
+    requiredGroupDn: Optional[str] = None
+    adminGroupDn: Optional[str] = None
+
+
+class UpdateAdSettingsRequest(BaseModel):
+    enabled: bool
+    host: str
+    port: int = 636
+    useTls: bool = True
+    domainSuffix: str
+    requiredGroupDn: Optional[str] = None
+    adminGroupDn: Optional[str] = None
+
+
+class TestAdConnectionRequest(BaseModel):
+    host: Optional[str] = None
+    port: Optional[int] = None
+    useTls: Optional[bool] = None
+
+
+class TestAdConnectionResponse(BaseModel):
+    reachable: bool
+    tlsValid: Optional[bool] = None
+    error: Optional[str] = None
+
+
 class BootstrapStatusResponse(BaseModel):
     adminExists: bool
 
@@ -702,6 +734,50 @@ def set_require_login(
 
     auth_db.set_setting("require_login", "true" if payload.enabled else "false")
     return {"loginRequired": auth_db.is_login_required()}
+
+
+@app.get("/api/admin/settings/ad", response_model=AdSettingsResponse)
+def get_ad_settings(admin: Optional[Dict] = Depends(require_admin_user)):
+    config = auth_db.get_ad_config()
+    return AdSettingsResponse(**config)
+
+
+@app.put("/api/admin/settings/ad", response_model=AdSettingsResponse)
+def update_ad_settings(req: UpdateAdSettingsRequest, admin: Optional[Dict] = Depends(require_admin_user)):
+    if req.enabled:
+        if not req.host.strip():
+            raise HTTPException(status_code=400, detail="Host is required when AD login is enabled")
+        if not req.domainSuffix.strip():
+            raise HTTPException(status_code=400, detail="Domain suffix is required when AD login is enabled")
+    if req.port < 1 or req.port > 65535:
+        raise HTTPException(status_code=400, detail="Port must be between 1 and 65535")
+
+    auth_db.set_ad_config({
+        "enabled": req.enabled,
+        "host": req.host,
+        "port": req.port,
+        "useTls": req.useTls,
+        "domainSuffix": req.domainSuffix,
+        "requiredGroupDn": req.requiredGroupDn,
+        "adminGroupDn": req.adminGroupDn,
+    })
+    return AdSettingsResponse(**auth_db.get_ad_config())
+
+
+@app.post("/api/admin/settings/ad/test-connection", response_model=TestAdConnectionResponse)
+def test_ad_connection_endpoint(
+    req: TestAdConnectionRequest, admin: Optional[Dict] = Depends(require_admin_user)
+):
+    saved = auth_db.get_ad_config()
+    host = req.host if req.host is not None else saved["host"]
+    port = req.port if req.port is not None else saved["port"]
+    use_tls = req.useTls if req.useTls is not None else saved["useTls"]
+
+    if not host:
+        raise HTTPException(status_code=400, detail="No host to test — provide one or save AD settings first")
+
+    result = ldap_auth.test_ad_connection(host, port, use_tls)
+    return TestAdConnectionResponse(**result)
 
 
 @app.post(
