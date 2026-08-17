@@ -22,6 +22,7 @@ import {
   deleteAddress,
   bulkUpdateAddresses,
   bulkDeleteAddresses,
+  bulkMoveAddresses,
   rescanAddress,
   autodiscoverSubnet,
   startAutodiscoverJob,
@@ -311,6 +312,7 @@ function AddressRow({ subnetId, addr, selected, onToggleSelect, onUpdated, onErr
 }
 
 function AddAddressForm({ subnetId, onAdded, onError }) {
+  const [open, setOpen] = useState(false);
   const [address, setAddress] = useState("");
   const [status, setStatus] = useState("used");
   const [hostname, setHostname] = useState("");
@@ -321,6 +323,24 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
   const [environment, setEnvironment] = useState("");
   const [locked, setLocked] = useState(false);
   const [adding, setAdding] = useState(false);
+
+  const reset = () => {
+    setAddress("");
+    setHostname("");
+    setDescription("");
+    setStatus("used");
+    setTeam("");
+    setMachineType("");
+    setVmCluster("");
+    setEnvironment("");
+    setLocked(false);
+  };
+
+  const close = () => {
+    setOpen(false);
+    onError(null);
+    reset();
+  };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -341,15 +361,8 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
         locked
       );
       onAdded(updated);
-      setAddress("");
-      setHostname("");
-      setDescription("");
-      setStatus("used");
-      setTeam("");
-      setMachineType("");
-      setVmCluster("");
-      setEnvironment("");
-      setLocked(false);
+      reset();
+      setOpen(false);
     } catch (e2) {
       onError(e2.message);
     } finally {
@@ -357,88 +370,144 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
     }
   };
 
-  return (
-    <form className="ip-add-row" onSubmit={submit}>
-      <input
-        className="tool-input"
-        style={{ maxWidth: 160 }}
-        placeholder="10.0.1.10"
-        value={address}
-        onChange={(e) => setAddress(e.target.value)}
-      />
-      <select className="tool-input" style={{ maxWidth: 130 }} value={status} onChange={(e) => setStatus(e.target.value)}>
-        {Object.entries(STATUS_LABELS).map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <input
-        className="tool-input"
-        placeholder="hostname (optional)"
-        value={hostname}
-        onChange={(e) => setHostname(e.target.value)}
-      />
-      <input
-        className="tool-input"
-        placeholder="description (optional)"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-      <input
-        className="tool-input"
-        placeholder="team (optional)"
-        value={team}
-        onChange={(e) => setTeam(e.target.value)}
-      />
-      <select
-        className="tool-input"
-        style={{ maxWidth: 110 }}
-        value={machineType}
-        onChange={(e) => {
-          setMachineType(e.target.value);
-          setVmCluster("");
-        }}
-      >
-        <option value="">Type…</option>
-        {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <input
-        className="tool-input"
-        placeholder="vm cluster"
-        value={vmCluster}
-        onChange={(e) => setVmCluster(e.target.value)}
-        disabled={machineType !== "vm"}
-      />
-      <select
-        className="tool-input"
-        style={{ maxWidth: 110 }}
-        value={environment}
-        onChange={(e) => setEnvironment(e.target.value)}
-      >
-        <option value="">Env…</option>
-        {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <label className="tool-hint" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
-        Locked
-      </label>
-      <button className="tool-btn tool-btn-primary" type="submit" disabled={adding || !address.trim()}>
-        {adding ? "Adding…" : "Add"}
+  if (!open) {
+    return (
+      <button type="button" className="tool-btn tool-btn-primary ip-add-address-trigger" onClick={() => setOpen(true)}>
+        + Add address
       </button>
+    );
+  }
+
+  return (
+    <form className="ip-add-address-popover" onSubmit={submit}>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>Address</span>
+        </div>
+        <input
+          autoFocus
+          className="tool-input"
+          placeholder="10.0.1.10"
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+      </div>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>Status</span>
+        </div>
+        <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+          {Object.entries(STATUS_LABELS).map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>
+            Hostname <span className="tool-hint">optional</span>
+          </span>
+        </div>
+        <input
+          className="tool-input"
+          placeholder="hostname (optional)"
+          value={hostname}
+          onChange={(e) => setHostname(e.target.value)}
+        />
+      </div>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>
+            Description <span className="tool-hint">optional</span>
+          </span>
+        </div>
+        <input
+          className="tool-input"
+          placeholder="description (optional)"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </div>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>
+            Team <span className="tool-hint">optional</span>
+          </span>
+        </div>
+        <input
+          className="tool-input"
+          placeholder="team (optional)"
+          value={team}
+          onChange={(e) => setTeam(e.target.value)}
+        />
+      </div>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>Machine type</span>
+        </div>
+        <select
+          className="tool-input"
+          value={machineType}
+          onChange={(e) => {
+            setMachineType(e.target.value);
+            setVmCluster("");
+          }}
+        >
+          <option value="">Type…</option>
+          {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>VM cluster</span>
+        </div>
+        <input
+          className="tool-input"
+          placeholder="vm cluster"
+          value={vmCluster}
+          onChange={(e) => setVmCluster(e.target.value)}
+          disabled={machineType !== "vm"}
+        />
+      </div>
+      <div className="tool-field">
+        <div className="tool-label">
+          <span>Environment</span>
+        </div>
+        <select className="tool-input" value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+          <option value="">Env…</option>
+          {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="tool-field">
+        <label className="tool-hint ip-add-address-locked">
+          <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
+          Locked
+        </label>
+      </div>
+      <div className="tool-actions">
+        <button className="tool-btn tool-btn-primary" type="submit" disabled={adding || !address.trim()}>
+          {adding ? "Adding…" : "Add address"}
+        </button>
+        <button type="button" className="tool-btn tool-btn-ghost" onClick={close} disabled={adding}>
+          Cancel
+        </button>
+      </div>
     </form>
   );
 }
 
-function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
+function BulkEditBar({ subnetId, subnets, selectedIds, onApplied, onMoved, onClear, onError }) {
+  const [editOpen, setEditOpen] = useState(false);
   const [status, setStatus] = useState("");
   const [team, setTeam] = useState("");
   const [machineType, setMachineType] = useState("");
@@ -447,6 +516,10 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
   const [locked, setLocked] = useState("");
   const [applying, setApplying] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [targetSubnetId, setTargetSubnetId] = useState("");
+  const [moving, setMoving] = useState(false);
+
+  const moveTargets = subnets.filter((s) => s.id !== subnetId);
 
   const resetFields = () => {
     setStatus("");
@@ -455,6 +528,11 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
     setVmCluster("");
     setEnvironment("");
     setLocked("");
+  };
+
+  const closeEdit = () => {
+    setEditOpen(false);
+    resetFields();
   };
 
   const submit = async (e) => {
@@ -479,7 +557,7 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
     try {
       const result = await bulkUpdateAddresses(subnetId, Array.from(selectedIds), fields);
       onApplied(result);
-      resetFields();
+      closeEdit();
     } catch (e) {
       onError(e.message);
     } finally {
@@ -501,7 +579,6 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
     try {
       const result = await bulkDeleteAddresses(subnetId, Array.from(selectedIds));
       onApplied(result);
-      resetFields();
     } catch (e) {
       onError(e.message);
     } finally {
@@ -509,73 +586,168 @@ function BulkEditBar({ subnetId, selectedIds, onApplied, onClear, onError }) {
     }
   };
 
+  const handleBulkMove = async () => {
+    onError(null);
+    if (!targetSubnetId) {
+      onError("Choose a destination subnet to move to.");
+      return;
+    }
+    setMoving(true);
+    try {
+      const result = await bulkMoveAddresses(subnetId, Array.from(selectedIds), Number(targetSubnetId));
+      onMoved(result);
+      setTargetSubnetId("");
+      if (result.skipped.length > 0) {
+        const names = result.skipped.map((s) => `${s.address || s.addressId}: ${s.reason}`).join("; ");
+        onError(
+          `Moved ${result.movedCount} of ${result.movedCount + result.skipped.length}. Not moved — ${names}`
+        );
+      }
+    } catch (e) {
+      onError(e.message);
+    } finally {
+      setMoving(false);
+    }
+  };
+
   return (
-    <form className="ip-add-row ip-bulk-edit-bar" onSubmit={submit}>
-      <span className="tool-hint">{selectedIds.size} selected</span>
-      <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
-        <option value="">Don't change</option>
-        {Object.entries(STATUS_LABELS).map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <input
-        className="tool-input"
-        placeholder="team"
-        value={team}
-        onChange={(e) => setTeam(e.target.value)}
-      />
-      <select
-        className="tool-input"
-        value={machineType}
-        onChange={(e) => setMachineType(e.target.value)}
-      >
-        <option value="">Don't change</option>
-        {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <input
-        className="tool-input"
-        placeholder="vm cluster"
-        value={vmCluster}
-        onChange={(e) => setVmCluster(e.target.value)}
-      />
-      <select
-        className="tool-input"
-        value={environment}
-        onChange={(e) => setEnvironment(e.target.value)}
-      >
-        <option value="">Don't change</option>
-        {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
-      <select className="tool-input" value={locked} onChange={(e) => setLocked(e.target.value)}>
-        <option value="">Don't change</option>
-        <option value="lock">Lock</option>
-        <option value="unlock">Unlock</option>
-      </select>
-      <button className="tool-btn tool-btn-primary" type="submit" disabled={applying || deleting}>
-        {applying ? "Applying…" : "Apply"}
-      </button>
-      <button
-        type="button"
-        className="tool-btn tool-btn-ghost ip-row-btn-danger"
-        onClick={handleBulkDelete}
-        disabled={applying || deleting}
-      >
-        {deleting ? "Deleting…" : `Delete ${selectedIds.size}`}
-      </button>
-      <button type="button" className="tool-btn tool-btn-ghost" onClick={onClear}>
-        Clear selection
-      </button>
-    </form>
+    <div className="ip-bulk-actions">
+      <div className="ip-add-row ip-bulk-actions-bar">
+        <span className="tool-hint">{selectedIds.size} selected</span>
+        <button
+          type="button"
+          className="tool-btn tool-btn-ghost"
+          onClick={() => (editOpen ? closeEdit() : setEditOpen(true))}
+          disabled={deleting || moving}
+        >
+          Edit
+        </button>
+        <select
+          className="tool-input"
+          value={targetSubnetId}
+          onChange={(e) => setTargetSubnetId(e.target.value)}
+        >
+          <option value="">Move to subnet…</option>
+          {moveTargets.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.cidr}
+              {s.vlan ? ` (VLAN ${s.vlan})` : ""}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          className="tool-btn tool-btn-ghost"
+          onClick={handleBulkMove}
+          disabled={applying || deleting || moving || !targetSubnetId}
+        >
+          {moving ? "Moving…" : `Move ${selectedIds.size}`}
+        </button>
+        <button
+          type="button"
+          className="tool-btn tool-btn-ghost ip-row-btn-danger"
+          onClick={handleBulkDelete}
+          disabled={applying || deleting || moving}
+        >
+          {deleting ? "Deleting…" : `Delete ${selectedIds.size}`}
+        </button>
+        <button type="button" className="tool-btn tool-btn-ghost" onClick={onClear}>
+          Clear selection
+        </button>
+      </div>
+
+      {editOpen && (
+        <form className="ip-bulk-edit-popover" onSubmit={submit}>
+          <div className="tool-field">
+            <div className="tool-label">
+              <span>Status</span>
+            </div>
+            <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="">Don't change</option>
+              {Object.entries(STATUS_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="tool-field">
+            <div className="tool-label">
+              <span>Team</span>
+            </div>
+            <input
+              className="tool-input"
+              placeholder="team"
+              value={team}
+              onChange={(e) => setTeam(e.target.value)}
+            />
+          </div>
+          <div className="tool-field">
+            <div className="tool-label">
+              <span>Machine type</span>
+            </div>
+            <select
+              className="tool-input"
+              value={machineType}
+              onChange={(e) => setMachineType(e.target.value)}
+            >
+              <option value="">Don't change</option>
+              {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="tool-field">
+            <div className="tool-label">
+              <span>VM cluster</span>
+            </div>
+            <input
+              className="tool-input"
+              placeholder="vm cluster"
+              value={vmCluster}
+              onChange={(e) => setVmCluster(e.target.value)}
+            />
+          </div>
+          <div className="tool-field">
+            <div className="tool-label">
+              <span>Environment</span>
+            </div>
+            <select
+              className="tool-input"
+              value={environment}
+              onChange={(e) => setEnvironment(e.target.value)}
+            >
+              <option value="">Don't change</option>
+              {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="tool-field">
+            <div className="tool-label">
+              <span>Locked</span>
+            </div>
+            <select className="tool-input" value={locked} onChange={(e) => setLocked(e.target.value)}>
+              <option value="">Don't change</option>
+              <option value="lock">Lock</option>
+              <option value="unlock">Unlock</option>
+            </select>
+          </div>
+          <div className="tool-actions">
+            <button className="tool-btn tool-btn-primary" type="submit" disabled={applying}>
+              {applying ? "Applying…" : `Apply to ${selectedIds.size}`}
+            </button>
+            <button type="button" className="tool-btn tool-btn-ghost" onClick={closeEdit} disabled={applying}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }
 
@@ -1052,9 +1224,14 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
       {selectedIds.size > 0 && (
         <BulkEditBar
           subnetId={subnet.id}
+          subnets={subnets}
           selectedIds={selectedIds}
           onApplied={(updated) => {
             onDetailUpdated(updated);
+            setSelectedIds(new Set());
+          }}
+          onMoved={(result) => {
+            onDetailUpdated(result.fromSubnet);
             setSelectedIds(new Set());
           }}
           onClear={() => setSelectedIds(new Set())}

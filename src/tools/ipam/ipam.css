@@ -115,6 +115,77 @@
   min-width: 110px;
 }
 
+/* Bulk-selection actions bar: a slim row of buttons (Edit / Move / Delete /
+   Clear) plus the "Edit" trigger's popover form, which follows the same
+   trigger-button + popover-panel convention as .ip-add-subnet-popover. */
+.ip-bulk-actions {
+  margin-bottom: 14px;
+}
+.ip-bulk-actions-bar {
+  margin-bottom: 0;
+  align-items: center;
+}
+.ip-bulk-actions-bar .tool-input {
+  flex: 0 1 220px;
+  min-width: 160px;
+}
+.ip-bulk-edit-popover {
+  position: relative;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ip-bulk-edit-popover .tool-field {
+  flex: 1 1 160px;
+  min-width: 160px;
+  margin-bottom: 0;
+}
+.ip-bulk-edit-popover .tool-actions {
+  flex-basis: 100%;
+  display: flex;
+  gap: 8px;
+}
+
+/* "Add address" trigger button + popover form — same convention as
+   .ip-add-subnet-popover and the bulk-edit popover above. */
+.ip-add-address-trigger {
+  margin-bottom: 14px;
+}
+.ip-add-address-popover {
+  position: relative;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.ip-add-address-popover .tool-field {
+  flex: 1 1 160px;
+  min-width: 160px;
+  margin-bottom: 0;
+}
+.ip-add-address-popover .tool-actions {
+  flex-basis: 100%;
+  display: flex;
+  gap: 8px;
+}
+.ip-add-address-locked {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+}
+
 .ip-actions-cell {
   display: flex;
   gap: 6px;

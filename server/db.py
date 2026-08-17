@@ -954,6 +954,93 @@ def bulk_delete_addresses(subnet_id: int, address_ids: List[int]) -> Dict:
     return get_subnet(subnet_id)
 
 
+def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_id: int) -> Dict:
+    """
+    Move many addresses from one subnet to another in a single transaction.
+
+    Each address is checked independently: address_ids not belonging to
+    from_subnet_id are silently skipped (same convention as
+    bulk_update_addresses/bulk_delete_addresses); addresses that don't fit
+    the destination CIDR, or that collide with an address already recorded
+    there, are recorded in `skipped` with a reason and left in place rather
+    than aborting the whole batch.
+    """
+    conn = get_connection()
+    try:
+        from_subnet_row = conn.execute(
+            "SELECT id FROM ipam_subnets WHERE id = ?", (from_subnet_id,)
+        ).fetchone()
+        if from_subnet_row is None:
+            raise ValueError("Source subnet not found")
+        to_subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (to_subnet_id,)
+        ).fetchone()
+        if to_subnet_row is None:
+            raise ValueError("Destination subnet not found")
+        if to_subnet_id == from_subnet_id:
+            raise ValueError("Source and destination subnet must be different")
+
+        target_cidr = to_subnet_row["cidr"]
+        moved_count = 0
+        skipped: List[Dict] = []
+
+        for address_id in address_ids:
+            row = conn.execute(
+                "SELECT * FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
+                (address_id, from_subnet_id),
+            ).fetchone()
+            if row is None:
+                continue
+
+            try:
+                validate_address_in_subnet(row["address"], target_cidr)
+            except ValueError as exc:
+                skipped.append({"addressId": address_id, "address": row["address"], "reason": str(exc)})
+                continue
+
+            exists = conn.execute(
+                "SELECT 1 FROM ipam_addresses WHERE subnet_id = ? AND address = ?",
+                (to_subnet_id, row["address"]),
+            ).fetchone()
+            if exists:
+                skipped.append({
+                    "addressId": address_id,
+                    "address": row["address"],
+                    "reason": f'"{row["address"]}" is already recorded in the destination subnet',
+                })
+                continue
+
+            conn.execute(
+                "DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
+                (address_id, from_subnet_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO ipam_addresses
+                    (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, locked, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    to_subnet_id, row["address"], row["status"],
+                    row["hostname"], row["description"], row["team"],
+                    row["machine_type"], row["vm_cluster"],
+                    row["environment"], row["locked"], _now(),
+                ),
+            )
+            moved_count += 1
+
+        conn.commit()
+    finally:
+        conn.close()
+
+    return {
+        "fromSubnet": get_subnet(from_subnet_id),
+        "toSubnet": get_subnet(to_subnet_id),
+        "movedCount": moved_count,
+        "skipped": skipped,
+    }
+
+
 def list_scan_excludes(subnet_id: int) -> List[str]:
     conn = get_connection()
     try:
