@@ -58,6 +58,9 @@ def init_auth_db() -> None:
             )
             """
         )
+        user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "auth_source" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -84,6 +87,14 @@ def init_auth_db() -> None:
                 permissions TEXT NOT NULL DEFAULT '[]',
                 is_builtin INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ad_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )
             """
         )
@@ -117,17 +128,18 @@ def _user_dict(row: sqlite3.Row) -> Dict:
         "username": row["username"],
         "passwordHash": row["password_hash"],
         "role": row["role"],
+        "authSource": row["auth_source"],
         "createdAt": row["created_at"],
     }
 
 
-def create_user(username: str, password_hash: str, role: str = "user") -> Dict:
+def create_user(username: str, password_hash: str, role: str = "user", auth_source: str = "local") -> Dict:
     conn = get_connection()
     try:
         try:
             conn.execute(
-                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
-                (username, password_hash, role, _now()),
+                "INSERT INTO users (username, password_hash, role, created_at, auth_source) VALUES (?, ?, ?, ?, ?)",
+                (username, password_hash, role, _now(), auth_source),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'Username "{username}" is already taken')
@@ -402,3 +414,47 @@ def delete_role(role_id: int) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def get_ad_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT value FROM ad_settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else default
+    finally:
+        conn.close()
+
+
+def set_ad_setting(key: str, value: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO ad_settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_ad_config() -> Dict:
+    return {
+        "enabled": get_ad_setting("enabled", "false") == "true",
+        "host": get_ad_setting("host", ""),
+        "port": int(get_ad_setting("port", "636")),
+        "useTls": get_ad_setting("use_tls", "true") == "true",
+        "domainSuffix": get_ad_setting("domain_suffix", ""),
+        "requiredGroupDn": get_ad_setting("required_group_dn", "") or None,
+        "adminGroupDn": get_ad_setting("admin_group_dn", "") or None,
+    }
+
+
+def set_ad_config(config: Dict) -> None:
+    set_ad_setting("enabled", "true" if config["enabled"] else "false")
+    set_ad_setting("host", config["host"])
+    set_ad_setting("port", str(config["port"]))
+    set_ad_setting("use_tls", "true" if config["useTls"] else "false")
+    set_ad_setting("domain_suffix", config["domainSuffix"])
+    set_ad_setting("required_group_dn", config.get("requiredGroupDn") or "")
+    set_ad_setting("admin_group_dn", config.get("adminGroupDn") or "")

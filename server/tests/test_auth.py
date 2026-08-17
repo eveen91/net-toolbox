@@ -210,3 +210,71 @@ def test_login_endpoint_reachable_even_when_login_required_and_logged_out(client
     res = client.post("/api/auth/login", json={"username": "nate", "password": "pw"})
     assert res.status_code == 200
     auth_db.set_setting("require_login", "false")  # reset for later tests
+
+
+def test_ad_login_fails_when_ad_not_enabled(client):
+    res = client.post("/api/auth/login", json={"username": "someone", "password": "pw", "authMethod": "ad"})
+    assert res.status_code == 401
+
+
+def test_ad_login_succeeds_and_provisions_user(client, monkeypatch):
+    import auth_db, ldap_auth
+    auth_db.set_ad_setting("enabled", "true")
+    auth_db.set_ad_setting("host", "ldap.example.com")
+    auth_db.set_ad_setting("port", "636")
+    auth_db.set_ad_setting("use_tls", "true")
+    auth_db.set_ad_setting("domain_suffix", "example.com")
+
+    monkeypatch.setattr(
+        ldap_auth, "authenticate_ad_user",
+        lambda *args, **kwargs: {"username": "opal", "memberOf": []}
+    )
+
+    res = client.post("/api/auth/login", json={"username": "opal", "password": "pw", "authMethod": "ad"})
+    assert res.status_code == 200
+    assert res.json()["username"] == "opal"
+
+    user = auth_db.get_user_by_username("opal")
+    assert user["authSource"] == "ad"
+
+    auth_db.set_ad_setting("enabled", "false")
+
+
+def test_ad_login_rejected_when_not_in_required_group(client, monkeypatch):
+    import auth_db, ldap_auth
+    auth_db.set_ad_setting("enabled", "true")
+    auth_db.set_ad_setting("required_group_dn", "CN=VPN-Users,DC=example,DC=com")
+
+    monkeypatch.setattr(
+        ldap_auth, "authenticate_ad_user",
+        lambda *args, **kwargs: {"username": "penny", "memberOf": ["CN=Everyone,DC=example,DC=com"]}
+    )
+
+    res = client.post("/api/auth/login", json={"username": "penny", "password": "pw", "authMethod": "ad"})
+    assert res.status_code == 401
+
+    auth_db.set_ad_setting("enabled", "false")
+    auth_db.set_ad_setting("required_group_dn", "")
+
+
+def test_ad_login_does_not_take_over_existing_local_account(client, monkeypatch):
+    import auth_db, auth, ldap_auth
+    auth_db.create_user("quinn", auth.hash_password("local-pw"), role="user", auth_source="local")
+    auth_db.set_ad_setting("enabled", "true")
+
+    monkeypatch.setattr(
+        ldap_auth, "authenticate_ad_user",
+        lambda *args, **kwargs: {"username": "quinn", "memberOf": []}
+    )
+
+    res = client.post("/api/auth/login", json={"username": "quinn", "password": "whatever", "authMethod": "ad"})
+    assert res.status_code == 401
+
+    auth_db.set_ad_setting("enabled", "false")
+
+
+def test_local_login_still_works_after_ad_changes(client):
+    import auth_db, auth
+    auth_db.create_user("rex", auth.hash_password("pw"), role="user")
+    res = client.post("/api/auth/login", json={"username": "rex", "password": "pw", "authMethod": "local"})
+    assert res.status_code == 200

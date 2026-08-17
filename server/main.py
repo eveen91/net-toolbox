@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field
 import db
 import auth
 import auth_db
+import ldap_auth
 import ipam_scan
 
 app = FastAPI(title="net::toolbox API")
@@ -124,6 +125,7 @@ class Credentials(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+    authMethod: Literal["local", "ad"] = "local"
 
 
 class UserPublic(BaseModel):
@@ -429,10 +431,43 @@ def require_feature(feature_id: str):
     return _dependency
 
 
+def _login_via_ad(username: str, password: str) -> Optional[Dict]:
+    config = auth_db.get_ad_config()
+    if not config["enabled"]:
+        return None
+
+    result = ldap_auth.authenticate_ad_user(
+        username, password, config["host"], config["port"], config["useTls"], config["domainSuffix"]
+    )
+    if result is None:
+        return None
+
+    member_of = result["memberOf"]
+    if not ldap_auth.is_member_of(member_of, config["requiredGroupDn"]):
+        return None
+
+    existing = auth_db.get_user_by_username(username)
+    if existing is not None:
+        if existing["authSource"] != "ad":
+            # A local account already owns this username — do not
+            # silently merge or overwrite it.
+            return None
+        return existing
+
+    role = ldap_auth.resolve_role(member_of, config["adminGroupDn"])
+    return auth_db.create_user(username, "", role=role, auth_source="ad")
+
+
 @app.post("/api/auth/login")
 def login(req: LoginRequest, response: Response):
-    user = auth_db.get_user_by_username(req.username)
-    if user is None or not auth.verify_password(req.password, user["passwordHash"]):
+    if req.authMethod == "ad":
+        user = _login_via_ad(req.username, req.password)
+    else:
+        user = auth_db.get_user_by_username(req.username)
+        if user is None or not auth.verify_password(req.password, user["passwordHash"]):
+            user = None
+
+    if user is None:
         raise HTTPException(status_code=401, detail="Invalid username or password")
     token = auth.generate_session_token()
     auth_db.create_session(user["id"], token)
