@@ -127,6 +127,7 @@ return (
           <thead>
             <tr>
               <th>Username</th>
+              <th>Source</th>
               <th>Role</th>
               <th></th>
             </tr>
@@ -135,6 +136,11 @@ return (
             {users.map((u) => (
               <tr key={u.id}>
                 <td>{u.username}</td>
+                <td>
+                  <span className={`nt-user-source-badge nt-user-source-${u.authSource}`}>
+                    {u.authSource === "ad" ? "AD" : "Local"}
+                  </span>
+                </td>
                 <td>
                   {editingRoleUserId === u.id ? (
                     <select
