@@ -277,7 +277,11 @@ def test_ad_login_rejected_when_not_in_required_group(client, monkeypatch):
     auth_db.set_ad_setting("required_group_dn", "")
 
 
-def test_ad_login_does_not_take_over_existing_local_account(client, monkeypatch):
+def test_ad_login_coexists_with_existing_local_account_of_same_username(client, monkeypatch):
+    # Superseded the old "does not take over" 401 expectation: since local
+    # and AD usernames are now independent namespaces (Step 21), an AD
+    # login no longer collides with a same-named local account at all — it
+    # just provisions/reuses its own AD-sourced row alongside it.
     import auth_db, auth, ldap_auth
     auth_db.create_user("quinn", auth.hash_password("local-pw"), role="user", auth_source="local")
     auth_db.set_ad_setting("enabled", "true")
@@ -291,7 +295,8 @@ def test_ad_login_does_not_take_over_existing_local_account(client, monkeypatch)
     )
 
     res = client.post("/api/auth/login", json={"username": "quinn", "password": "whatever", "authMethod": "ad"})
-    assert res.status_code == 401
+    assert res.status_code == 200
+    assert res.json()["authSource"] == "ad"
 
     auth_db.set_ad_setting("enabled", "false")
 
@@ -401,3 +406,105 @@ def test_connection_test_requires_a_host(client, monkeypatch):
     auth_db.set_ad_setting("host", "")
     res = client.post("/api/admin/settings/ad/test-connection", json={})
     assert res.status_code == 400
+
+
+def test_local_and_ad_accounts_can_share_a_username(client, monkeypatch):
+    import auth_db, auth, ldap_auth
+    auth_db.create_user("sam", auth.hash_password("local-pw"), role="user", auth_source="local")
+    auth_db.set_ad_setting("enabled", "true")
+    monkeypatch.setattr(
+        ldap_auth, "authenticate_ad_user",
+        lambda *args, **kwargs: {
+            "username": "sam", "memberOf": [],
+            "isRequiredMember": True, "isAdminMember": False,
+        }
+    )
+
+    res = client.post("/api/auth/login", json={"username": "sam", "password": "whatever", "authMethod": "ad"})
+    assert res.status_code == 200
+    assert res.json()["authSource"] == "ad"
+
+    local_user = auth_db.get_user_by_username_and_source("sam", "local")
+    ad_user = auth_db.get_user_by_username_and_source("sam", "ad")
+    assert local_user is not None
+    assert ad_user is not None
+    assert local_user["id"] != ad_user["id"]
+
+    auth_db.set_ad_setting("enabled", "false")
+
+
+def test_local_login_matches_local_account_when_ad_duplicate_exists(client, monkeypatch):
+    import auth_db, auth, ldap_auth
+    auth_db.create_user("tara", auth.hash_password("local-pw"), role="user", auth_source="local")
+    auth_db.set_ad_setting("enabled", "true")
+    monkeypatch.setattr(
+        ldap_auth, "authenticate_ad_user",
+        lambda *args, **kwargs: {
+            "username": "tara", "memberOf": [],
+            "isRequiredMember": True, "isAdminMember": False,
+        }
+    )
+    client.post("/api/auth/login", json={"username": "tara", "password": "whatever", "authMethod": "ad"})
+
+    res = client.post("/api/auth/login", json={"username": "tara", "password": "local-pw", "authMethod": "local"})
+    assert res.status_code == 200
+    assert res.json()["authSource"] == "local"
+
+    auth_db.set_ad_setting("enabled", "false")
+
+
+def test_ad_relogin_reuses_existing_ad_account_not_a_new_one(client, monkeypatch):
+    import auth_db, ldap_auth
+    auth_db.set_ad_setting("enabled", "true")
+    monkeypatch.setattr(
+        ldap_auth, "authenticate_ad_user",
+        lambda *args, **kwargs: {
+            "username": "uma", "memberOf": [],
+            "isRequiredMember": True, "isAdminMember": False,
+        }
+    )
+
+    first = client.post("/api/auth/login", json={"username": "uma", "password": "pw", "authMethod": "ad"}).json()
+    second = client.post("/api/auth/login", json={"username": "uma", "password": "pw", "authMethod": "ad"}).json()
+    assert first["id"] == second["id"]
+
+    auth_db.set_ad_setting("enabled", "false")
+
+
+def test_migration_preserves_existing_users_and_relaxes_constraint(tmp_path, monkeypatch):
+    import sqlite3
+    import auth_db
+
+    old_db_path = tmp_path / "old_style_auth.db"
+    conn = sqlite3.connect(old_db_path)
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+        ("existing-user", "some-hash", "admin", "2025-01-01T00:00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(auth_db, "AUTH_DB_PATH", old_db_path)
+    auth_db.init_auth_db()
+
+    # Old data must survive the migration.
+    migrated = auth_db.get_user_by_username_and_source("existing-user", "local")
+    assert migrated is not None
+    assert migrated["role"] == "admin"
+
+    # The new constraint must actually allow a same-named AD account now.
+    auth_db.create_user("existing-user", "", role="user", auth_source="ad")
+    ad_version = auth_db.get_user_by_username_and_source("existing-user", "ad")
+    assert ad_version is not None
+    assert ad_version["id"] != migrated["id"]

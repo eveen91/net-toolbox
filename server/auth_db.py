@@ -44,6 +44,49 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _migrate_users_composite_unique(conn: sqlite3.Connection) -> None:
+    """
+    Older versions of this table had UNIQUE(username) alone, which
+    meant a local account and an AD account could never share a
+    username. This rebuilds the table with UNIQUE(username,
+    auth_source) instead, so each auth source gets its own
+    independent username namespace. Safe to run every startup — it
+    checks the table's actual current definition and does nothing if
+    it's already migrated.
+    """
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'users'"
+    ).fetchone()
+    if row is None:
+        return
+    create_sql = row["sql"] or ""
+    if "UNIQUE(username, auth_source)" in create_sql:
+        return  # already migrated
+
+    conn.execute("ALTER TABLE users RENAME TO users_old_namespace_migration")
+    conn.execute(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user',
+            created_at TEXT NOT NULL,
+            auth_source TEXT NOT NULL DEFAULT 'local',
+            UNIQUE(username, auth_source)
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO users (id, username, password_hash, role, created_at, auth_source)
+        SELECT id, username, password_hash, role, created_at, auth_source
+        FROM users_old_namespace_migration
+        """
+    )
+    conn.execute("DROP TABLE users_old_namespace_migration")
+
+
 def init_auth_db() -> None:
     conn = get_connection()
     try:
@@ -61,6 +104,7 @@ def init_auth_db() -> None:
         user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
         if "auth_source" not in user_cols:
             conn.execute("ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'")
+        _migrate_users_composite_unique(conn)
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -142,9 +186,12 @@ def create_user(username: str, password_hash: str, role: str = "user", auth_sour
                 (username, password_hash, role, _now(), auth_source),
             )
         except sqlite3.IntegrityError:
-            raise ValueError(f'Username "{username}" is already taken')
+            raise ValueError(f'Username "{username}" is already taken for {auth_source} accounts')
         conn.commit()
-        row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ? AND auth_source = ?",
+            (username, auth_source),
+        ).fetchone()
         return _user_dict(row)
     finally:
         conn.close()
@@ -458,3 +505,15 @@ def set_ad_config(config: Dict) -> None:
     set_ad_setting("domain_suffix", config["domainSuffix"])
     set_ad_setting("required_group_dn", config.get("requiredGroupDn") or "")
     set_ad_setting("admin_group_dn", config.get("adminGroupDn") or "")
+
+
+def get_user_by_username_and_source(username: str, auth_source: str) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM users WHERE username = ? AND auth_source = ?",
+            (username, auth_source),
+        ).fetchone()
+        return _user_dict(row) if row else None
+    finally:
+        conn.close()

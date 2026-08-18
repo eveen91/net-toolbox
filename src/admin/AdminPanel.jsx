@@ -268,6 +268,7 @@ export default function AdminPanel() {
             <tr>
               <th>Username</th>
               <th>Role</th>
+              <th>Source</th>
               <th></th>
             </tr>
           </thead>
@@ -295,6 +296,7 @@ export default function AdminPanel() {
                     u.role
                   )}
                 </td>
+                <td>{u.authSource === "ad" ? "AD" : "Local"}</td>
                 <td className="nt-admin-actions">
                   {resettingId === u.id ? (
                     <>

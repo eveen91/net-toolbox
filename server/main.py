@@ -140,6 +140,7 @@ class UserPublic(BaseModel):
     id: int
     username: str
     role: str
+    authSource: str
     permissions: List[str] = []
 
 
@@ -459,6 +460,7 @@ def _user_public(user: Dict) -> UserPublic:
         id=user["id"],
         username=user["username"],
         role=user["role"],
+        authSource=user["authSource"],
         permissions=user_permissions(user),
     )
 
@@ -510,12 +512,8 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
     if not result["isRequiredMember"]:
         return None
 
-    existing = auth_db.get_user_by_username(username)
+    existing = auth_db.get_user_by_username_and_source(username, "ad")
     if existing is not None:
-        if existing["authSource"] != "ad":
-            # A local account already owns this username — do not
-            # silently merge or overwrite it.
-            return None
         return existing
 
     role = "admin" if result["isAdminMember"] else "user"
@@ -527,7 +525,7 @@ def login(req: LoginRequest, response: Response):
     if req.authMethod == "ad":
         user = _login_via_ad(req.username, req.password)
     else:
-        user = auth_db.get_user_by_username(req.username)
+        user = auth_db.get_user_by_username_and_source(req.username, "local")
         if user is None or not auth.verify_password(req.password, user["passwordHash"]):
             user = None
 
