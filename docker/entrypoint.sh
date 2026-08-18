@@ -27,6 +27,10 @@ if [ "${ROLE}" = "backend" ]; then
     ln -sf /data/toolbox.db "${APP_DIR}/server/toolbox.db"
     echo ">>> [backend] toolbox.db -> /data/toolbox.db (persistent volume)"
 
+    touch /data/auth.db
+    ln -sf /data/auth.db "${APP_DIR}/server/auth.db"
+    echo ">>> [backend] auth.db -> /data/auth.db (persistent volume)"
+
     echo ">>> [backend] Installing Python dependencies ..."
     pip install --no-cache-dir -r server/requirements.txt
 
