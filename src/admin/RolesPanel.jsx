@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { TOOLS } from "../tools/registry.js";
 import { listRoles, createRole, updateRole, deleteRole } from "./api.js";
+import "../tools/shared.css";
 import "./admin.css";
 export default function RolesPanel() {
   const [roles, setRoles] = useState([]);
@@ -96,8 +97,100 @@ useEffect(() => {
   loadRoles();
 }, []);
 return (
-    <div>
-      {/* JSX_GOES_HERE */}
-    </div>
+    <div className="nt-admin-roles">
+        <h3>Roles</h3>
+        <p className="tool-hint">
+          Choose which tools each role can access. "admin" always has access to everything,
+          plus this Config Panel, and can't be edited.
+        </p>
+        {roleError && <div className="tool-error">{roleError}</div>}
+
+<div className="tool-table-wrap">
+          <table className="tool-table nt-roles-table">
+            <thead>
+              <tr>
+                <th>Role</th>
+                {TOOLS.map((tool) => (
+                  <th key={tool.id}>{tool.name}</th>
+                ))}
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {roles.map((role) => (
+                <tr key={role.id}>
+                  <td>
+                    {role.name}
+                    {role.isBuiltin && <span className="nt-role-badge">built-in</span>}
+                  </td>
+                  {role.name === "admin" ? (
+                    <td colSpan={TOOLS.length} className="tool-hint">
+                      All features
+                    </td>
+                  ) : (
+                    TOOLS.map((tool) => (
+                      <td key={tool.id} className="nt-role-checkbox-cell">
+                        <input
+                          type="checkbox"
+                          checked={(roleEdits[role.id] || []).includes(tool.id)}
+                          onChange={() => toggleRoleEditPermission(role.id, tool.id)}
+                        />
+                      </td>
+                    ))
+                  )}
+                  <td className="nt-admin-actions">
+                    {role.name !== "admin" && (
+                      <>
+                        <button
+                          className="tool-btn tool-btn-ghost"
+                          onClick={() => handleSaveRole(role.id)}
+                          disabled={savingRoleId === role.id || !isRoleDirty(role)}
+                        >
+                          {savingRoleId === role.id ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          className="tool-btn tool-btn-ghost"
+                          onClick={() => handleDeleteRole(role.id)}
+                          disabled={deletingRoleId === role.id}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+<form className="nt-admin-create-form" onSubmit={handleCreateRole}>
+          <input
+            className="tool-input"
+            placeholder="New role name"
+            value={newRoleName}
+            onChange={(e) => setNewRoleName(e.target.value)}
+          />
+          <div className="nt-new-role-checkboxes">
+            {TOOLS.map((tool) => (
+              <label key={tool.id} className="nt-role-checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={newRolePermissions.includes(tool.id)}
+                  onChange={() => toggleNewRolePermission(tool.id)}
+                />
+                {tool.name}
+              </label>
+            ))}
+          </div>
+          <button
+            className="tool-btn tool-btn-primary"
+            type="submit"
+            disabled={creatingRole || !newRoleName.trim()}
+          >
+            {creatingRole ? "Creating…" : "Create role"}
+          </button>
+        </form>
+      </div>
   );
 }
