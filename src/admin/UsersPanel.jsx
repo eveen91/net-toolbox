@@ -7,11 +7,13 @@ import {
   resetPassword,
   updateUserRole,
   setRequireLogin,
+  listRoles,
 } from "./api.js";
 import "./admin.css";
-export default function UsersPanel({ roles }) {
+export default function UsersPanel() {
   const { user, loginRequired, refresh } = useAuth();
   const [users, setUsers] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState(null);
@@ -35,8 +37,18 @@ const loadUsers = async () => {
     }
   };
 
+const loadRoles = async () => {
+    try {
+      const result = await listRoles();
+      setRoles(result);
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
 useEffect(() => {
     loadUsers();
+    loadRoles();
   }, []);
 
 const handleDelete = async (userId) => {
