@@ -4,7 +4,7 @@ use a stored service account — the username/password the user typed
 into the login form is used directly to bind to AD. This means no
 long-lived directory credential is ever stored by this application.
 """
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from ldap3 import Server, Connection, Tls, SUBTREE
 from ldap3.utils.conv import escape_filter_chars
@@ -31,6 +31,7 @@ def authenticate_ad_user(
     domain_suffix: str,
     required_group_dn: Optional[str] = None,
     admin_group_dn: Optional[str] = None,
+    candidate_group_dns: Optional[List[str]] = None,
 ) -> Optional[Dict]:
     if not password:
         # A blank password can bind anonymously against many LDAP
@@ -111,6 +112,13 @@ def authenticate_ad_user(
         else (is_admin_member or _is_transitive_member(required_group_dn))
     )
 
+    # Every AD-group-to-role binding the user transitively belongs to. Used
+    # by the caller (main.py) to work out which role a first-time AD login
+    # should be provisioned with — see resolve_role_from_bindings() below.
+    matched_group_dns = [
+        dn for dn in (candidate_group_dns or []) if _is_transitive_member(dn)
+    ]
+
     conn.unbind()
 
     return {
@@ -118,6 +126,7 @@ def authenticate_ad_user(
         "memberOf": member_of,
         "isRequiredMember": bool(is_required_member),
         "isAdminMember": bool(is_admin_member),
+        "matchedGroupDns": matched_group_dns,
     }
 
 
@@ -131,6 +140,33 @@ def resolve_role(member_of: list, admin_group_dn: Optional[str]) -> str:
     if admin_group_dn and is_member_of(member_of, admin_group_dn):
         return "admin"
     return "user"
+
+
+def resolve_role_from_bindings(matched_group_dns: List[str], bindings: List[Dict]) -> Optional[str]:
+    """
+    Given the DNs a user transitively belongs to (matched_group_dns, from
+    authenticate_ad_user's "matchedGroupDns") and the full list of role<->AD
+    group bindings (bindings, as returned by
+    auth_db.list_all_role_group_bindings() — a list of
+    {"roleId", "roleName", "groupDn"} dicts), return the name of the role
+    that should be assigned, or None if nothing matched.
+
+    A group DN can only ever be bound to one role (enforced when the
+    binding is created), so this is only ambiguous when a user belongs to
+    two DIFFERENT groups that are bound to two different roles. In that
+    case: "admin" wins if it's one of the matches; otherwise the
+    alphabetically-first matching role name wins, so the result is always
+    deterministic.
+    """
+    matched_lower = {dn.lower() for dn in matched_group_dns}
+    matched_role_names = {
+        b["roleName"] for b in bindings if b["groupDn"].lower() in matched_lower
+    }
+    if not matched_role_names:
+        return None
+    if "admin" in matched_role_names:
+        return "admin"
+    return sorted(matched_role_names)[0]
 
 
 def test_ad_connection(host: str, port: int, use_tls: bool, timeout: float = 5.0) -> Dict:

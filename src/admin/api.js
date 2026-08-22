@@ -76,6 +76,29 @@ export async function deleteRole(roleId) {
   return handle(res);
 }
 
+export async function listRoleAdGroups(roleId) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/roles/${roleId}/ad-groups`);
+  return handle(res);
+}
+
+export async function addRoleAdGroup(roleId, groupDn) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/roles/${roleId}/ad-groups`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupDn }),
+  });
+  return handle(res);
+}
+
+export async function removeRoleAdGroup(roleId, groupDn) {
+  const res = await apiFetch(`${BASE_URL}/api/admin/roles/${roleId}/ad-groups`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ groupDn }),
+  });
+  return handle(res);
+}
+
 export async function resetPassword(userId, newPassword) {
   const res = await apiFetch(`${BASE_URL}/api/admin/users/${userId}/reset-password`, {
     method: "POST",

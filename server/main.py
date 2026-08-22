@@ -169,6 +169,7 @@ class RolePublic(BaseModel):
     name: str
     permissions: List[str]
     isBuiltin: bool
+    adGroups: List[str] = []
 
 
 class CreateRoleRequest(BaseModel):
@@ -178,6 +179,10 @@ class CreateRoleRequest(BaseModel):
 
 class UpdateRoleRequest(BaseModel):
     permissions: List[str]
+
+
+class RoleAdGroupRequest(BaseModel):
+    groupDn: str
 
 
 class ChangePasswordRequest(BaseModel):
@@ -496,6 +501,9 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
     if not config["enabled"]:
         return None
 
+    bindings = auth_db.list_all_role_group_bindings()
+    candidate_group_dns = [b["groupDn"] for b in bindings]
+
     result = ldap_auth.authenticate_ad_user(
         username,
         password,
@@ -505,6 +513,7 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
         config["domainSuffix"],
         required_group_dn=config["requiredGroupDn"],
         admin_group_dn=config["adminGroupDn"],
+        candidate_group_dns=candidate_group_dns,
     )
     if result is None:
         return None
@@ -516,7 +525,11 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
     if existing is not None:
         return existing
 
-    role = "admin" if result["isAdminMember"] else "user"
+    # .get(...) with a default, not result["matchedGroupDns"] — some callers
+    # (existing tests) mock authenticate_ad_user's return value and won't
+    # include this key, so this must not KeyError on them.
+    matched_group_dns = result.get("matchedGroupDns", [])
+    role = ldap_auth.resolve_role_from_bindings(matched_group_dns, bindings) or auth_db.DEFAULT_ROLE_NAME
     return auth_db.create_user(username, "", role=role, auth_source="ad")
 
 
@@ -639,6 +652,11 @@ def update_admin_user_role(
     target = auth_db.get_user_by_id(user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="User not found")
+    if target["authSource"] == "ad":
+        raise HTTPException(
+            status_code=400,
+            detail="Role is managed by Active Directory group membership for this account and cannot be changed manually",
+        )
     role = req.role.strip()
     if role != auth_db.ADMIN_ROLE_NAME and auth_db.get_role_by_name(role) is None:
         raise HTTPException(status_code=400, detail=f'Role "{role}" does not exist')
@@ -677,15 +695,20 @@ def reset_user_password(user_id: int, req: ResetPasswordRequest, admin: Optional
 
 @app.get("/api/admin/roles", response_model=List[RolePublic])
 def list_admin_roles(admin: Optional[Dict] = Depends(require_admin_user)):
-    return auth_db.list_roles()
+    roles = auth_db.list_roles()
+    for role in roles:
+        role["adGroups"] = auth_db.list_role_groups(role["id"])
+    return roles
 
 
 @app.post("/api/admin/roles", response_model=RolePublic)
 def create_admin_role(req: CreateRoleRequest, admin: Optional[Dict] = Depends(require_admin_user)):
     try:
-        return auth_db.create_role(req.name, req.permissions)
+        role = auth_db.create_role(req.name, req.permissions)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    role["adGroups"] = []
+    return role
 
 
 @app.put("/api/admin/roles/{role_id}", response_model=RolePublic)
@@ -705,6 +728,34 @@ def delete_admin_role(role_id: int, admin: Optional[Dict] = Depends(require_admi
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {"ok": True}
+
+
+@app.get("/api/admin/roles/{role_id}/ad-groups", response_model=List[str])
+def list_role_ad_groups(role_id: int, admin: Optional[Dict] = Depends(require_admin_user)):
+    if auth_db.get_role_by_id(role_id) is None:
+        raise HTTPException(status_code=404, detail="Role not found")
+    return auth_db.list_role_groups(role_id)
+
+
+@app.post("/api/admin/roles/{role_id}/ad-groups", response_model=List[str])
+def add_role_ad_group(
+    role_id: int, req: RoleAdGroupRequest, admin: Optional[Dict] = Depends(require_admin_user)
+):
+    try:
+        auth_db.add_role_group(role_id, req.groupDn)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return auth_db.list_role_groups(role_id)
+
+
+@app.delete("/api/admin/roles/{role_id}/ad-groups", response_model=List[str])
+def remove_role_ad_group(
+    role_id: int, req: RoleAdGroupRequest, admin: Optional[Dict] = Depends(require_admin_user)
+):
+    if auth_db.get_role_by_id(role_id) is None:
+        raise HTTPException(status_code=404, detail="Role not found")
+    auth_db.remove_role_group(role_id, req.groupDn)
+    return auth_db.list_role_groups(role_id)
 
 
 @app.post("/api/admin/settings/require-login")

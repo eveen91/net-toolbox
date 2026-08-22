@@ -158,7 +158,14 @@ return (
                         ))}
                     </select>
                   ) : (
-                    u.role
+                    <>
+                      {u.role}
+                      {u.authSource === "ad" && (
+                        <span className="tool-hint" style={{ marginLeft: 6 }}>
+                          (via AD)
+                        </span>
+                      )}
+                    </>
                   )}
                 </td>
                 <td className="nt-admin-actions">
@@ -205,15 +212,17 @@ return (
                     </>
                   ) : (
                     <>
-                      <button
-                        className="tool-btn tool-btn-ghost"
-                        onClick={() => {
-                          setEditingRoleUserId(u.id);
-                          setEditingRoleValue(u.role);
-                        }}
-                      >
-                        Change role
-                      </button>
+                      {u.authSource !== "ad" && (
+                        <button
+                          className="tool-btn tool-btn-ghost"
+                          onClick={() => {
+                            setEditingRoleUserId(u.id);
+                            setEditingRoleValue(u.role);
+                          }}
+                        >
+                          Change role
+                        </button>
+                      )}
                       <button className="tool-btn tool-btn-ghost" onClick={() => setResettingId(u.id)}>
                         Reset password
                       </button>

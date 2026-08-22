@@ -142,6 +142,16 @@ def init_auth_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS role_ad_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                role_id INTEGER NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+                group_dn TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         conn.commit()
 
         # Seed the two built-in roles once. "admin" is a sentinel handled in
@@ -162,6 +172,29 @@ def init_auth_db() -> None:
                 (DEFAULT_ROLE_NAME, json.dumps(DEFAULT_ROLE_SEED_PERMISSIONS), _now()),
             )
         conn.commit()
+
+        # One-time (idempotent) migration: if a legacy global admin_group_dn
+        # is configured and hasn't been migrated yet, bind it to the admin
+        # role in the new per-role table so existing deployments keep
+        # working under the new model without any manual admin action.
+        legacy_admin_group_dn = conn.execute(
+            "SELECT value FROM ad_settings WHERE key = 'admin_group_dn'"
+        ).fetchone()
+        if legacy_admin_group_dn and legacy_admin_group_dn["value"]:
+            dn = legacy_admin_group_dn["value"]
+            already_bound = conn.execute(
+                "SELECT 1 FROM role_ad_groups WHERE LOWER(group_dn) = LOWER(?)", (dn,)
+            ).fetchone()
+            if not already_bound:
+                admin_role_row = conn.execute(
+                    "SELECT id FROM roles WHERE name = ?", (ADMIN_ROLE_NAME,)
+                ).fetchone()
+                if admin_role_row:
+                    conn.execute(
+                        "INSERT INTO role_ad_groups (role_id, group_dn, created_at) VALUES (?, ?, ?)",
+                        (admin_role_row["id"], dn, _now()),
+                    )
+                    conn.commit()
     finally:
         conn.close()
 
@@ -458,6 +491,85 @@ def delete_role(role_id: int) -> None:
                 f'Role "{row["name"]}" is still assigned to one or more users'
             )
         conn.execute("DELETE FROM roles WHERE id = ?", (role_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_role_groups(role_id: int) -> List[str]:
+    """AD group DNs bound to a single role, oldest first."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT group_dn FROM role_ad_groups WHERE role_id = ? ORDER BY created_at",
+            (role_id,),
+        ).fetchall()
+        return [row["group_dn"] for row in rows]
+    finally:
+        conn.close()
+
+
+def list_all_role_group_bindings() -> List[Dict]:
+    """Every AD group binding across all roles, as {roleId, roleName, groupDn}."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT role_ad_groups.role_id AS role_id,
+                   roles.name AS role_name,
+                   role_ad_groups.group_dn AS group_dn
+            FROM role_ad_groups
+            JOIN roles ON roles.id = role_ad_groups.role_id
+            ORDER BY role_ad_groups.created_at
+            """
+        ).fetchall()
+        return [
+            {"roleId": row["role_id"], "roleName": row["role_name"], "groupDn": row["group_dn"]}
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def add_role_group(role_id: int, group_dn: str) -> Dict:
+    """Bind an AD group DN to a role. A DN can only ever be bound to one
+    role at a time — this is enforced here with a clear error message,
+    backed by a UNIQUE constraint on group_dn as a database-level backstop."""
+    group_dn = group_dn.strip()
+    if not group_dn:
+        raise ValueError("Group DN is required")
+    conn = get_connection()
+    try:
+        role_row = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
+        if role_row is None:
+            raise ValueError("Role not found")
+        existing = conn.execute(
+            "SELECT role_ad_groups.*, roles.name AS role_name "
+            "FROM role_ad_groups JOIN roles ON roles.id = role_ad_groups.role_id "
+            "WHERE LOWER(role_ad_groups.group_dn) = LOWER(?)",
+            (group_dn,),
+        ).fetchone()
+        if existing is not None:
+            if existing["role_id"] == role_id:
+                raise ValueError(f'This group is already assigned to role "{role_row["name"]}"')
+            raise ValueError(f'This group is already assigned to role "{existing["role_name"]}"')
+        conn.execute(
+            "INSERT INTO role_ad_groups (role_id, group_dn, created_at) VALUES (?, ?, ?)",
+            (role_id, group_dn, _now()),
+        )
+        conn.commit()
+        return {"roleId": role_id, "groupDn": group_dn}
+    finally:
+        conn.close()
+
+
+def remove_role_group(role_id: int, group_dn: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM role_ad_groups WHERE role_id = ? AND LOWER(group_dn) = LOWER(?)",
+            (role_id, group_dn.strip()),
+        )
         conn.commit()
     finally:
         conn.close()
