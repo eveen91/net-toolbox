@@ -102,15 +102,6 @@ def authenticate_ad_user(
         return bool(conn.entries)
 
     is_admin_member = _is_transitive_member(admin_group_dn) if admin_group_dn else False
-    # Admin-group membership always satisfies the required-group gate, even
-    # if the admin group isn't nested inside (or duplicated into) the base
-    # access group in AD — an admin shouldn't need to be added to two
-    # separate groups just to be allowed to log in at all.
-    is_required_member = (
-        True
-        if not required_group_dn
-        else (is_admin_member or _is_transitive_member(required_group_dn))
-    )
 
     # Every AD-group-to-role binding the user transitively belongs to. Used
     # by the caller (main.py) to work out which role a first-time AD login
@@ -118,6 +109,22 @@ def authenticate_ad_user(
     matched_group_dns = [
         dn for dn in (candidate_group_dns or []) if _is_transitive_member(dn)
     ]
+
+    # Admin-group membership, or membership in ANY role-bound AD group,
+    # always satisfies the required-group gate — even if that group isn't
+    # nested inside (or duplicated into) the base access group in AD. A
+    # role binding is itself an explicit grant of access; a user shouldn't
+    # need to also be added to a separate "base access" group just to be
+    # allowed to log in once their group has been bound to a role.
+    is_required_member = (
+        True
+        if not required_group_dn
+        else (
+            is_admin_member
+            or bool(matched_group_dns)
+            or _is_transitive_member(required_group_dn)
+        )
+    )
 
     conn.unbind()
 

@@ -223,9 +223,11 @@ return (
                           Change role
                         </button>
                       )}
-                      <button className="tool-btn tool-btn-ghost" onClick={() => setResettingId(u.id)}>
-                        Reset password
-                      </button>
+                      {u.authSource !== "ad" && (
+                        <button className="tool-btn tool-btn-ghost" onClick={() => setResettingId(u.id)}>
+                          Reset password
+                        </button>
+                      )}
                       <button className="tool-btn tool-btn-ghost" onClick={() => setConfirmingDeleteId(u.id)}>
                         Delete
                       </button>

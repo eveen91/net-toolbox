@@ -49,3 +49,55 @@ def test_resolve_role_defaults_to_user():
     import ldap_auth
 
     assert ldap_auth.resolve_role([], None) == "user"
+
+
+def test_authenticate_allows_member_of_role_bound_group_not_in_required_group(monkeypatch):
+    """A user whose only AD group is bound to a custom role (e.g. via
+    add_role_group) must be allowed to log in even when that group isn't
+    the configured base "required" group and isn't nested inside it —
+    a role binding is itself an explicit grant of access."""
+    import ldap_auth
+
+    helpdesk_dn = "CN=Helpdesk,DC=example,DC=com"
+    required_dn = "CN=BaseAccess,DC=example,DC=com"
+
+    class FakeEntry:
+        entry_dn = "CN=opal,DC=example,DC=com"
+
+        class memberOf:
+            values = [helpdesk_dn]
+
+    class FakeConnection:
+        def __init__(self, *args, **kwargs):
+            self.entries = [FakeEntry()]
+
+        def search(self, search_base, search_filter, search_scope, attributes=None):
+            # Only the direct userPrincipalName lookup returns the entry;
+            # transitive-membership searches for groups the user isn't in
+            # (directly or nested) return no entries.
+            if "userPrincipalName" in search_filter:
+                self.entries = [FakeEntry()]
+            else:
+                self.entries = []
+
+        def unbind(self):
+            pass
+
+    monkeypatch.setattr(ldap_auth, "Connection", FakeConnection)
+
+    result = ldap_auth.authenticate_ad_user(
+        "opal",
+        "somepassword",
+        "ldap.example.com",
+        636,
+        True,
+        "example.com",
+        required_group_dn=required_dn,
+        admin_group_dn="CN=Admins,DC=example,DC=com",
+        candidate_group_dns=[helpdesk_dn],
+    )
+
+    assert result is not None
+    assert result["isRequiredMember"] is True
+    assert result["isAdminMember"] is False
+    assert result["matchedGroupDns"] == [helpdesk_dn]
