@@ -1,6 +1,8 @@
 .agents
 node_modules
 server/*.db
+server/server.log
+server/server.log.*
 server/__pycache__
 server/*/__pycache__
 opencode.json

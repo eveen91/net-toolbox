@@ -223,8 +223,15 @@ src/
       logic.js                  # formatting helpers, ancestor chain for hierarchy
       ipam.css                  # IPAM-specific styles (utilization bar, address table)
     troubleshoot/
-      Troubleshoot.jsx          # UI for the tool — device inventory + diagnostics
+      Troubleshoot.jsx          # tab shell: diagnostics, locate, reachability, STP, inventory, activity
+      DiagnosticsTab.jsx        # run-full-diagnostic orchestration view
+      LocateTab.jsx             # IP -> MAC -> port locate + port health / cable / optics / access
+      ReachabilityTab.jsx       # ping + route check
+      StpReportTab.jsx          # inventory-wide spanning-tree flap report
+      InventoryTab.jsx          # device inventory (add/edit/delete devices)
+      ActivityTab.jsx           # audit log of commands run against devices
       api.js                    # troubleshoot API calls (locate, health checks, reports)
+      troubleshoot.css          # sub-tab styles
 server/
   main.py                       # FastAPI backend: SSHes into Linux sources (paramiko),
                                 # WinRMs into Windows sources (pywinrm), runs TCP checks,

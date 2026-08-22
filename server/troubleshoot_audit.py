@@ -1,6 +1,9 @@
+import logging
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
+
+logger = logging.getLogger("net_toolbox.troubleshoot_audit")
 
 DB_PATH = Path(__file__).parent / "toolbox.db"
 
@@ -42,7 +45,11 @@ def log_command(device_name, command, username, success, error):
         finally:
             conn.close()
     except Exception:
-        pass
+        # Audit logging must never break the feature it's logging for, but a
+        # silent drop hides real problems — so surface it here instead.
+        logger.exception(
+            "Audit log write failed (device=%s command=%s)", device_name, command
+        )
 
 
 def get_recent_audit_log(limit=50):

@@ -1,9 +1,12 @@
+import logging
 import re
 import subprocess
 
 from device_drivers.base import DeviceSession
 from device_drivers import get_driver
 import troubleshoot_devices
+
+logger = logging.getLogger("net_toolbox.troubleshoot_logic")
 
 
 def parse_arp_table(raw_text):
@@ -84,7 +87,11 @@ def locate_mac_on_switches(mac, switch_devices, username, password):
                             "port": entry["port"],
                             "vlan": entry["vlan"],
                         }
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "Skipping unreachable switch %s (%s) while locating MAC %s: %s",
+                device["name"], device.get("mgmtIp"), mac, exc,
+            )
             continue
     return None
 
@@ -384,7 +391,11 @@ def get_stp_report_all(devices, username, password):
             continue
         try:
             all_entries.extend(get_stp_report_for_device(device, username, password))
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "STP report skipped unreachable switch %s (%s): %s",
+                device["name"], device.get("mgmtIp"), exc,
+            )
             continue
     all_entries.sort(key=lambda e: (-e["topologyChanges"], e["lastChangeSeconds"]))
     return all_entries
@@ -497,6 +508,7 @@ def run_full_diagnostic(ip, username, password):
         raw = ping_host(ip)
         result["ping"] = {"success": True, **parse_ping_output(raw)}
     except Exception as e:
+        logger.error("Full diagnostic: ping step failed for %s: %s", ip, e)
         result["ping"] = {"success": False, "error": str(e)}
 
     if gateway:
@@ -504,8 +516,13 @@ def run_full_diagnostic(ip, username, password):
             route = get_route_check(ip, gateway, username, password)
             result["route"] = {"success": True, **route}
         except Exception as e:
+            logger.error(
+                "Full diagnostic: route step failed for %s via %s: %s",
+                ip, gateway["name"], e,
+            )
             result["route"] = {"success": False, "error": str(e)}
     else:
+        logger.warning("Full diagnostic for %s: no gateway device configured", ip)
         result["route"] = {"success": False, "error": "No gateway device configured"}
 
     if not gateway:
@@ -515,10 +532,14 @@ def run_full_diagnostic(ip, username, password):
     try:
         mac = resolve_ip_to_mac(ip, gateway, username, password)
         if mac is None:
+            logger.warning("Full diagnostic for %s: IP not found in ARP table", ip)
             result["locate"] = {"success": False, "error": "IP not found in ARP table"}
             return result
         located = locate_mac_on_switches(mac, switches, username, password)
         if located is None:
+            logger.warning(
+                "Full diagnostic for %s: MAC %s not found on any switch", ip, mac
+            )
             result["locate"] = {
                 "success": False,
                 "error": f"MAC {mac} not found on any switch",
@@ -526,30 +547,47 @@ def run_full_diagnostic(ip, username, password):
             return result
         result["locate"] = {"success": True, "mac": mac, **located}
     except Exception as e:
+        logger.error("Full diagnostic: locate step failed for %s: %s", ip, e)
         result["locate"] = {"success": False, "error": str(e)}
         return result
 
     device = next((d for d in devices if d["name"] == located["device"]), None)
     port = located["port"]
     if device is None:
+        logger.error(
+            "Full diagnostic for %s: located device %s not found in inventory",
+            ip, located["device"],
+        )
         return result
 
     try:
         health = get_port_health(device, port, username, password)
         result["portHealth"] = {"success": True, **health}
     except Exception as e:
+        logger.error(
+            "Full diagnostic: port health step failed for %s (%s) %s: %s",
+            device["name"], device["mgmtIp"], port, e,
+        )
         result["portHealth"] = {"success": False, "error": str(e)}
 
     try:
         transceiver = get_transceiver_health(device, port, username, password)
         result["transceiverHealth"] = {"success": True, **transceiver}
     except Exception as e:
+        logger.error(
+            "Full diagnostic: transceiver step failed for %s (%s) %s: %s",
+            device["name"], device["mgmtIp"], port, e,
+        )
         result["transceiverHealth"] = {"success": False, "error": str(e)}
 
     try:
         access = get_port_access_status(device, port, username, password)
         result["accessStatus"] = {"success": True, **access}
     except Exception as e:
+        logger.error(
+            "Full diagnostic: access step failed for %s (%s) %s: %s",
+            device["name"], device["mgmtIp"], port, e,
+        )
         result["accessStatus"] = {"success": False, "error": str(e)}
 
     return result

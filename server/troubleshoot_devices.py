@@ -1,6 +1,9 @@
+import logging
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
+
+logger = logging.getLogger("net_toolbox.troubleshoot_devices")
 
 DB_PATH = Path(__file__).parent / "toolbox.db"
 
@@ -64,7 +67,11 @@ def add_device(name, mgmt_ip, vendor, model, os_version, device_type):
         )
         conn.commit()
     except sqlite3.IntegrityError:
+        logger.warning("Duplicate device add attempted: %s", name)
         raise ValueError(f'Device "{name}" already exists')
+    except Exception:
+        logger.exception("Unexpected DB error adding device %s", name)
+        raise
     finally:
         conn.close()
     return list_devices()
@@ -78,6 +85,9 @@ def update_device(device_id, name, mgmt_ip, vendor, model, os_version, device_ty
             (name, mgmt_ip, vendor, model, os_version, device_type, datetime.now(timezone.utc).isoformat(), device_id),
         )
         conn.commit()
+    except Exception:
+        logger.exception("Unexpected DB error updating device id=%s (%s)", device_id, name)
+        raise
     finally:
         conn.close()
     return list_devices()
@@ -88,6 +98,9 @@ def delete_device(device_id):
     try:
         conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))
         conn.commit()
+    except Exception:
+        logger.exception("Unexpected DB error deleting device id=%s", device_id)
+        raise
     finally:
         conn.close()
     return list_devices()

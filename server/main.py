@@ -16,6 +16,7 @@ Run it with:
 
 import asyncio
 import json
+import logging
 import re
 import time
 import uuid
@@ -41,12 +42,16 @@ import troubleshoot_logic
 import troubleshoot_audit
 from device_drivers.base import DeviceSession
 from device_drivers import get_driver
+from logging_config import setup_logging
+
+logger = logging.getLogger("net_toolbox.main")
 
 app = FastAPI(title="net::toolbox API")
 
 
 @app.on_event("startup")
 def _init_db():
+    setup_logging()
     db.init_db()
     auth_db.init_auth_db()
     troubleshoot_devices.init_db()
@@ -98,6 +103,51 @@ async def require_auth_middleware(request: Request, call_next):
     if not token or auth_db.get_user_by_session_token(token) is None:
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
     return await call_next(request)
+
+
+@app.middleware("http")
+async def log_requests_middleware(request: Request, call_next):
+    # Logs every API call: 4xx/5xx at warning/error (so problems surface
+    # even at the default INFO level), successful calls at debug (to avoid
+    # noise unless DEBUG is on). Unhandled exceptions propagate to the
+    # exception handler below, which logs the full traceback.
+    start = time.time()
+    try:
+        response = await call_next(request)
+    except Exception:
+        raise
+    duration_ms = (time.time() - start) * 1000
+    if response.status_code >= 500:
+        logger.error(
+            "%s %s -> %s (%.0fms)",
+            request.method, request.url.path, response.status_code, duration_ms,
+        )
+    elif response.status_code >= 400:
+        logger.warning(
+            "%s %s -> %s (%.0fms)",
+            request.method, request.url.path, response.status_code, duration_ms,
+        )
+    else:
+        logger.debug(
+            "%s %s -> %s (%.0fms)",
+            request.method, request.url.path, response.status_code, duration_ms,
+        )
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Last line of defense: any exception that escaped an endpoint handler
+    # gets logged with its full traceback (module/function/line) and a 500
+    # returned. HTTPExceptions are handled by FastAPI separately and never
+    # land here.
+    logger.error(
+        "Unhandled exception in %s %s",
+        request.method,
+        request.url.path,
+        exc_info=(type(exc), exc, exc.__traceback__),
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]+$")
 EXECUTOR = ThreadPoolExecutor(max_workers=16)
@@ -344,6 +394,7 @@ def test_linux_source(
             rows.append(ResultRow(source_host=host, destination="-", port="-", status="NO_OUTPUT", timestamp=now_str()))
         return rows
     except Exception as exc:
+        logger.warning("Connection test failed for Linux source %s: %s", host, exc)
         return [ResultRow(source_host=host, destination="-", port="-", status=f"UNREACHABLE ({exc})", timestamp=now_str())]
     finally:
         client.close()
@@ -414,6 +465,7 @@ def test_windows_source(
             rows.append(ResultRow(source_host=host, destination="-", port="-", status=status, timestamp=now_str()))
         return rows
     except Exception as exc:
+        logger.warning("Connection test failed for Windows source %s: %s", host, exc)
         return [ResultRow(source_host=host, destination="-", port="-", status=f"UNREACHABLE ({exc})", timestamp=now_str())]
 
 
@@ -550,7 +602,9 @@ def login(req: LoginRequest, response: Response):
             user = None
 
     if user is None:
+        logger.warning("Login failed for user %s (method=%s)", req.username, req.authMethod)
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    logger.info("Login succeeded for user %s (method=%s)", user["username"], user["authSource"])
     token = auth.generate_session_token()
     auth_db.create_session(user["id"], token)
     response.set_cookie(
