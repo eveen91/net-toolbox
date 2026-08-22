@@ -107,12 +107,11 @@ return (
                 AD user will be able to log in and get an account here.
               </p>
             )}
-            <input
-              className="tool-input"
-              placeholder="Admin group DN (optional)"
-              value={adConfig.adminGroupDn || ""}
-              onChange={(e) => handleAdFieldChange("adminGroupDn", e.target.value || null)}
-            />
+            <p className="tool-hint">
+              To map AD groups to roles (e.g. who gets admin access), use the
+              group bindings on the Roles tab — each role can be linked to
+              one or more AD group DNs there.
+            </p>
             {adError && <div className="tool-error">{adError}</div>}
             <div className="nt-admin-ad-actions">
               <button

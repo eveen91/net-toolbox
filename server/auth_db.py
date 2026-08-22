@@ -490,6 +490,13 @@ def delete_role(role_id: int) -> None:
             raise ValueError(
                 f'Role "{row["name"]}" is still assigned to one or more users'
             )
+        group_count = conn.execute(
+            "SELECT COUNT(*) AS c FROM role_ad_groups WHERE role_id = ?", (role_id,)
+        ).fetchone()["c"]
+        if group_count > 0:
+            raise ValueError(
+                f'Role "{row["name"]}" still has AD groups bound to it — remove those bindings first'
+            )
         conn.execute("DELETE FROM roles WHERE id = ?", (role_id,))
         conn.commit()
     finally:

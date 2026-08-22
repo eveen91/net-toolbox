@@ -51,12 +51,18 @@ Track subnets with VLAN tags and record used, free, and reserved IP addresses.
 - Admin role with full access (`*` permission) to all tools plus Config Panel
 - Default "user" role seeded with all tool permissions
 - Assign/revoke roles per user
+- Roles can each be bound to one or more Active Directory group DNs, so AD
+  group membership determines role automatically (see Active Directory
+  Integration below)
+- Role is locked (cannot be changed manually) for accounts provisioned via AD
 
 #### Active Directory Integration
 - Direct bind authentication (no stored service account credentials)
 - User Principal Name (UPN) based login
 - Required group membership for access control
-- Admin group membership detection for elevated privileges
+- Per-role AD group bindings — each role can be linked to one or more group
+  DNs, and a matching group membership assigns that role at first login
+- A given AD group DN can only be bound to one role at a time
 - Transitive group membership resolution (nested groups)
 - TLS support for LDAPS connections
 - Connection testing endpoint for AD configuration validation
@@ -66,15 +72,18 @@ Track subnets with VLAN tags and record used, free, and reserved IP addresses.
 #### Configuration
 - Bootstrap admin user on first setup
 - Toggle login requirement on/off
-- Configure Active Directory settings (host, port, TLS, domain suffix, required/admin group DNs)
+- Configure Active Directory settings (host, port, TLS, domain suffix, required group DN)
 - Test AD connection before saving
 
 #### User & Role Management
 - List/create/update/delete users
-- Assign roles to users
+- Assign roles to local users (role is read-only for AD-sourced accounts —
+  it's determined by AD group membership instead)
 - Reset user passwords
 - Create/update/delete custom roles
 - Manage role permissions (tool-level access)
+- Bind/unbind AD group DNs per role, from the Roles panel
+- User list shows whether each account is Local or AD
 
 ### Docker Support
 
@@ -296,7 +305,17 @@ API highlights (all under `/api/ipam/`):
 - Direct bind using typed credentials (no service account stored)
 - Supports UPN format (`user@domain`) or plain username + domain suffix
 - Required group DN restricts access to AD group members
-- Admin group DN grants elevated privileges
+- Each role can be bound to one or more AD group DNs (`role_ad_groups` table);
+  a first-time AD login is assigned the role whose bound group it transitively
+  belongs to, falling back to the default "user" role if none match
+- A group DN can only be bound to one role — enforced when the binding is
+  created, so role resolution for a given group is always unambiguous
+- If a user's memberships happen to match more than one role's groups (i.e.
+  they belong to two different bound groups), "admin" takes precedence if
+  it's one of the matches, otherwise the alphabetically-first matching role
+  name is used
+- Role assignment happens once, at first login — later AD group membership
+  changes for that user do not automatically change their role afterward
 - Transitive group membership resolution (nested groups via `memberOf:1.2.840.113556.1.4.1941`)
 - LDAPS support with certificate validation
 - Connection test endpoint validates AD configuration before saving
@@ -307,11 +326,17 @@ API highlights (all under `/api/ipam/`):
 - Default "user" role seeded with all tool permissions
 - Users assigned exactly one role
 - Tool visibility filtered by `visibleTools()` based on user's role permissions
+- Roles can be bound to AD group DNs (see Active Directory authentication
+  above); a role with bindings still in place cannot be deleted until those
+  bindings are removed first
+- `PATCH /users/{id}/role` rejects changes for AD-sourced accounts — their
+  role is managed by AD group membership, not manually
 
 Admin API endpoints (all under `/api/admin/`):
 - `POST /bootstrap` — create first admin user
 - `GET/POST /users`, `PATCH /users/{id}/role`, `DELETE /users/{id}` — user management
 - `GET/POST /roles`, `PUT/DELETE /roles/{id}` — role management
+- `GET/POST/DELETE /roles/{id}/ad-groups` — manage a role's bound AD group DNs
 - `PUT /settings/require-login` — toggle login requirement
 - `GET/PUT /settings/ad`, `POST /settings/ad/test-connection` — AD configuration
 
