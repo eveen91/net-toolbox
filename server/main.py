@@ -36,6 +36,11 @@ import auth
 import auth_db
 import ldap_auth
 import ipam_scan
+import troubleshoot_devices
+import troubleshoot_logic
+import troubleshoot_audit
+from device_drivers.base import DeviceSession
+from device_drivers import get_driver
 
 app = FastAPI(title="net::toolbox API")
 
@@ -44,6 +49,8 @@ app = FastAPI(title="net::toolbox API")
 def _init_db():
     db.init_db()
     auth_db.init_auth_db()
+    troubleshoot_devices.init_db()
+    troubleshoot_audit.init_db()
 
 
 # In development the frontend runs on a different port (Vite), so allow it.
@@ -999,6 +1006,323 @@ def delete_routing_host(host: str):
     if not deleted:
         raise HTTPException(status_code=404, detail=f'No saved routing table for "{host}"')
     return {"deleted": host}
+
+
+# ---------------------------------------------------------------------------
+# Troubleshoot — device inventory
+# ---------------------------------------------------------------------------
+
+class DeviceRequest(BaseModel):
+    name: str
+    mgmtIp: str
+    vendor: str
+    model: str
+    osVersion: Optional[str] = None
+    deviceType: str
+
+
+@app.get("/api/devices")
+def list_devices_endpoint():
+    return troubleshoot_devices.list_devices()
+
+
+@app.post("/api/devices")
+def add_device_endpoint(req: DeviceRequest):
+    try:
+        return troubleshoot_devices.add_device(
+            req.name, req.mgmtIp, req.vendor, req.model, req.osVersion, req.deviceType
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/devices/{device_id}")
+def update_device_endpoint(device_id: int, req: DeviceRequest):
+    try:
+        return troubleshoot_devices.update_device(
+            device_id, req.name, req.mgmtIp, req.vendor, req.model, req.osVersion, req.deviceType
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/devices/{device_id}")
+def delete_device_endpoint(device_id: int):
+    return troubleshoot_devices.delete_device(device_id)
+
+
+class TestConnectionRequest(BaseModel):
+    deviceId: int
+    username: str
+    password: str
+
+
+class LocateRequest(BaseModel):
+    ip: str
+    username: str
+    password: str
+
+
+class PortHealthRequest(BaseModel):
+    deviceName: str
+    port: str
+    username: str
+    password: str
+
+
+class CableTestRequest(BaseModel):
+    deviceName: str
+    port: str
+    username: str
+    password: str
+    confirm: bool
+
+
+class TransceiverHealthRequest(BaseModel):
+    deviceName: str
+    port: str
+    username: str
+    password: str
+
+
+class StpReportRequest(BaseModel):
+    username: str
+    password: str
+
+
+class AccessCheckRequest(BaseModel):
+    deviceName: str
+    port: str
+    username: str
+    password: str
+
+
+class PingRequest(BaseModel):
+    ip: str
+
+
+class RouteCheckRequest(BaseModel):
+    ip: str
+    username: str
+    password: str
+
+
+class FullRunRequest(BaseModel):
+    ip: str
+    username: str
+    password: str
+
+
+@app.post("/api/troubleshoot/test-connection")
+async def test_device_connection(req: TestConnectionRequest):
+    devices = troubleshoot_devices.list_devices()
+    device = next((d for d in devices if d["id"] == req.deviceId), None)
+    if device is None:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    def _run():
+        try:
+            with DeviceSession(device["deviceType"], device["mgmtIp"], req.username, req.password) as session:
+                driver = get_driver(device["deviceType"])
+                output = driver.get_version(session)
+                return {"success": True, "output": output}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/locate")
+async def locate_device(req: LocateRequest):
+    def _run():
+        try:
+            devices = troubleshoot_devices.list_devices()
+            gateway_device = next(
+                (d for d in devices if d["deviceType"] == "checkpoint_gaia"), None
+            )
+            if gateway_device is None:
+                return {"success": False, "error": "No gateway device configured"}
+            switch_devices = [
+                d for d in devices if d["deviceType"] in ("cisco_ios", "aruba_aoscx")
+            ]
+            mac = troubleshoot_logic.resolve_ip_to_mac(
+                req.ip, gateway_device, req.username, req.password
+            )
+            if mac is None:
+                return {"success": False, "error": "IP not found in ARP table"}
+            result = troubleshoot_logic.locate_mac_on_switches(
+                mac, switch_devices, req.username, req.password
+            )
+            if result is None:
+                return {
+                    "success": False,
+                    "error": f"MAC {mac} not found on any switch",
+                }
+            return {
+                "success": True,
+                "mac": mac,
+                "device": result["device"],
+                "port": result["port"],
+                "vlan": result["vlan"],
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/port-health")
+async def port_health(req: PortHealthRequest):
+    def _run():
+        try:
+            devices = troubleshoot_devices.list_devices()
+            device = next((d for d in devices if d["name"] == req.deviceName), None)
+            if device is None:
+                return {"success": False, "error": f"Device {req.deviceName} not found"}
+            result = troubleshoot_logic.get_port_health(
+                device, req.port, req.username, req.password
+            )
+            return {"success": True, **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/cable-test")
+async def cable_test(req: CableTestRequest):
+    if not req.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail="Cable diagnostics can briefly interrupt link. Set confirm=true to proceed.",
+        )
+
+    def _run():
+        try:
+            devices = troubleshoot_devices.list_devices()
+            device = next((d for d in devices if d["name"] == req.deviceName), None)
+            if device is None:
+                return {"success": False, "error": f"Device {req.deviceName} not found"}
+            result = troubleshoot_logic.run_cable_test(
+                device, req.port, req.username, req.password
+            )
+            return {"success": True, **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/transceiver-health")
+async def transceiver_health(req: TransceiverHealthRequest):
+    def _run():
+        try:
+            devices = troubleshoot_devices.list_devices()
+            device = next((d for d in devices if d["name"] == req.deviceName), None)
+            if device is None:
+                return {"success": False, "error": f"Device {req.deviceName} not found"}
+            result = troubleshoot_logic.get_transceiver_health(
+                device, req.port, req.username, req.password
+            )
+            return {"success": True, "metrics": result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/stp-report")
+async def stp_report(req: StpReportRequest):
+    def _run():
+        try:
+            devices = troubleshoot_devices.list_devices()
+            result = troubleshoot_logic.get_stp_report_all(
+                devices, req.username, req.password
+            )
+            return {"success": True, "entries": result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/access-check")
+async def access_check(req: AccessCheckRequest):
+    def _run():
+        try:
+            devices = troubleshoot_devices.list_devices()
+            device = next((d for d in devices if d["name"] == req.deviceName), None)
+            if device is None:
+                return {"success": False, "error": f"Device {req.deviceName} not found"}
+            result = troubleshoot_logic.get_port_access_status(
+                device, req.port, req.username, req.password
+            )
+            return {"success": True, **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/ping")
+async def ping(req: PingRequest):
+    def _run():
+        try:
+            raw = troubleshoot_logic.ping_host(req.ip)
+            result = troubleshoot_logic.parse_ping_output(raw)
+            return {"success": True, **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/route-check")
+async def route_check(req: RouteCheckRequest):
+    def _run():
+        try:
+            devices = troubleshoot_devices.list_devices()
+            gateway_device = next(
+                (d for d in devices if d["deviceType"] == "checkpoint_gaia"), None
+            )
+            if gateway_device is None:
+                return {"success": False, "error": "No gateway device configured"}
+            result = troubleshoot_logic.get_route_check(
+                req.ip, gateway_device, req.username, req.password
+            )
+            return {"success": True, **result}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.post("/api/troubleshoot/run")
+async def full_run(req: FullRunRequest):
+    def _run():
+        try:
+            return troubleshoot_logic.run_full_diagnostic(
+                req.ip, req.username, req.password
+            )
+        except Exception as e:
+            return {"ip": req.ip, "error": str(e)}
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(EXECUTOR, _run)
+
+
+@app.get("/api/troubleshoot/audit-log")
+def get_audit_log(limit: int = 50):
+    return troubleshoot_audit.get_recent_audit_log(limit)
 
 
 # ---------------------------------------------------------------------------

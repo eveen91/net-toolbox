@@ -3,6 +3,7 @@ import ConnectionTest from "./connection-test/ConnectionTest.jsx";
 import RoutingMap from "./routing-map/RoutingMap.jsx";
 import IpCalculator from "./ip-calculator/IpCalculator.jsx";
 import Ipam from "./ipam/Ipam.jsx";
+import Troubleshoot from "./troubleshoot/Troubleshoot.jsx";
 
 // To add a new tool:
 //   1. Create src/tools/<your-tool>/YourTool.jsx (+ its own .css / logic.js if needed)
@@ -48,6 +49,14 @@ export const TOOLS = [
     tagline: "Track subnets with a VLAN tag and record used, free, and reserved IP addresses.",
     status: "live",
     Component: Ipam,
+  },
+  {
+    id: "troubleshoot",
+    name: "Troubleshoot",
+    icon: "◈",
+    tagline: "Look up a device on the network and check its health.",
+    status: "live",
+    Component: Troubleshoot,
   },
 ];
 

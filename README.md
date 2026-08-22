@@ -38,6 +38,23 @@ Track subnets with VLAN tags and record used, free, and reserved IP addresses.
 - Scan exclude lists to skip reserved/locked addresses during autodiscovery
 - Settings for default ping timeout/attempts and DNS timeout
 
+## Troubleshoot
+Given an IP address, walks through full diagnostic against your network
+Devices: resolves the IP to a MAC address via gateway's ARP table,
+Locates which switch/port it's connected to, checks port health (speed,
+Duplex, error counters), checks transceiver health, checks port
+Access/authorization status, pings host, and checks route to it.
+Supports three device types: Cisco IOS-XE (cisco_ios), Aruba AOS-CX
+(aruba_aoscx), and Checkpoint Gaia (checkpoint_gaia) — configured in device inventory stored in SQLite, managed from within tool itself.
+Cable diagnostics (TDR test) is available as separate, manually-triggered
+Action — it can briefly interrupt link on port under test, so it
+Requires explicit confirmation and is never run automatically.
+Spanning-tree flap report scans every switch in inventory for ports
+With frequent, recent topology changes — independent of any single IP
+Lookup.
+Credentials are entered per session and are never stored or logged, same
+Model as Connection Test.
+
 ### Authentication & Authorization
 
 #### User Management
@@ -120,6 +137,20 @@ In production, put a reverse proxy in front that does the same, or set
 
 The Subnet Splitter and IP Calculator tools need no backend — they're pure client-side computation.
 
+### Troubleshoot tool setup
+Requires `netmiko` (already listed in server/requirements.txt).
+Device inventory is entered through the Troubleshoot tool's UI — each
+Device needs device_type matching its vendor:
+| Vendor | device_type value |
+|---|---|
+| Cisco IOS-XE | cisco_ios |
+| Aruba AOS-CX | aruba_aoscx |
+| Checkpoint Gaia | checkpoint_gaia |
+Exactly one device in inventory should have device_type
+Checkpoint_gaia — it's used as the ARP/route lookup gateway. The Locate,
+Ping, and Route Check features will fail with clear error if none is
+Configured.
+
 **Docker** (Windows / Docker Desktop, auto-updating from GitHub)
 
 ```powershell
@@ -191,6 +222,9 @@ src/
       api.js                    # IPAM API calls (subnets, addresses, scans, settings)
       logic.js                  # formatting helpers, ancestor chain for hierarchy
       ipam.css                  # IPAM-specific styles (utilization bar, address table)
+    troubleshoot/
+      Troubleshoot.jsx          # UI for the tool — device inventory + diagnostics
+      api.js                    # troubleshoot API calls (locate, health checks, reports)
 server/
   main.py                       # FastAPI backend: SSHes into Linux sources (paramiko),
                                 # WinRMs into Windows sources (pywinrm), runs TCP checks,
@@ -200,6 +234,15 @@ server/
   auth.py                       # password hashing (bcrypt) utilities
   ldap_auth.py                  # Active Directory direct-bind authentication
   ipam_scan.py                  # ping sweep + reverse DNS for IPAM autodiscovery
+  troubleshoot_devices.py       # SQLite device inventory for the Troubleshoot tool
+  troubleshoot_logic.py         # parsers + orchestration for device diagnostics
+  troubleshoot_audit.py         # SQLite audit log of commands run against devices
+  device_drivers/
+    __init__.py                 # dispatch map: device_type -> driver module
+    base.py                     # DeviceSession context manager (netmiko, retry, audit)
+    cisco_ios.py                # Cisco IOS-XE commands (version, mac table, TDR, etc.)
+    aruba_cx.py                 # Aruba AOS-CX commands
+    checkpoint_gaia.py          # Checkpoint Gaia commands (version, ARP, route)
   toolbox.db                    # created automatically on first run — not committed
   auth.db                       # created automatically on first run — not committed
   requirements.txt
@@ -350,3 +393,26 @@ Admin API endpoints (all under `/api/admin/`):
 - The backend's CORS policy (`allow_origins=["*"]`) and SSH host-key policy
   (`AutoAddPolicy`) are permissive defaults meant for getting started — tighten both
   before running this somewhere production-adjacent.
+
+## Troubleshoot — known limitations
+- **MAC locate doesn't walk uplinks.** If host's MAC only shows up on inter-switch trunk port in mac-address-table (rather than true
+  Access port), Locate will report that trunk port, not real edge port.
+- **STP flap report ignores VLAN/instance.** Cisco reports topology changes
+  Per-VLAN; this tool collapses that down to "port, count, how recent"
+  Across whole switch, so it can't tell you which VLAN is flapping.
+- **Transceiver health uses transceiver's own reported alarm/warning
+  Thresholds where available** — not fixed generic number — but parsing
+  Depends on exact output format of `show interface transceiver
+  Detail`, which can vary by platform/firmware.
+- **Several AOS-CX and Checkpoint Gaia command outputs were implemented
+  Against best-guess formatting, not confirmed real hardware output**,
+  Specifically: AOS-CX port-access status, AOS-CX cable diagnostics, AOS-CX
+  Spanning-tree detail, and the Checkpoint route-lookup command and its
+  Output format. Verify each against real output before trusting results
+  From these specific checks.
+- **Route check queries live device**, it does not reuse the Routing
+  Map tool's stored routes table — that integration was considered and
+  Intentionally left out.
+- **The "Run full diagnosis" orchestration opens several sequential SSH
+  Sessions per run** (not one reused session) — expect it to take
+  20-30 seconds, this is expected behavior, not bug.

@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 import db
 import auth_db
+import troubleshoot_devices
+import troubleshoot_audit
 import main
 
 
@@ -26,6 +28,12 @@ def client(monkeypatch):
     # needs its own temp-file override to keep tests off the real
     # server/auth.db.
     monkeypatch.setattr(auth_db, "AUTH_DB_PATH", temp_auth_db_path)
+
+    # The troubleshoot modules share the same SQLite file as db.py
+    # (toolbox.db), so they read the same temp-file override to keep tests
+    # off the real server/toolbox.db.
+    monkeypatch.setattr(troubleshoot_devices, "DB_PATH", temp_db_path)
+    monkeypatch.setattr(troubleshoot_audit, "DB_PATH", temp_db_path)
 
     db.init_db()
     auth_db.init_auth_db()

@@ -2,6 +2,7 @@
 node_modules
 server/*.db
 server/__pycache__
-server/tests/__pycache__
+server/*/__pycache__
 opencode.json
 .gitignore
+*/.pytest_cache
