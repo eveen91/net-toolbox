@@ -51,7 +51,7 @@ def enabled() -> bool:
 
 
 def trust_proxy() -> bool:
-    return os.environ.get("TRUST_PROXY_HEADERS", "true").lower() in ("true", "1", "yes")
+    return os.environ.get("TRUST_PROXY_HEADERS", "false").lower() in ("true", "1", "yes")
 
 
 def max_attempts_ip() -> int:

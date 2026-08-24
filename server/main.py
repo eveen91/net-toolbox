@@ -245,6 +245,12 @@ class UpdateUserRoleRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     newPassword: str
 
+    @field_validator("newPassword")
+    @classmethod
+    def validate_pw(cls, v):
+        validate_password_strength(v)
+        return v
+
 
 class RolePublic(BaseModel):
     id: int
@@ -385,7 +391,11 @@ def now_str() -> str:
 
 
 # ---------------------------------------------------------------------------
-# Linux sources — SSH in, run a bash loop over destinations x ports
+def validate_port_identifier(port: str) -> str:
+    if not DEVICE_PORT_RE.match(port):
+        raise ValueError("Invalid port format")
+    return port
+
 # ---------------------------------------------------------------------------
 
 def build_linux_script(destinations: List[str], ports: List[int], timeout_seconds: int) -> str:
@@ -726,10 +736,11 @@ def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     new_hash = auth.hash_password(req.newPassword)
     auth_db.update_user_password(user["id"], new_hash)
+    auth_db.revoke_all_sessions_for_user(user["id"])
     return {"ok": True}
 
 
-@app.get("/api/admin/bootstrap-status", response_model=BootstrapStatusResponse)
+@app.post("/api/admin/bootstrap-status", response_model=BootstrapStatusResponse)
 def admin_bootstrap_status():
     bootstrap_secret = os.environ.get("BOOTSTRAP_SECRET")
     return BootstrapStatusResponse(
@@ -829,6 +840,7 @@ def reset_user_password(user_id: int, req: ResetPasswordRequest, admin: Optional
         raise HTTPException(status_code=404, detail="User not found")
     password_hash = auth.hash_password(req.newPassword)
     auth_db.update_user_password(user_id, password_hash)
+    auth_db.revoke_all_sessions_for_user(user_id)
     return {"ok": True}
 
 
@@ -995,6 +1007,7 @@ async def run_connection_test(req: RunRequest):
 
     for source in req.sources:
         host = validate_host(source.host)
+        ports = [validate_port_identifier(str(p)) for p in req.ports]
         if source.os == "linux":
             if req.linux_credentials is None:
                 tasks.append(_error_row(host, "Missing Linux credentials"))

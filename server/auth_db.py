@@ -292,6 +292,15 @@ def delete_session_by_token(token: str) -> None:
         conn.close()
 
 
+def revoke_all_sessions_for_user(user_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
     conn = get_connection()
     try:

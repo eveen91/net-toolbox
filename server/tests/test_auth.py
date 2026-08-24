@@ -176,20 +176,20 @@ def test_change_password_requires_login(client):
 
 def test_change_password_rejects_wrong_current_password(client):
     import auth_db, auth
-    auth_db.create_user("kevin", auth.hash_password("right-pw"), role="user")
-    client.post("/api/auth/login", json={"username": "kevin", "password": "right-pw"})
-    res = client.post("/api/auth/change-password", json={"currentPassword": "wrong-pw", "newPassword": "new-pw"})
+    auth_db.create_user("kevin", auth.hash_password("Password1"), role="user")
+    client.post("/api/auth/login", json={"username": "kevin", "password": "Password1"})
+    res = client.post("/api/auth/change-password", json={"currentPassword": "wrong-pw", "newPassword": "Password2"})
     assert res.status_code == 400
 
 
 def test_change_password_succeeds_and_new_password_works(client):
     import auth_db, auth
-    auth_db.create_user("laura", auth.hash_password("old-pw"), role="user")
-    client.post("/api/auth/login", json={"username": "laura", "password": "old-pw"})
-    res = client.post("/api/auth/change-password", json={"currentPassword": "old-pw", "newPassword": "new-pw"})
+    auth_db.create_user("laura", auth.hash_password("Password1"), role="user")
+    client.post("/api/auth/login", json={"username": "laura", "password": "Password1"})
+    res = client.post("/api/auth/change-password", json={"currentPassword": "Password1", "newPassword": "Password2"})
     assert res.status_code == 200
     client.post("/api/auth/logout")
-    login_res = client.post("/api/auth/login", json={"username": "laura", "password": "new-pw"})
+    login_res = client.post("/api/auth/login", json={"username": "laura", "password": "Password2"})
     assert login_res.status_code == 200
 
 

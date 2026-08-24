@@ -1,10 +1,4 @@
-# One image, two roles (backend / frontend), selected at runtime by entrypoint.sh
-# via the ROLE environment variable set in docker-compose.yml.
-#
-# The app's source code is NOT copied in at build time. entrypoint.sh clones it
-# fresh from GitHub every time the container starts, so `docker compose restart`
-# (or recreating the container) always picks up the latest commit.
-
+# Bake app source into image for deployment security (avoids runtime cloning).
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -13,17 +7,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         nodejs \
         npm \
-        iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
-# Static file server for the built frontend (this is a generic tool, not
-# app code, so baking it into the image is fine even though app code itself
-# is always re-cloned).
 RUN npm install -g serve
 
 WORKDIR /app
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Copy dependency files first to leverage Docker build cache
+COPY server/requirements.txt ./server/
+RUN pip install --no-cache-dir -r server/requirements.txt
+COPY package.json package-lock.json ./
+RUN npm ci
 
-ENTRYPOINT ["/entrypoint.sh"]
+# Copy the actual source code
+COPY . .
+
+# Build the frontend
+RUN npm run build
+
+# Set up database symlinks at entrypoint
+ENV ROLE=backend
+ENTRYPOINT ["/app/docker/docker-entrypoint.sh"]
