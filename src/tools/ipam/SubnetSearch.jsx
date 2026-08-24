@@ -1,35 +1,79 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { formatVlan } from "./logic.js";
+import { searchAddresses } from "./api.js";
 
 /**
- * Search/jump control for finding a subnet by CIDR. Filters the flat
- * `subnets` list as the user types and lets them pick a match with the
- * mouse or the keyboard (Up/Down to move, Enter to select, Esc to close).
- *
- * Pure presentation + local filtering — selection is handed back to the
- * caller via onSelect(id), which already knows how to fetch subnet detail
- * (see Ipam.jsx's selectSubnet). This component holds no subnet-detail
- * state of its own.
+ * Global Search box for finding subnets (by CIDR / description / VLAN)
+ * and searching hostnames (or IP addresses / partial matches) across all tracked subnets.
  */
 export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
+  const [addressMatches, setAddressMatches] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+
   const containerRef = useRef(null);
   const inputRef = useRef(null);
 
-  const matches = useMemo(() => {
+  const subnetMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return subnets;
-    return subnets.filter((s) => s.cidr.toLowerCase().includes(q));
+    return subnets.filter(
+      (s) =>
+        s.cidr.toLowerCase().includes(q) ||
+        (s.description && s.description.toLowerCase().includes(q)) ||
+        (s.vlan != null && String(s.vlan).includes(q))
+    );
   }, [subnets, query]);
 
-  // Keep the highlighted row in range whenever the match set changes size.
   useEffect(() => {
-    setHighlightIndex((i) => (matches.length === 0 ? 0 : Math.min(i, matches.length - 1)));
-  }, [matches.length]);
+    const q = query.trim();
+    if (!q) {
+      setAddressMatches([]);
+      setIsSearching(false);
+      return;
+    }
 
-  // Close the dropdown on outside click.
+    let cancelled = false;
+    setIsSearching(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchAddresses(q);
+        if (!cancelled) {
+          setAddressMatches(results);
+        }
+      } catch {
+        if (!cancelled) {
+          setAddressMatches([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsSearching(false);
+        }
+      }
+    }, 200);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query]);
+
+  const allMatches = useMemo(() => {
+    const list = [];
+    subnetMatches.forEach((s) => list.push({ type: "subnet", data: s, key: `s-${s.id}` }));
+    if (query.trim()) {
+      addressMatches.forEach((a) => list.push({ type: "address", data: a, key: `a-${a.id}` }));
+    }
+    return list;
+  }, [subnetMatches, addressMatches, query]);
+
+  useEffect(() => {
+    setHighlightIndex((i) => (allMatches.length === 0 ? 0 : Math.min(i, allMatches.length - 1)));
+  }, [allMatches.length]);
+
   useEffect(() => {
     if (!open) return;
     const handleClick = (e) => {
@@ -43,8 +87,14 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
 
   const selectedSubnet = subnets.find((s) => s.id === selectedId);
 
-  const choose = (subnet) => {
+  const chooseSubnet = (subnet) => {
     onSelect(subnet.id);
+    setQuery("");
+    setOpen(false);
+  };
+
+  const chooseAddress = (addr) => {
+    onSelect(addr.subnetId, addr.id);
     setQuery("");
     setOpen(false);
   };
@@ -58,14 +108,17 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setHighlightIndex((i) => Math.min(i + 1, matches.length - 1));
+      setHighlightIndex((i) => Math.min(i + 1, allMatches.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setHighlightIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const chosen = matches[highlightIndex];
-      if (chosen) choose(chosen);
+      const chosen = allMatches[highlightIndex];
+      if (chosen) {
+        if (chosen.type === "subnet") chooseSubnet(chosen.data);
+        else if (chosen.type === "address") chooseAddress(chosen.data);
+      }
     } else if (e.key === "Escape") {
       setOpen(false);
       inputRef.current?.blur();
@@ -81,10 +134,10 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
           className="tool-input ip-search-input"
           placeholder={
             selectedSubnet
-              ? `${selectedSubnet.cidr} — search to jump to another subnet`
+              ? `${selectedSubnet.cidr} — search subnets or hostnames`
               : subnets.length === 0
               ? "No subnets yet — add one to get started"
-              : "Search subnets by CIDR…"
+              : "Search subnets, hostnames, or IP addresses…"
           }
           value={query}
           onChange={(e) => {
@@ -113,33 +166,91 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
 
       {open && (
         <div className="ip-search-dropdown">
-          {matches.length === 0 && (
+          {!query.trim() && subnetMatches.length === 0 && (
             <div className="ip-search-empty">
-              {subnets.length === 0 ? "No subnets yet — add one to get started." : "No subnets match that CIDR."}
+              {subnets.length === 0
+                ? "No subnets yet — add one to get started."
+                : "No subnets recorded."}
             </div>
           )}
-          {matches.map((s, i) => (
-            <button
-              type="button"
-              key={s.id}
-              className={`ip-search-option ${i === highlightIndex ? "highlighted" : ""} ${
-                s.id === selectedId ? "current" : ""
-              }`}
-              onMouseEnter={() => setHighlightIndex(i)}
-              onClick={() => choose(s)}
-            >
-              <span className="ip-search-option-top">
-                <span className="ip-search-option-cidr">{s.cidr}</span>
-                {s.vlan != null && <span className="ip-subnet-vlan">{formatVlan(s.vlan)}</span>}
-              </span>
-              <span className="ip-search-option-bottom">
-                <span className="tool-hint">{s.description || "no description"}</span>
-                <span className="ip-subnet-counts">
-                  {s.usedCount}u · {s.reservedCount}r · {s.freeCount}f
+
+          {query.trim() && allMatches.length === 0 && !isSearching && (
+            <div className="ip-search-empty">No matching subnets or hostnames found.</div>
+          )}
+
+          {query.trim() && isSearching && allMatches.length === 0 && (
+            <div className="ip-search-empty">Searching…</div>
+          )}
+
+          {subnetMatches.length > 0 && query.trim() && (
+            <div className="ip-search-section-header">Subnets ({subnetMatches.length})</div>
+          )}
+
+          {subnetMatches.map((s) => {
+            const itemIndex = allMatches.findIndex(
+              (m) => m.type === "subnet" && m.data.id === s.id
+            );
+            return (
+              <button
+                type="button"
+                key={`sub-${s.id}`}
+                className={`ip-search-option ${
+                  itemIndex === highlightIndex ? "highlighted" : ""
+                } ${s.id === selectedId ? "current" : ""}`}
+                onMouseEnter={() => setHighlightIndex(itemIndex)}
+                onClick={() => chooseSubnet(s)}
+              >
+                <span className="ip-search-option-top">
+                  <span className="ip-search-option-cidr">{s.cidr}</span>
+                  {s.vlan != null && <span className="ip-subnet-vlan">{formatVlan(s.vlan)}</span>}
                 </span>
-              </span>
-            </button>
-          ))}
+                <span className="ip-search-option-bottom">
+                  <span className="tool-hint">{s.description || "no description"}</span>
+                  <span className="ip-subnet-counts">
+                    {s.usedCount}u · {s.reservedCount}r · {s.freeCount}f
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+
+          {addressMatches.length > 0 && query.trim() && (
+            <div className="ip-search-section-header">
+              Hostnames & Addresses ({addressMatches.length})
+            </div>
+          )}
+
+          {addressMatches.map((a) => {
+            const itemIndex = allMatches.findIndex(
+              (m) => m.type === "address" && m.data.id === a.id
+            );
+            return (
+              <button
+                type="button"
+                key={`addr-${a.id}`}
+                className={`ip-search-option ${
+                  itemIndex === highlightIndex ? "highlighted" : ""
+                }`}
+                onMouseEnter={() => setHighlightIndex(itemIndex)}
+                onClick={() => chooseAddress(a)}
+              >
+                <span className="ip-search-option-top">
+                  <span className="ip-search-option-hostname">
+                    {a.hostname || a.address}
+                  </span>
+                  {a.hostname && <span className="ip-search-option-addr">{a.address}</span>}
+                  <span className={`ip-scan-status-badge ${a.status}`}>{a.status}</span>
+                </span>
+                <span className="ip-search-option-bottom">
+                  <span className="tool-hint">
+                    Subnet: <span className="ip-mono">{a.subnetCidr}</span>
+                    {a.subnetVlan != null ? ` (VLAN ${a.subnetVlan})` : ""}
+                    {a.description ? ` · ${a.description}` : ""}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

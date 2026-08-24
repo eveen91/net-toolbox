@@ -734,6 +734,38 @@ def get_addresses_by_subnet(subnet_id: int) -> List[Dict]:
         conn.close()
 
 
+def search_addresses(query: str, limit: int = 50) -> List[Dict]:
+    if not query or not query.strip():
+        return []
+    q = f"%{query.strip()}%"
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT a.*, s.cidr AS subnet_cidr, s.vlan AS subnet_vlan
+            FROM ipam_addresses a
+            JOIN ipam_subnets s ON a.subnet_id = s.id
+            WHERE a.hostname LIKE ? OR a.address LIKE ? OR a.description LIKE ?
+            ORDER BY
+                CASE WHEN a.hostname LIKE ? THEN 0 ELSE 1 END,
+                a.hostname ASC,
+                a.address ASC
+            LIMIT ?
+            """,
+            (q, q, q, q, limit),
+        ).fetchall()
+        results = []
+        for r in rows:
+            d = _address_dict(r)
+            d["subnetId"] = r["subnet_id"]
+            d["subnetCidr"] = r["subnet_cidr"]
+            d["subnetVlan"] = r["subnet_vlan"]
+            results.append(d)
+        return results
+    finally:
+        conn.close()
+
+
 def get_subnet(subnet_id: int) -> Optional[Dict]:
     conn = get_connection()
     try:

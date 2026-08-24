@@ -60,7 +60,13 @@ function UtilizationBar({ subnet }) {
 const MACHINE_TYPE_LABELS = { physical: "Physical", vm: "VM" };
 const ENVIRONMENT_LABELS = { prod: "Prod", test: "Test", dev: "Dev" };
 
-function AddressRow({ subnetId, addr, selected, onToggleSelect, onUpdated, onError }) {
+function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onUpdated, onError }) {
+  const rowRef = useRef(null);
+  useEffect(() => {
+    if (highlighted && rowRef.current) {
+      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [highlighted]);
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -254,7 +260,7 @@ function AddressRow({ subnetId, addr, selected, onToggleSelect, onUpdated, onErr
   }
 
   return (
-    <tr>
+    <tr ref={rowRef} className={highlighted ? "ip-row-highlighted" : ""}>
       <td>
         <input
           type="checkbox"
@@ -833,7 +839,7 @@ function ScanExcludeManager({ subnetId }) {
   );
 }
 
-function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, onSelectSubnet }) {
+function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, onSelectSubnet, highlightedAddressId }) {
   const [editingHeader, setEditingHeader] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [headerDraft, setHeaderDraft] = useState({
@@ -1272,6 +1278,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
                   subnetId={subnet.id}
                   addr={addr}
                   selected={selectedIds.has(addr.id)}
+                  highlighted={highlightedAddressId === addr.id}
                   onToggleSelect={toggleSelect}
                   onUpdated={onDetailUpdated}
                   onError={setRowError}
@@ -1375,6 +1382,7 @@ export default function Ipam() {
 
   const [selectedId, setSelectedId] = useState(null);
   const [selectedDetail, setSelectedDetail] = useState(null);
+  const [highlightedAddressId, setHighlightedAddressId] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -1431,11 +1439,12 @@ export default function Ipam() {
     }
   };
 
-  const selectSubnet = async (id) => {
+  const selectSubnet = async (id, targetAddressId = null) => {
     setSelectedId(id);
     setSelectedDetail(null);
     setDetailError(null);
     setDetailLoading(true);
+    setHighlightedAddressId(targetAddressId || null);
     try {
       const detail = await getSubnet(id);
       setSelectedDetail(detail);
@@ -1481,9 +1490,9 @@ export default function Ipam() {
           <SubnetSearch
             subnets={subnets}
             selectedId={selectedId}
-            onSelect={(id) => {
+            onSelect={(id, addressId) => {
               setViewMode("search");
-              selectSubnet(id);
+              selectSubnet(id, addressId);
             }}
           />
           <AddSubnetForm
@@ -1585,6 +1594,7 @@ export default function Ipam() {
                 onDelete={handleDelete}
                 onDetailUpdated={handleDetailUpdated}
                 onSelectSubnet={selectSubnet}
+                highlightedAddressId={highlightedAddressId}
               />
             )}
           </>

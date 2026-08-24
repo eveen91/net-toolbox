@@ -239,3 +239,9 @@ export async function moveAddress(subnetId, addressId, targetSubnetId) {
   );
   return handle(res);
 }
+
+export async function searchAddresses(query) {
+  if (!query || !query.trim()) return [];
+  const res = await apiFetch(`${BASE_URL}/api/ipam/addresses/search?q=${encodeURIComponent(query.trim())}`);
+  return handle(res);
+}

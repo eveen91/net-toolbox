@@ -466,3 +466,31 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+/* Global SearchDropdown Hostname & Section Styles */
+.ip-search-section-header {
+  padding: 6px 12px 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--border-soft);
+}
+.ip-search-option-hostname {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ip-search-option-addr {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+tr.ip-row-highlighted {
+  background-color: rgba(64, 180, 160, 0.2) !important;
+  outline: 1px solid var(--accent);
+}

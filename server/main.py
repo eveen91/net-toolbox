@@ -1572,6 +1572,12 @@ class SubnetDetail(SubnetSummary):
     addresses: List[AddressEntry] = []
 
 
+class SearchAddressEntry(AddressEntry):
+    subnetId: int
+    subnetCidr: str
+    subnetVlan: Optional[int] = None
+
+
 class IpamSettingsResponse(BaseModel):
     scanConcurrencyLimit: int
     scanConcurrencyMin: int
@@ -1767,6 +1773,15 @@ def get_subnets():
 )
 def get_misplaced_addresses():
     return db.list_misplaced_addresses()
+
+
+@app.get(
+    "/api/ipam/addresses/search",
+    response_model=List[SearchAddressEntry],
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def search_ipam_addresses(q: str = ""):
+    return db.search_addresses(q)
 
 
 @app.get("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_feature("ipam"))])
