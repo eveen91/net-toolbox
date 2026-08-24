@@ -15,6 +15,7 @@ The application features a clean, modular shell (top toolbar + card grid home pa
    - [IP Calculator](#ip-calculator)
    - [IPAM (IP Address Management)](#ipam-ip-address-management)
    - [Troubleshoot](#troubleshoot)
+   - [Post-Change Validation](#post-change-validation)
 3. [Authentication & Access Control](#authentication--access-control)
    - [Local & Active Directory Auth](#local--active-directory-auth)
    - [Role-Based Access Control (RBAC)](#role-based-access-control-rbac)
@@ -116,6 +117,15 @@ Multi-vendor network device diagnostic and lookup suite.
   - **Reachability**: Remote ping execution and route table query against network devices.
   - **STP Report**: Inventory-wide Spanning Tree Protocol scan identifying switch ports experiencing recent topology change flaps.
   - **Activity Log**: SQLite audit logging of all CLI commands issued to network hardware.
+
+### Post-Change Validation
+
+An automated orchestration tool designed to execute network validation tests (Master Test Plan Sections T-01 through T-22) immediately following maintenance windows.
+
+- **Automated Baseline Capture**: Saves pre-change `cphaprob stat`, `show ip ospf neighbor`, `show interface brief`, and dynamic MAC table snapshots prior to maintenance.
+- **Async Execution Engine**: Runs modular L2/L3, Check Point Firewall, and Aruba Switch probes asynchronously against multiple hardware targets.
+- **Test Matrix (T-01..T-22)**: Verifies split-brain/HA state, OSPF/BGP pairing, explicit Negative Isolation controls (`Drop` log verification), and datapath MTU boundaries.
+- **Smart Diffing & PIR Generation**: Computes exact delta (added, missing, changed metrics) and exports automated evidence packages (Post-Implementation Review — PIR) into Markdown format.
 
 ---
 
@@ -536,14 +546,24 @@ net-toolbox/
 │   │   ├── cisco_ios.py        # Cisco IOS-XE CLI drivers
 │   │   ├── aruba_cx.py         # Aruba AOS-CX CLI drivers
 │   │   └── checkpoint_gaia.py  # Checkpoint Gaia CLI drivers
+│   ├── validation_engine/      # Post-change validation core
+│   │   ├── base.py             # Validation framework base classes
+│   │   ├── diff_engine.py      # Baseline metric delta diffing logic
+│   │   ├── orchestrator.py     # Async T-01..T-22 sequence execution
+│   │   ├── pir_exporter.py     # Markdown execution evidence generator
+│   │   ├── tests_control_l2.py # Modular T-01 to T-10 tests
+│   │   └── tests_l3_firewall.py# Modular T-11 to T-22 tests
+│   ├── validation_db.py        # Validations SQLite DAL (Data Access Layer)
+│   ├── validation_routes.py    # FastAPI validation REST endpoints
 │   ├── scripts/                # Automated background scripts
 │   │   ├── scan_all_subnets.py # Leaf subnet autodiscovery trigger CLI
 │   │   ├── ipam-scan-all.service # Systemd unit template
 │   │   └── ipam-scan-all.timer   # Systemd timer template
-│   ├── tests/                  # Pytest test suite (18 test modules)
+│   ├── tests/                  # Pytest test suite (18+ test modules)
 │   ├── conftest.py             # Test fixtures and DB isolation setup
 │   └── requirements.txt        # Python package requirements
 ├── src/                        # React frontend
+│   ├── main.jsx                # React mount point
 │   ├── App.jsx                 # Top-level shell and page routing
 │   ├── index.css               # Global theme & layout CSS
 │   ├── components/             # Global components (Toolbar, Nav)
@@ -558,7 +578,8 @@ net-toolbox/
 │       ├── routing-map/        # Routing Map component & logic
 │       ├── ip-calculator/      # IP Calculator component & logic
 │       ├── ipam/               # IPAM components, dashboard & logic
-│       └── troubleshoot/       # Troubleshoot tabs & diagnostic components
+│       ├── troubleshoot/       # Troubleshoot tabs & diagnostic components
+│       └── post-change-validation/ # Validation dashboards, API clients, and PIR generator components
 ├── index.html                  # HTML entry point
 ├── vite.config.js              # Vite bundler configuration & dev proxy
 └── package.json                # Frontend dependencies and npm scripts

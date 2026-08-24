@@ -46,6 +46,7 @@ import ssh_security
 import troubleshoot_devices
 import troubleshoot_logic
 import troubleshoot_audit
+import validation_routes
 from device_drivers.base import DeviceSession
 from device_drivers import get_driver
 from logging_config import setup_logging
@@ -88,6 +89,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(validation_routes.router)
 
 PUBLIC_PATHS = {
     "/api/health",

@@ -4,6 +4,7 @@ import RoutingMap from "./routing-map/RoutingMap.jsx";
 import IpCalculator from "./ip-calculator/IpCalculator.jsx";
 import Ipam from "./ipam/Ipam.jsx";
 import Troubleshoot from "./troubleshoot/Troubleshoot.jsx";
+import PostChangeValidation from "./post-change-validation/PostChangeValidation.jsx";
 
 // To add a new tool:
 //   1. Create src/tools/<your-tool>/YourTool.jsx (+ its own .css / logic.js if needed)
@@ -57,6 +58,14 @@ export const TOOLS = [
     tagline: "Look up a device on the network and check its health.",
     status: "live",
     Component: Troubleshoot,
+  },
+  {
+    id: "post-change-validation",
+    name: "Post-Change Validation",
+    icon: "✓",
+    tagline: "Automated baseline capture, T-01 to T-22 post-change verification, and PIR generation.",
+    status: "live",
+    Component: PostChangeValidation,
   },
 ];
 

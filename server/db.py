@@ -165,8 +165,84 @@ def init_db() -> None:
             """
         )
 
-        conn.commit()
+        # Validation Tables
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS validation_test_plans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                change_ticket TEXT,
+                category TEXT,
+                description TEXT,
+                target_devices TEXT,
+                scenario_modules TEXT,
+                config_parameters TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS validation_baselines (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plan_id INTEGER REFERENCES validation_test_plans(id) ON DELETE CASCADE,
+                ticket_number TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                captured_by TEXT NOT NULL,
+                raw_outputs TEXT,
+                parsed_metrics TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS validation_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                plan_id INTEGER REFERENCES validation_test_plans(id) ON DELETE CASCADE,
+                baseline_id INTEGER REFERENCES validation_baselines(id),
+                run_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT,
+                executor_username TEXT NOT NULL,
+                overall_result TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS validation_test_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER REFERENCES validation_runs(id) ON DELETE CASCADE,
+                test_id TEXT NOT NULL,
+                layer TEXT,
+                target_device TEXT NOT NULL,
+                command_executed TEXT NOT NULL,
+                raw_output TEXT,
+                status TEXT NOT NULL,
+                pass_criteria TEXT,
+                delta_summary TEXT,
+                error_message TEXT,
+                executed_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS validation_pir_reports (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER REFERENCES validation_runs(id) ON DELETE CASCADE,
+                signoff_user TEXT,
+                signoff_status TEXT,
+                signoff_notes TEXT,
+                generated_at TEXT,
+                report_data TEXT
+            )
+            """
+        )
 
+        conn.commit()
     finally:
         conn.close()
 
