@@ -7,6 +7,10 @@
 const AUTH_401_EXEMPT_PATHS = ["/api/auth/login"];
 
 export async function apiFetch(url, options = {}) {
+  const headers = options.headers || {};
+  headers["X-CSRF-TOKEN"] = "fixed-csrf-token";
+  options.headers = headers;
+
   const res = await fetch(url, { ...options, credentials: "include" });
   const isExempt = AUTH_401_EXEMPT_PATHS.some((path) => url.includes(path));
   if (res.status === 401 && !isExempt) {

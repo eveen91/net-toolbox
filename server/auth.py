@@ -8,7 +8,7 @@ import secrets
 import bcrypt
 
 SESSION_TOKEN_BYTES = 32
-SESSION_TTL_DAYS = 7
+SESSION_TTL_DAYS = 1
 
 
 def hash_password(plain_password: str) -> str:

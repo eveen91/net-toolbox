@@ -15,10 +15,12 @@ Run it with:
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import secrets
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -31,7 +33,8 @@ from fastapi import FastAPI, HTTPException, Response, Request, Cookie, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from pydantic_core import ValidationError
 
 import db
 import auth
@@ -97,7 +100,16 @@ PUBLIC_PATHS = {
 
 
 @app.middleware("http")
-async def require_auth_middleware(request: Request, call_next):
+async def combined_middleware(request: Request, call_next):
+    # CSRF protection: enforce header on state-changing methods
+    if request.method not in ["GET", "HEAD", "OPTIONS"]:
+        # We allow a custom header; frontend must provide it.
+        # For this internal tool, a fixed header constant is a sufficient 
+        # deterrent against browser-based automated CSRF.
+        if request.headers.get("X-CSRF-TOKEN") != "fixed-csrf-token":
+            return JSONResponse(status_code=403, content={"detail": "Missing or invalid CSRF token"})
+    
+    # Auth protection
     if request.method == "OPTIONS":
         return await call_next(request)
     if request.url.path in PUBLIC_PATHS:
@@ -219,6 +231,12 @@ class CreateUserRequest(BaseModel):
     password: str
     role: str = "user"
 
+    @field_validator("password")
+    @classmethod
+    def validate_pw(cls, v):
+        validate_password_strength(v)
+        return v
+
 
 class UpdateUserRoleRequest(BaseModel):
     role: str
@@ -252,6 +270,12 @@ class RoleAdGroupRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     currentPassword: str
     newPassword: str
+
+    @field_validator("newPassword")
+    @classmethod
+    def validate_pw(cls, v):
+        validate_password_strength(v)
+        return v
 
 
 class RequireLoginRequest(BaseModel):
@@ -292,11 +316,19 @@ class TestAdConnectionResponse(BaseModel):
 
 class BootstrapStatusResponse(BaseModel):
     adminExists: bool
+    bootstrapSecretRequired: bool
 
 
 class BootstrapAdminRequest(BaseModel):
     username: str
     password: str
+    secret: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_pw(cls, v):
+        validate_password_strength(v)
+        return v
 
 
 class RunRequest(BaseModel):
@@ -323,11 +355,12 @@ class ResultRow(BaseModel):
 class RunResponse(BaseModel):
     rows: List[ResultRow]
     csv: str
-
-
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
+
+DEVICE_PORT_RE = re.compile(r"^[A-Za-z0-9./:_-]+$")
+
 
 def validate_host(host: str) -> str:
     host = host.strip()
@@ -336,10 +369,15 @@ def validate_host(host: str) -> str:
     return host
 
 
-def validate_port(port: int) -> int:
-    if not (0 < port < 65536):
-        raise ValueError(f"Invalid port: {port}")
-    return port
+def validate_password_strength(password: str) -> None:
+    if len(password) < 8:
+        raise ValueError("Password must be at least 8 characters long")
+    if not any(char.isdigit() for char in password):
+        raise ValueError("Password must contain at least one digit")
+    if not any(char.isupper() for char in password):
+        raise ValueError("Password must contain at least one uppercase letter")
+
+
 
 
 def now_str() -> str:
@@ -640,7 +678,11 @@ def login(req: LoginRequest, request: Request, response: Response):
         user = _login_via_ad(req.username, req.password)
     else:
         user = auth_db.get_user_by_username_and_source(req.username, "local")
-        if user is None or not auth.verify_password(req.password, user["passwordHash"]):
+        if user is None:
+            # Dummy verify to mitigate timing-based username enumeration
+            auth.verify_password(req.password, "$2b$12$R9h/cIPz0gi.URNNX3kh2OPST9/zBsqquzaFA4o9x1Gg13x2P9c7m")
+            user = None
+        elif not auth.verify_password(req.password, user["passwordHash"]):
             user = None
 
     if user is None:
@@ -689,20 +731,23 @@ def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require
 
 @app.get("/api/admin/bootstrap-status", response_model=BootstrapStatusResponse)
 def admin_bootstrap_status():
-    """Public, unauthenticated: lets the frontend decide whether Config
-    Panel access should show the create-admin screen or a login screen,
-    before it knows anything about the current session."""
-    return BootstrapStatusResponse(adminExists=auth_db.count_admin_users() > 0)
+    bootstrap_secret = os.environ.get("BOOTSTRAP_SECRET")
+    return BootstrapStatusResponse(
+        adminExists=auth_db.count_admin_users() > 0,
+        bootstrapSecretRequired=bool(bootstrap_secret),
+    )
 
 
 @app.post("/api/admin/bootstrap", response_model=UserPublic)
 def bootstrap_admin_user(req: BootstrapAdminRequest, response: Response):
-    """Creates the very first admin user. Self-limiting: once any admin
-    user exists this always 400s, so it can't be used to mint additional
-    admins later — that goes through the normal authenticated
-    /api/admin/users endpoint instead."""
     if auth_db.count_admin_users() > 0:
         raise HTTPException(status_code=400, detail="An admin user already exists")
+
+    bootstrap_secret = os.environ.get("BOOTSTRAP_SECRET")
+    if bootstrap_secret:
+        if not req.secret or not secrets.compare_digest(req.secret, bootstrap_secret):
+            raise HTTPException(status_code=403, detail="Invalid or missing bootstrap secret")
+
     username = req.username.strip()
     if not username or not req.password:
         raise HTTPException(status_code=400, detail="Username and password are required")
@@ -896,6 +941,11 @@ def get_ad_settings(admin: Optional[Dict] = Depends(require_admin_user)):
 @app.put("/api/admin/settings/ad", response_model=AdSettingsResponse)
 def update_ad_settings(req: UpdateAdSettingsRequest, admin: Optional[Dict] = Depends(require_admin_user)):
     if req.enabled:
+        if not req.useTls:
+            raise HTTPException(
+                status_code=400,
+                detail="LDAPS (TLS) is required for secure AD authentication. Please enable TLS.",
+            )
         if not req.host.strip():
             raise HTTPException(status_code=400, detail="Host is required when AD login is enabled")
         if not req.domainSuffix.strip():
@@ -1108,12 +1158,12 @@ class DeviceRequest(BaseModel):
     deviceType: str
 
 
-@app.get("/api/devices")
+@app.get("/api/devices", dependencies=[Depends(require_feature("troubleshoot"))])
 def list_devices_endpoint():
     return troubleshoot_devices.list_devices()
 
 
-@app.post("/api/devices")
+@app.post("/api/devices", dependencies=[Depends(require_feature("troubleshoot"))])
 def add_device_endpoint(req: DeviceRequest):
     try:
         return troubleshoot_devices.add_device(
@@ -1123,7 +1173,7 @@ def add_device_endpoint(req: DeviceRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.put("/api/devices/{device_id}")
+@app.put("/api/devices/{device_id}", dependencies=[Depends(require_feature("troubleshoot"))])
 def update_device_endpoint(device_id: int, req: DeviceRequest):
     try:
         return troubleshoot_devices.update_device(
@@ -1133,7 +1183,7 @@ def update_device_endpoint(device_id: int, req: DeviceRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@app.delete("/api/devices/{device_id}")
+@app.delete("/api/devices/{device_id}", dependencies=[Depends(require_feature("troubleshoot"))])
 def delete_device_endpoint(device_id: int):
     return troubleshoot_devices.delete_device(device_id)
 
@@ -1149,12 +1199,25 @@ class LocateRequest(BaseModel):
     username: str
     password: str
 
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, v):
+        ipaddress.ip_address(v)
+        return v
+
 
 class PortHealthRequest(BaseModel):
     deviceName: str
     port: str
     username: str
     password: str
+
+    @field_validator("port")
+    @classmethod
+    def validate_port(cls, v):
+        if not DEVICE_PORT_RE.match(v):
+            raise ValueError("Invalid port format")
+        return v
 
 
 class CableTestRequest(BaseModel):
@@ -1164,12 +1227,26 @@ class CableTestRequest(BaseModel):
     password: str
     confirm: bool
 
+    @field_validator("port")
+    @classmethod
+    def validate_port(cls, v):
+        if not DEVICE_PORT_RE.match(v):
+            raise ValueError("Invalid port format")
+        return v
+
 
 class TransceiverHealthRequest(BaseModel):
     deviceName: str
     port: str
     username: str
     password: str
+
+    @field_validator("port")
+    @classmethod
+    def validate_port(cls, v):
+        if not DEVICE_PORT_RE.match(v):
+            raise ValueError("Invalid port format")
+        return v
 
 
 class StpReportRequest(BaseModel):
@@ -1183,9 +1260,22 @@ class AccessCheckRequest(BaseModel):
     username: str
     password: str
 
+    @field_validator("port")
+    @classmethod
+    def validate_port(cls, v):
+        if not DEVICE_PORT_RE.match(v):
+            raise ValueError("Invalid port format")
+        return v
+
 
 class PingRequest(BaseModel):
     ip: str
+
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, v):
+        ipaddress.ip_address(v)
+        return v
 
 
 class RouteCheckRequest(BaseModel):
@@ -1193,14 +1283,26 @@ class RouteCheckRequest(BaseModel):
     username: str
     password: str
 
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, v):
+        ipaddress.ip_address(v)
+        return v
+
 
 class FullRunRequest(BaseModel):
     ip: str
     username: str
     password: str
 
+    @field_validator("ip")
+    @classmethod
+    def validate_ip(cls, v):
+        ipaddress.ip_address(v)
+        return v
 
-@app.post("/api/troubleshoot/test-connection")
+
+@app.post("/api/troubleshoot/test-connection", dependencies=[Depends(require_feature("troubleshoot"))])
 async def test_device_connection(req: TestConnectionRequest):
     devices = troubleshoot_devices.list_devices()
     device = next((d for d in devices if d["id"] == req.deviceId), None)
@@ -1220,7 +1322,7 @@ async def test_device_connection(req: TestConnectionRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/locate")
+@app.post("/api/troubleshoot/locate", dependencies=[Depends(require_feature("troubleshoot"))])
 async def locate_device(req: LocateRequest):
     def _run():
         try:
@@ -1260,7 +1362,7 @@ async def locate_device(req: LocateRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/port-health")
+@app.post("/api/troubleshoot/port-health", dependencies=[Depends(require_feature("troubleshoot"))])
 async def port_health(req: PortHealthRequest):
     def _run():
         try:
@@ -1279,7 +1381,7 @@ async def port_health(req: PortHealthRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/cable-test")
+@app.post("/api/troubleshoot/cable-test", dependencies=[Depends(require_feature("troubleshoot"))])
 async def cable_test(req: CableTestRequest):
     if not req.confirm:
         raise HTTPException(
@@ -1304,7 +1406,7 @@ async def cable_test(req: CableTestRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/transceiver-health")
+@app.post("/api/troubleshoot/transceiver-health", dependencies=[Depends(require_feature("troubleshoot"))])
 async def transceiver_health(req: TransceiverHealthRequest):
     def _run():
         try:
@@ -1323,7 +1425,7 @@ async def transceiver_health(req: TransceiverHealthRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/stp-report")
+@app.post("/api/troubleshoot/stp-report", dependencies=[Depends(require_feature("troubleshoot"))])
 async def stp_report(req: StpReportRequest):
     def _run():
         try:
@@ -1339,7 +1441,7 @@ async def stp_report(req: StpReportRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/access-check")
+@app.post("/api/troubleshoot/access-check", dependencies=[Depends(require_feature("troubleshoot"))])
 async def access_check(req: AccessCheckRequest):
     def _run():
         try:
@@ -1358,7 +1460,7 @@ async def access_check(req: AccessCheckRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/ping")
+@app.post("/api/troubleshoot/ping", dependencies=[Depends(require_feature("troubleshoot"))])
 async def ping(req: PingRequest):
     def _run():
         try:
@@ -1372,7 +1474,7 @@ async def ping(req: PingRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/route-check")
+@app.post("/api/troubleshoot/route-check", dependencies=[Depends(require_feature("troubleshoot"))])
 async def route_check(req: RouteCheckRequest):
     def _run():
         try:
@@ -1393,7 +1495,7 @@ async def route_check(req: RouteCheckRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.post("/api/troubleshoot/run")
+@app.post("/api/troubleshoot/run", dependencies=[Depends(require_feature("troubleshoot"))])
 async def full_run(req: FullRunRequest):
     def _run():
         try:
@@ -1407,7 +1509,7 @@ async def full_run(req: FullRunRequest):
     return await loop.run_in_executor(EXECUTOR, _run)
 
 
-@app.get("/api/troubleshoot/audit-log")
+@app.get("/api/troubleshoot/audit-log", dependencies=[Depends(require_admin_user)])
 def get_audit_log(limit: int = 50):
     return troubleshoot_audit.get_recent_audit_log(limit)
 

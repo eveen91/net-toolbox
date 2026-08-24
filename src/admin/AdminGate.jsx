@@ -18,12 +18,14 @@ import CreateAdminForm from "./CreateAdminForm.jsx";
 export default function AdminGate() {
   const { user, loginRequired, refresh } = useAuth();
   const [adminExists, setAdminExists] = useState(null);
+  const [bootstrapSecretRequired, setBootstrapSecretRequired] = useState(false);
   const [error, setError] = useState(null);
 
   const loadStatus = useCallback(async () => {
     try {
       const status = await getBootstrapStatus();
       setAdminExists(status.adminExists);
+      setBootstrapSecretRequired(status.bootstrapSecretRequired);
     } catch (e) {
       setError(e.message);
     }
@@ -49,6 +51,7 @@ export default function AdminGate() {
   if (!adminExists) {
     return (
       <CreateAdminForm
+        secretRequired={bootstrapSecretRequired}
         onCreated={async () => {
           await refresh();
           await loadStatus();

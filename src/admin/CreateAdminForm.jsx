@@ -2,10 +2,11 @@ import React, { useState } from "react";
 import { bootstrapAdmin } from "./api.js";
 import "../auth/auth.css";
 
-export default function CreateAdminForm({ onCreated }) {
+export default function CreateAdminForm({ secretRequired, onCreated }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [secret, setSecret] = useState("");
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -18,7 +19,7 @@ export default function CreateAdminForm({ onCreated }) {
     }
     setSubmitting(true);
     try {
-      await bootstrapAdmin(username.trim(), password);
+      await bootstrapAdmin(username.trim(), password, secretRequired ? secret : null);
       await onCreated();
     } catch (e2) {
       setError(e2.message);
@@ -41,6 +42,15 @@ export default function CreateAdminForm({ onCreated }) {
           onChange={(e) => setUsername(e.target.value)}
           autoFocus
         />
+        {secretRequired && (
+          <input
+            className="tool-input"
+            type="password"
+            placeholder="Bootstrap secret"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+          />
+        )}
         <input
           className="tool-input"
           type="password"
@@ -59,7 +69,7 @@ export default function CreateAdminForm({ onCreated }) {
         <button
           className="tool-btn tool-btn-primary"
           type="submit"
-          disabled={submitting || !username.trim() || !password || !confirmPassword}
+          disabled={submitting || !username.trim() || !password || !confirmPassword || (secretRequired && !secret)}
         >
           {submitting ? "Creating…" : "Create admin account"}
         </button>

@@ -506,6 +506,7 @@ These endpoints are not role-gated on the backend — tool visibility is filtere
 | `CORS_ORIGINS` | Backend | *(empty)* | Comma-separated extra browser origins allowed to call the API (e.g. `http://192.168.1.10:3000`) |
 | `COOKIE_SECURE` | Backend | `false` | Set to `true` in HTTPS production deployments to enforce the `Secure` flag on session cookies |
 | `WINRM_CA_TRUST_PATH` | Backend | *(unset)* | CA bundle path used to validate self-signed/internal WinRM host certificates |
+| `BOOTSTRAP_SECRET` | Backend | *(unset)* | Optional secret required for initial admin bootstrap if configured |
 
 ---
 

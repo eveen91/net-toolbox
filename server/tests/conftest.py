@@ -10,9 +10,9 @@ import troubleshoot_devices
 import troubleshoot_audit
 import main
 
-# Disable the login rate limiter for all tests so repeated login calls in
-# fixtures and test sequences are never rejected.
+# Disable rate limiter and password strength checks for tests.
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+os.environ.setdefault("IGNORE_PW_STRENGTH", "1")
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def client(monkeypatch):
     db.init_db()
     auth_db.init_auth_db()
 
-    with TestClient(main.app) as test_client:
+    with TestClient(main.app, headers={"X-CSRF-TOKEN": "fixed-csrf-token"}) as test_client:
         yield test_client
 
     os.remove(temp_db_path)

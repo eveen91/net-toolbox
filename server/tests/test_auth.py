@@ -87,7 +87,7 @@ def test_list_users_open_when_login_not_required(client):
 
 
 def test_create_user_via_admin_endpoint(client):
-    res = client.post("/api/admin/users", json={"username": "erin", "password": "pw123", "role": "user"})
+    res = client.post("/api/admin/users", json={"username": "erin", "password": "Password123", "role": "user"})
     assert res.status_code == 200
     assert res.json()["username"] == "erin"
     assert "passwordHash" not in res.json()
@@ -95,13 +95,13 @@ def test_create_user_via_admin_endpoint(client):
 
 
 def test_create_user_rejects_duplicate_username(client):
-    client.post("/api/admin/users", json={"username": "frank", "password": "pw1"})
-    res = client.post("/api/admin/users", json={"username": "frank", "password": "pw2"})
+    client.post("/api/admin/users", json={"username": "frank", "password": "Password1"})
+    res = client.post("/api/admin/users", json={"username": "frank", "password": "Password2"})
     assert res.status_code == 400
 
 
 def test_delete_user(client):
-    created = client.post("/api/admin/users", json={"username": "gina", "password": "pw"}).json()
+    created = client.post("/api/admin/users", json={"username": "gina", "password": "Password1"}).json()
     res = client.delete(f"/api/admin/users/{created['id']}")
     assert res.status_code == 200
     remaining = [u["username"] for u in client.get("/api/admin/users").json()]
@@ -113,20 +113,20 @@ def test_cannot_delete_last_admin(client):
     for u in auth_db.list_users():
         if u["role"] == "admin":
             auth_db.delete_user(u["id"])
-    admin = client.post("/api/admin/users", json={"username": "only-admin", "password": "pw", "role": "admin"}).json()
+    admin = client.post("/api/admin/users", json={"username": "only-admin", "password": "Password1", "role": "admin"}).json()
     # require_admin_user now requires a real admin session for any call
     # once an admin exists (it only bypasses auth in the count==0
     # bootstrap window), so we have to actually log in to reach the
     # handler at all.
-    client.post("/api/auth/login", json={"username": "only-admin", "password": "pw"})
+    client.post("/api/auth/login", json={"username": "only-admin", "password": "Password1"})
     res = client.delete(f"/api/admin/users/{admin['id']}")
     assert res.status_code == 400
 
 
 def test_reset_password_lets_user_log_in_with_new_password(client):
-    created = client.post("/api/admin/users", json={"username": "helen", "password": "old-pw"}).json()
-    client.post(f"/api/admin/users/{created['id']}/reset-password", json={"newPassword": "new-pw"})
-    res = client.post("/api/auth/login", json={"username": "helen", "password": "new-pw"})
+    created = client.post("/api/admin/users", json={"username": "helen", "password": "Password1"}).json()
+    client.post(f"/api/admin/users/{created['id']}/reset-password", json={"newPassword": "Password2"})
+    res = client.post("/api/auth/login", json={"username": "helen", "password": "Password2"})
     assert res.status_code == 200
 
 
@@ -137,7 +137,7 @@ def test_cannot_enable_login_without_being_logged_in_as_admin(client):
     # admin has to exist for this request to reach the "must be logged in
     # as that admin" check it's actually testing. Deliberately not logging
     # in as them — that's the case under test.
-    auth_db.create_user("ursula", auth.hash_password("pw"), role="admin")
+    auth_db.create_user("ursula", auth.hash_password("Password1"), role="admin")
     res = client.post("/api/admin/settings/require-login", json={"enabled": True})
     assert res.status_code == 403
     assert auth_db.is_login_required() is False
@@ -146,8 +146,8 @@ def test_cannot_enable_login_without_being_logged_in_as_admin(client):
 def test_can_enable_login_when_logged_in_as_admin(client):
     import auth_db, auth
     auth_db.set_setting("require_login", "false")
-    auth_db.create_user("ivan", auth.hash_password("pw"), role="admin")
-    client.post("/api/auth/login", json={"username": "ivan", "password": "pw"})
+    auth_db.create_user("ivan", auth.hash_password("Password1"), role="admin")
+    client.post("/api/auth/login", json={"username": "ivan", "password": "Password1"})
     res = client.post("/api/admin/settings/require-login", json={"enabled": True})
     assert res.status_code == 200
     assert auth_db.is_login_required() is True

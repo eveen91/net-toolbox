@@ -113,11 +113,13 @@ export async function getBootstrapStatus() {
   return handle(res);
 }
 
-export async function bootstrapAdmin(username, password) {
+export async function bootstrapAdmin(username, password, secret = null) {
+  const body = { username, password };
+  if (secret) body.secret = secret;
   const res = await apiFetch(`${BASE_URL}/api/admin/bootstrap`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(body),
   });
   return handle(res);
 }
