@@ -38,6 +38,7 @@ import auth
 import auth_db
 import ldap_auth
 import ipam_scan
+import rate_limit
 import ssh_security
 import troubleshoot_devices
 import troubleshoot_logic
@@ -496,6 +497,21 @@ def health():
 SESSION_COOKIE_NAME = "session_token"
 
 
+def is_cookie_secure() -> bool:
+    return os.environ.get("COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=is_cookie_secure(),
+        max_age=auth.SESSION_TTL_DAYS * 24 * 60 * 60,
+    )
+
+
 def require_admin_user(
     session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
 ) -> Optional[Dict]:
@@ -608,7 +624,18 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
 
 
 @app.post("/api/auth/login")
-def login(req: LoginRequest, response: Response):
+def login(req: LoginRequest, request: Request, response: Response):
+    if not rate_limit.check_allowed(request, req.username):
+        logger.warning(
+            "Rate limit exceeded for IP %s / user %s",
+            rate_limit.client_ip(request),
+            req.username,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please try again later.",
+        )
+
     if req.authMethod == "ad":
         user = _login_via_ad(req.username, req.password)
     else:
@@ -622,14 +649,7 @@ def login(req: LoginRequest, response: Response):
     logger.info("Login succeeded for user %s (method=%s)", user["username"], user["authSource"])
     token = auth.generate_session_token()
     auth_db.create_session(user["id"], token)
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-        max_age=auth.SESSION_TTL_DAYS * 24 * 60 * 60,
-    )
+    set_session_cookie(response, token)
     return _user_public(user)
 
 
@@ -637,7 +657,12 @@ def login(req: LoginRequest, response: Response):
 def logout(response: Response, session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
     if session_token:
         auth_db.delete_session_by_token(session_token)
-    response.delete_cookie(key=SESSION_COOKIE_NAME)
+    response.delete_cookie(
+        key=SESSION_COOKIE_NAME,
+        samesite="lax",
+        httponly=True,
+        secure=is_cookie_secure(),
+    )
     return {"ok": True}
 
 
@@ -691,14 +716,7 @@ def bootstrap_admin_user(req: BootstrapAdminRequest, response: Response):
     # instead of bouncing them to a second login screen.
     token = auth.generate_session_token()
     auth_db.create_session(user["id"], token)
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
-        value=token,
-        httponly=True,
-        samesite="lax",
-        secure=False,
-        max_age=auth.SESSION_TTL_DAYS * 24 * 60 * 60,
-    )
+    set_session_cookie(response, token)
     return _user_public(user)
 
 

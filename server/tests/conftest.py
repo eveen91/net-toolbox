@@ -10,6 +10,10 @@ import troubleshoot_devices
 import troubleshoot_audit
 import main
 
+# Disable the login rate limiter for all tests so repeated login calls in
+# fixtures and test sequences are never rejected.
+os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
+
 
 @pytest.fixture
 def client(monkeypatch):
