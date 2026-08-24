@@ -8,3 +8,4 @@ server/*/__pycache__
 opencode.json
 .gitignore
 */.pytest_cache
+.plans

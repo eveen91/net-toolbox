@@ -1,425 +1,596 @@
 # net::toolbox
 
-A small multi-tool networking app. The main shell (toolbar + home page) is separate
-from every tool, and each tool lives in its own folder under `src/tools/`.
+`net::toolbox` is a multi-tool networking application designed for network engineers and system administrators. It combines client-side utility calculators with backend-powered automation for remote connectivity testing, routing table management, IP address management (IPAM), and multi-vendor switch/gateway troubleshooting.
 
-## Features
+The application features a clean, modular shell (top toolbar + card grid home page) supporting session-based local authentication, Active Directory (LDAP/LDAPS) integration, role-based access control (RBAC), and containerized Docker deployment.
 
-### Core Tools
+---
 
-#### Subnet Splitter
-Carve a network into the largest CIDR blocks around excluded ranges. Pure client-side computation — no backend required.
+## Table of Contents
+1. [Architecture Overview](#architecture-overview)
+2. [Features & Core Tools](#features--core-tools)
+   - [Subnet Splitter](#subnet-splitter)
+   - [Connection Test](#connection-test)
+   - [Routing Map](#routing-map)
+   - [IP Calculator](#ip-calculator)
+   - [IPAM (IP Address Management)](#ipam-ip-address-management)
+   - [Troubleshoot](#troubleshoot)
+3. [Authentication & Access Control](#authentication--access-control)
+   - [Local & Active Directory Auth](#local--active-directory-auth)
+   - [Role-Based Access Control (RBAC)](#role-based-access-control-rbac)
+   - [Security & Credential Handling](#security--credential-handling)
+4. [Admin Panel](#admin-panel)
+5. [Installation & Setup](#installation--setup)
+   - [Local Development](#local-development)
+   - [Docker & Docker Compose](#docker--docker-compose)
+   - [Automated Scanning (Systemd)](#automated-scanning-systemd)
+6. [API Reference Catalog](#api-reference-catalog)
+7. [Database Schemas](#database-schemas)
+8. [Environment Variables](#environment-variables)
+9. [Project Layout](#project-layout)
+10. [Adding a New Tool](#adding-a-new-tool)
+11. [Testing](#testing)
 
-#### Connection Test
-SSH/WinRM into source servers and test TCP connectivity to destinations.
-- **Linux sources**: SSHes in (`paramiko`, username/password) and runs a remote bash loop that tries `/dev/tcp/$DST/$PORT` for every destination:port
-- **Windows sources**: Opens WinRM sessions (`pywinrm`, username/password) and runs PowerShell `TcpClient.BeginConnect`/`EndConnect` tests
-- Configurable WinRM transport (NTLM / Kerberos / Basic / CredSSP), scheme (http/https), and port via "Advanced settings"
-- Returns results as JSON + CSV export
+---
 
-#### Routing Map
-Browse each host's routing table by network and next hop.
-- Paste/edit routes in draft textarea (`@hostname`, then `network -> next hop` per line)
-- Save to SQLite database with validation (CIDR networks, IP addresses)
-- View saved hosts list with route counts
-- Load from database for editing
-- API endpoints: `GET/PUT/DELETE /api/routing/hosts`, `GET /api/routing/export`
+## Architecture Overview
 
-#### IP Calculator
-Enter an IP and netmask to get the network, broadcast, and usable host range. Pure client-side computation.
+`net::toolbox` is structured around a decoupled frontend and backend architecture:
 
-#### IPAM (IP Address Management)
-Track subnets with VLAN tags and record used, free, and reserved IP addresses.
-- Dashboard view of all subnets with utilization bars
-- Add/edit/delete subnets with CIDR, VLAN ID, description
-- Track individual IP addresses with status (used/free/reserved), hostname, description, team, machine type (physical/VM), VM cluster, environment (prod/test/dev)
-- Bulk edit addresses
-- Autodiscovery scan: ping sweep + reverse DNS lookup for live hosts
-- Scan exclude lists to skip reserved/locked addresses during autodiscovery
-- Settings for default ping timeout/attempts and DNS timeout
+- **Frontend**: Single Page Application (SPA) built with **React 18** and **Vite**. Navigation is handled via top-level state management (`App.jsx`), avoiding router overhead. Each tool lives isolated in its own folder under `src/tools/` and registers with `src/tools/registry.js`.
+- **Backend**: Async **FastAPI** application running under **Uvicorn**. Provides REST APIs, background task polling, Server-Sent Events (SSE) streaming for long scans, SSH (`paramiko`/`netmiko`), and WinRM (`pywinrm`) remote execution.
+- **Data Persistence**: Uses two isolated **SQLite** databases:
+  - `server/toolbox.db`: Application data (Routing tables, IPAM subnets/addresses, Device inventory, Troubleshoot audit logs).
+  - `server/auth.db`: Authentication data (User accounts, bcrypt hashes, active sessions, custom roles, AD configurations, app settings). Kept strictly separate so credentials never coexist with application data.
 
-## Troubleshoot
-Given an IP address, walks through full diagnostic against your network
-Devices: resolves the IP to a MAC address via gateway's ARP table,
-Locates which switch/port it's connected to, checks port health (speed,
-Duplex, error counters), checks transceiver health, checks port
-Access/authorization status, pings host, and checks route to it.
-Supports three device types: Cisco IOS-XE (cisco_ios), Aruba AOS-CX
-(aruba_aoscx), and Checkpoint Gaia (checkpoint_gaia) — configured in device inventory stored in SQLite, managed from within tool itself.
-Cable diagnostics (TDR test) is available as separate, manually-triggered
-Action — it can briefly interrupt link on port under test, so it
-Requires explicit confirmation and is never run automatically.
-Spanning-tree flap report scans every switch in inventory for ports
-With frequent, recent topology changes — independent of any single IP
-Lookup.
-Credentials are entered per session and are never stored or logged, same
-Model as Connection Test.
+---
 
-### Authentication & Authorization
+## Features & Core Tools
 
-#### User Management
-- Local user authentication with bcrypt-hashed passwords
-- Session-based auth with configurable timeout
-- Optional login requirement (can run in open mode)
-- Password change functionality for logged-in users
+### Subnet Splitter
+Carve a network CIDR block into the largest valid subnets around specified excluded IP ranges or addresses.
+- **Execution**: Pure client-side computation in JavaScript — no backend required.
+- **Capabilities**:
+  - Interactive address-space visualizer bar.
+  - Automatically calculates non-overlapping CIDR blocks covering remaining usable space.
+  - Useful for subnet planning around static allocations or legacy hardware.
 
-#### Role-Based Access Control
-- Custom roles with granular permissions per tool
-- Admin role with full access (`*` permission) to all tools plus Config Panel
-- Default "user" role seeded with all tool permissions
-- Assign/revoke roles per user
-- Roles can each be bound to one or more Active Directory group DNs, so AD
-  group membership determines role automatically (see Active Directory
-  Integration below)
-- Role is locked (cannot be changed manually) for accounts provisioned via AD
+### Connection Test
+Test TCP port connectivity from remote Linux or Windows source hosts to target destinations.
+- **Execution**: Backend-assisted (`POST /api/connection-test/run`).
+- **Source Host Support**:
+  - **Linux Sources**: Backend connects via SSH (`paramiko`) using session credentials and runs a remote bash loop executing `/dev/tcp/$DST/$PORT`.
+  - **Windows Sources**: Backend connects via WinRM (`pywinrm`) using session credentials and runs PowerShell `TcpClient.BeginConnect`/`EndConnect` checks.
+- **Configuration & Settings**:
+  - Configurable WinRM transport (`NTLM`, `Kerberos`, `Basic`, `CredSSP`), scheme (`http`/`https`), and WinRM port.
+  - Results returned directly with JSON rows and CSV export.
+- **Security**: Credentials are provided per session and are never logged or persisted.
 
-#### Active Directory Integration
-- Direct bind authentication (no stored service account credentials)
-- User Principal Name (UPN) based login
-- Required group membership for access control
-- Per-role AD group bindings — each role can be linked to one or more group
-  DNs, and a matching group membership assigns that role at first login
-- A given AD group DN can only be bound to one role at a time
-- Transitive group membership resolution (nested groups)
-- TLS support for LDAPS connections
-- Connection testing endpoint for AD configuration validation
+### Routing Map
+Store, view, and organize routing tables across infrastructure hosts.
+- **Execution**: Backend-assisted with SQLite persistence (`/api/routing/*`).
+- **Capabilities**:
+  - **Text Parser**: Paste raw route dumps formatted as `@hostname` followed by `network -> next_hop` or `network directly connected <interface>`.
+  - Server-side validation of CIDR networks and IP next hops.
+  - Search and filter hosts, view route counts per host, edit routes in draft format, or delete hosts.
+  - Export full global routing database via `/api/routing/export`.
 
-### Admin Panel
+### IP Calculator
+Quick IP address and subnet calculation tool.
+- **Execution**: Pure client-side computation in JavaScript.
+- **Outputs**: Network address, Broadcast address, Usable Host IP range, Total host capacity, Wildcard mask, and Netmask in dotted-decimal format.
 
-#### Configuration
-- Bootstrap admin user on first setup
-- Toggle login requirement on/off
-- Configure Active Directory settings (host, port, TLS, domain suffix, required group DN)
-- Test AD connection before saving
+### IPAM (IP Address Management)
+Full-featured IP address and subnet management system.
+- **Execution**: Backend-assisted (`/api/ipam/*`) with SQLite storage (`server/db.py`).
+- **Capabilities**:
+  - **Subnet Management**: Hierarchical parent/child subnet trees, VLAN ID assignment, CIDR tracking, description.
+  - **Dashboard**: High-level overview of subnet utilization bars (used, free, reserved counts).
+  - **Address Tracking**:
+    - Status: `used`, `free`, `reserved`.
+    - Metadata: Hostname, description, team, machine type (`physical`/`VM`), VM cluster, environment (`prod`/`test`/`dev`), locked state.
+    - Bulk operations: Bulk edit status/metadata, bulk delete, bulk move addresses between subnets.
+  - **Autodiscovery Scanner**:
+    - Ping sweep + reverse DNS lookup across subnet host IPs (`server/ipam_scan.py`).
+    - Exclude lists (`scan-excludes`) to skip gateways, static ranges, or network devices.
+    - Configurable scan settings (ping timeout, attempts, DNS timeout, max concurrency limit).
+    - Server-Sent Events (SSE) progress streaming (`/autodiscover/stream/{job_id}`).
+    - Diff detection against previous scans (newly responsive IPs, hosts going quiet, hostname changes).
+    - Single IP re-scan on demand.
 
-#### User & Role Management
-- List/create/update/delete users
-- Assign roles to local users (role is read-only for AD-sourced accounts —
-  it's determined by AD group membership instead)
-- Reset user passwords
-- Create/update/delete custom roles
-- Manage role permissions (tool-level access)
-- Bind/unbind AD group DNs per role, from the Roles panel
-- User list shows whether each account is Local or AD
+### Troubleshoot
+Multi-vendor network device diagnostic and lookup suite.
+- **Execution**: Backend-assisted (`/api/troubleshoot/*`) using `netmiko` and vendor-specific drivers.
+- **Supported Platforms**:
+  - Cisco IOS-XE (`cisco_ios`)
+  - Aruba AOS-CX (`aruba_aoscx`)
+  - Checkpoint Gaia (`checkpoint_gaia`)
+- **Sub-Tabs & Capabilities**:
+  - **Inventory**: Device inventory management (Management IP, Vendor, Model, OS Version, Device Type). Note: Exactly one gateway device (e.g. Checkpoint Gaia) must be designated for ARP/route lookups.
+  - **Full Diagnostic**: Sequential automated workflow: IP lookup -> Gateway ARP table -> Switch MAC table locate -> Port health -> Cable test (optional) -> Optical transceiver health -> Port access status -> Gateway ping -> Route check.
+  - **Locate**: Traces IP to MAC address on gateway ARP table, then searches connected switch MAC tables to identify the physical access port.
+  - **Port Health**: Inspects link status, operational speed, duplex mode, input/output errors, CRC errors, and packet drops.
+  - **Cable Test (TDR)**: Triggers Time-Domain Reflectometry test on switch port (requires explicit UI confirmation due to momentary link interruption).
+  - **Optics Health**: Reads SFP/XFP transceiver Digital Optical Monitoring (DOM) values (Tx/Rx optical power, temperature, voltage, bias current) against vendor thresholds.
+  - **Port Access Status**: Checks 802.1X, MAB (MAC Authentication Bypass), and port-security authorization state.
+  - **Reachability**: Remote ping execution and route table query against network devices.
+  - **STP Report**: Inventory-wide Spanning Tree Protocol scan identifying switch ports experiencing recent topology change flaps.
+  - **Activity Log**: SQLite audit logging of all CLI commands issued to network hardware.
 
-### Docker Support
+---
 
-Full Docker Compose setup for Windows/Docker Desktop:
-- Backend container (Python/FastAPI on port 8000)
-- Frontend container (React/Vite build served on port 3000)
-- Auto-updates from GitHub on every container restart
-- Persistent SQLite database volume
-- Configurable router DNS for reverse-DNS lookups in IPAM autodiscovery
-- See [`docker/README.md`](docker/README.md) for full setup instructions
+## Authentication & Access Control
 
-## Run it
+### Local & Active Directory Auth
+`net::toolbox` supports two authentication modes configured via the Admin Panel:
+1. **Open Mode** (`require_login = false`): All tools remain accessible without login.
+2. **Login Required** (`require_login = true`): Users must authenticate via local account or Active Directory.
 
-**Frontend**
+- **Local Accounts**: Passwords hashed with `bcrypt` and stored in `auth.db`.
+- **Active Directory (LDAP/LDAPS)**:
+  - Direct bind authentication via `ldap3` (no service account stored).
+  - Supports User Principal Name (`user@domain`) or plain username + domain suffix.
+  - Enforces required Group DN for access control.
+  - Supports LDAPS with TLS certificate verification.
+  - Group membership resolved transitively (supporting nested AD groups via `memberOf:1.2.840.113556.1.4.1941`).
 
+### Role-Based Access Control (RBAC)
+- **Roles**: Custom defined roles with granular per-tool permissions (`subnet-splitter`, `connection-test`, `routing-map`, `ip-calculator`, `ipam`, `troubleshoot`).
+- **Admin Role**: Built-in reserved `admin` role with wildcard (`*`) permission granting full access to all tools and the Config Panel.
+- **Default User Role**: Seeded `user` role with access to all tools except Troubleshoot (granted by an admin when needed).
+- **Active Directory Group Mapping**:
+  - Custom roles can be bound to one or more AD group DNs (`role_ad_groups` table).
+  - On first AD login, user AD groups are matched against role group bindings to assign the appropriate role automatically.
+  - Account roles for AD-sourced users are locked to prevent manual override.
+
+### Security & Credential Handling
+- **Per-Session Credentials**: SSH, WinRM, and network device passwords entered in tools are used strictly in memory for the duration of the request/job and are **never** logged, cached, or written to disk.
+- **TLS Requirement**: Production deployments should place the backend behind an HTTPS reverse proxy (e.g., Nginx, Caddy, Traefik) to protect credentials in transit.
+
+---
+
+## Admin Panel
+
+Accessible to users with the `admin` role (or during initial setup before any admin user exists):
+- **Bootstrap Administrator**: Create the primary admin account on first installation.
+- **User Management**: View user list (Local vs AD badges), create local accounts, assign roles (local accounts only), reset passwords, and delete users.
+- **Role & Permission Management**: Create custom roles, update tool permissions, bind/unbind AD group DNs to roles, and delete unused roles.
+- **System Settings**: Toggle global `require_login` enforcement.
+- **Active Directory Settings**: Configure AD host, port, TLS, domain suffix, required group DN, admin group DN, and execute real-time connection test checks before saving.
+
+---
+
+## Installation & Setup
+
+### Local Development
+
+#### Prerequisites
+- Node.js 18+ and npm
+- Python 3.12+
+
+#### 1. Frontend Setup
 ```bash
 npm install
 npm run dev
 ```
+The Vite development server runs on `http://localhost:5173`. Proxies `/api` calls to `http://localhost:8000` by default.
 
-Then open the printed local URL.
-
-**Backend** (required for Connection Test, Routing Map, IPAM, and authentication):
-
+#### 2. Backend Setup
 ```bash
 cd server
 pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
+The backend initializes `server/toolbox.db` and `server/auth.db` automatically on first launch.
 
-In dev, `vite.config.js` proxies `/api` to `http://localhost:8000` automatically.
-In production, put a reverse proxy in front that does the same, or set
-`VITE_API_BASE_URL` to the backend's full URL when building the frontend.
+---
 
-The Subnet Splitter and IP Calculator tools need no backend — they're pure client-side computation.
+### Docker & Docker Compose
 
-### Troubleshoot tool setup
-Requires `netmiko` (already listed in server/requirements.txt).
-Device inventory is entered through the Troubleshoot tool's UI — each
-Device needs device_type matching its vendor:
-| Vendor | device_type value |
-|---|---|
-| Cisco IOS-XE | cisco_ios |
-| Aruba AOS-CX | aruba_aoscx |
-| Checkpoint Gaia | checkpoint_gaia |
-Exactly one device in inventory should have device_type
-Checkpoint_gaia — it's used as the ARP/route lookup gateway. The Locate,
-Ping, and Route Check features will fail with clear error if none is
-Configured.
+Full containerized setup suitable for Docker Desktop (Windows/Linux/macOS).
 
-**Docker** (Windows / Docker Desktop, auto-updating from GitHub)
+#### Architecture
+The setup runs two containers configured via `docker/docker-compose.yml`:
+- **`backend`**: Python 3.12 container running FastAPI on port `8000`. Includes `iputils-ping` for IPAM sweeps. Mounts persistent named volume `net-toolbox-data` to `/data` (persisting `toolbox.db` and `auth.db`).
+- **`frontend`**: Static file server (`serve`) on port `3000` serving Vite production bundle.
 
-```powershell
+The Docker containers clone the repository dynamically on container start, allowing `docker compose restart` to fetch the latest commits without rebuilding images.
+
+#### Deploying with Docker
+```bash
 cd docker
-copy .env.example .env    # then set ROUTER_IP in it
+copy .env.example .env     # Windows PowerShell / CMD
+# or: cp .env.example .env # Linux / macOS
+
+# Edit .env and set ROUTER_IP to your default gateway IP (for LAN DNS resolution)
 docker compose up -d --build
 ```
+- Frontend UI: `http://localhost:3000`
+- Backend API Health: `http://localhost:8000/api/health`
 
-Runs the frontend on `:3000` and backend on `:8000`, pulls the latest commit
-from this repo on every container restart, and persists `toolbox.db` in a
-named volume. See [`docker/README.md`](docker/README.md) for the full setup,
-troubleshooting, and how to track a different branch or fork.
+---
 
-## Project layout
+### Automated Scanning (Systemd)
 
-```
-docker/
-  Dockerfile                    # backend/frontend image (role picked via ROLE env var)
-  entrypoint.sh                 # re-clones this repo from GitHub on every container start
-  docker-compose.yml            # backend + frontend services, persistent DB volume
-  .env.example                  # ROUTER_IP / REPO_URL / BRANCH overrides
-  README.md                     # full Docker setup + troubleshooting guide
-src/
-  App.jsx                       # shell only: toolbar + routing between home/tools
-  index.css                     # theme, toolbar, home page, tool-header styles
-  components/
-    Toolbar.jsx                 # top nav, reads the tool list from the registry
-  pages/
-    HomePage.jsx                # tool card grid, reads the tool list from the registry
-  admin/
-    AdminPanel.jsx              # user/role management, AD settings, app configuration
-    AdminGate.jsx               # guards admin routes behind auth + admin role check
-    AdminLoginForm.jsx          # initial admin bootstrap login form
-    CreateAdminForm.jsx         # first-time admin user creation
-    api.js                      # admin API calls (users, roles, settings)
-    admin.css                   # admin panel styles
-  auth/
-    AuthContext.jsx             # React context for session/user state
-    LoginPage.jsx               # local login form
-    ChangePasswordForm.jsx      # change own password
-    SessionExpiredModal.jsx     # notifies on 401/session expiry
-    api.js                      # auth API calls (login/logout/session)
-    auth.css                    # auth component styles
-  tools/
-    registry.js                 # the single list of tools shown in the toolbar/home page
-    shared.css                  # panel/field/button/table/pill styles common to every tool
-    subnet-splitter/
-      SubnetSplitter.jsx        # UI for the tool
-      logic.js                  # pure subnetting functions (no React), ported from the .ps1
-      subnet-splitter.css       # styles unique to this tool (the address-space bar)
-    connection-test/
-      ConnectionTest.jsx        # UI for the tool
-      logic.js                  # input parsing + CSV export (no React)
-      api.js                    # talks to the backend's /api/connection-test/run
-      connection-test.css       # styles unique to this tool (credential grid, advanced panel)
-    routing-map/
-      RoutingMap.jsx            # UI for the tool — host list + selected host's route table
-      logic.js                  # parses pasted "@host / network -> next hop" blocks (no React)
-      routing-map.css           # styles unique to this tool (the host list)
-    ip-calculator/
-      IpCalculator.jsx          # UI for the tool — network/broadcast/host range calculator
-      logic.js                  # IP/netmask parsing and calculation (no React)
-      ip-calculator.css         # styles unique to this tool
-    ipam/
-      Ipam.jsx                  # main IPAM view with address list and editing
-      IpamDashboard.jsx         # dashboard showing all subnets with utilization bars
-      SubnetSearch.jsx          # search/filter subnets by VLAN or CIDR
-      AddSubnetForm.jsx         # create new subnet form
-      api.js                    # IPAM API calls (subnets, addresses, scans, settings)
-      logic.js                  # formatting helpers, ancestor chain for hierarchy
-      ipam.css                  # IPAM-specific styles (utilization bar, address table)
-    troubleshoot/
-      Troubleshoot.jsx          # tab shell: diagnostics, locate, reachability, STP, inventory, activity
-      DiagnosticsTab.jsx        # run-full-diagnostic orchestration view
-      LocateTab.jsx             # IP -> MAC -> port locate + port health / cable / optics / access
-      ReachabilityTab.jsx       # ping + route check
-      StpReportTab.jsx          # inventory-wide spanning-tree flap report
-      InventoryTab.jsx          # device inventory (add/edit/delete devices)
-      ActivityTab.jsx           # audit log of commands run against devices
-      api.js                    # troubleshoot API calls (locate, health checks, reports)
-      troubleshoot.css          # sub-tab styles
-server/
-  main.py                       # FastAPI backend: SSHes into Linux sources (paramiko),
-                                # WinRMs into Windows sources (pywinrm), runs TCP checks,
-                                # serves Routing Map and IPAM endpoints, handles auth
-  db.py                         # SQLite persistence for IPAM (subnets, addresses, scans)
-  auth_db.py                    # SQLite auth database (users, sessions, roles, settings)
-  auth.py                       # password hashing (bcrypt) utilities
-  ldap_auth.py                  # Active Directory direct-bind authentication
-  ipam_scan.py                  # ping sweep + reverse DNS for IPAM autodiscovery
-  troubleshoot_devices.py       # SQLite device inventory for the Troubleshoot tool
-  troubleshoot_logic.py         # parsers + orchestration for device diagnostics
-  troubleshoot_audit.py         # SQLite audit log of commands run against devices
-  device_drivers/
-    __init__.py                 # dispatch map: device_type -> driver module
-    base.py                     # DeviceSession context manager (netmiko, retry, audit)
-    cisco_ios.py                # Cisco IOS-XE commands (version, mac table, TDR, etc.)
-    aruba_cx.py                 # Aruba AOS-CX commands
-    checkpoint_gaia.py          # Checkpoint Gaia commands (version, ARP, route)
-  toolbox.db                    # created automatically on first run — not committed
-  auth.db                       # created automatically on first run — not committed
-  requirements.txt
-```
+To schedule periodic IPAM autodiscovery scans across all subnets:
 
-## Adding a new tool
+1. Locate script at `server/scripts/scan_all_subnets.py`.
+2. Deploy systemd templates found in `server/scripts/`:
+   ```bash
+   sudo cp server/scripts/ipam-scan-all.service /etc/systemd/system/
+   sudo cp server/scripts/ipam-scan-all.timer /etc/systemd/system/
+   ```
+3. Edit `/etc/systemd/system/ipam-scan-all.service` to update `WorkingDirectory`, `ExecStart` path, and `IPAM_BASE_URL` if necessary.
+4. Enable and start the timer:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now ipam-scan-all.timer
+   ```
 
-1. Create `src/tools/<your-tool>/YourTool.jsx` (plus its own `.css` / `logic.js` if it
-   needs them — keep everything the tool needs inside its own folder). Reach for the
-   shared classes in `tools/shared.css` (`tool-panel`, `tool-input`, `tool-btn`,
-   `tool-table`, `tool-pill-*`, etc.) before inventing new ones — only give the tool
-   its own CSS file for what's actually unique to it.
-2. Import the component in `src/tools/registry.js` and add one entry to the `TOOLS`
-   array (`id`, `name`, `icon`, `tagline`, `status: "live"`, `Component`).
+---
 
-The toolbar and home page both read from `registry.js`, so nothing else needs to change.
+## API Reference Catalog
 
-## Connection Test — how it reaches each source
+All backend endpoints are hosted under `/api`.
 
-- **Linux sources**: the backend SSHes in (`paramiko`, username/password) and runs a
-  remote bash loop that tries `/dev/tcp/$DST/$PORT` for every destination:port, same
-  approach as the original `connection_test.sh`.
-- **Windows sources**: the backend opens a WinRM session (`pywinrm`, username/password)
-  and runs the PowerShell `TcpClient.BeginConnect`/`EndConnect` equivalent from the
-  original `connection_test.ps1`. WinRM transport (NTLM / Kerberos / Basic / CredSSP),
-  scheme (http/https), and port are all configurable in the tool's "Advanced settings".
+### System & Authentication
+| Method | Endpoint | Description | Auth Required |
+|---|---|---|---|
+| `GET` | `/api/health` | Health check | No |
+| `POST` | `/api/auth/login` | Authenticate user (Local / AD) | No |
+| `POST` | `/api/auth/logout` | Terminate session | Yes |
+| `GET` | `/api/auth/session` | Get current user session & permissions | No |
+| `POST` | `/api/auth/change-password` | Change password for logged-in user | Yes |
 
-## Routing Map — storage
-
-Routing tables (a host, and its list of `{network in CIDR, next hop}` routes) are
-persisted in a SQLite database at `server/toolbox.db`, created automatically the
-first time the backend starts — no setup needed, it's just a file.
-
-Workflow in the UI:
-- Paste/edit routes in the "draft" textarea (`@hostname`, then `network -> next hop`
-  per line), then **Save to database** — this validates each network as CIDR and each
-  next hop as an IP address server-side, and upserts every host found in the draft.
-- The **saved hosts** list below it is the actual database contents — click a host to
-  view its routes (fetched fresh from the database), or **Delete host** to remove it.
-- **Load from database** pulls everything currently saved back into the draft textarea
-  for editing.
-
-API (all under `/api/routing/`):
-
-| Method | Path | Does |
+### Admin Management (`admin` role required)
+| Method | Endpoint | Description |
 |---|---|---|
-| GET | `/hosts` | List saved hosts with route counts |
-| GET | `/hosts/{host}` | One host's full routing table |
-| PUT | `/hosts/{host}` | Replace a host's routes (upserts the host) |
-| DELETE | `/hosts/{host}` | Remove a host and its routes |
-| GET | `/export` | All hosts with full routes, in one call |
+| `GET` | `/api/admin/bootstrap-status` | Check if initial admin user exists |
+| `POST` | `/api/admin/bootstrap` | Bootstrap first admin account |
+| `GET` | `/api/admin/users` | List all local and AD users |
+| `POST` | `/api/admin/users` | Create local user account |
+| `PATCH` | `/api/admin/users/{user_id}/role` | Assign role to local user |
+| `DELETE` | `/api/admin/users/{user_id}` | Delete user account |
+| `POST` | `/api/admin/users/{user_id}/reset-password` | Reset password for local user |
+| `GET` | `/api/admin/roles` | List custom roles and AD group bindings |
+| `POST` | `/api/admin/roles` | Create new custom role |
+| `PUT` | `/api/admin/roles/{role_id}` | Update role permissions |
+| `DELETE` | `/api/admin/roles/{role_id}` | Delete role |
+| `GET` | `/api/admin/roles/{role_id}/ad-groups` | List bound AD group DNs |
+| `POST` | `/api/admin/roles/{role_id}/ad-groups` | Bind AD group DN to role |
+| `DELETE` | `/api/admin/roles/{role_id}/ad-groups` | Unbind AD group DN from role |
+| `POST` | `/api/admin/settings/require-login` | Toggle global login requirement |
+| `GET` | `/api/admin/settings/ad` | Get AD configuration |
+| `POST` | `/api/admin/settings/ad` | Save AD configuration |
+| `POST` | `/api/admin/settings/ad/test-connection` | Validate AD LDAP connection |
 
-**Why SQLite**: this is a single-server internal tool with modest data volume and
-mostly read traffic (browsing routes) — SQLite needs no separate database process to
-run or manage, the whole database is one file to back up or move, and it comfortably
-handles this workload. If this ever needs multiple backend processes writing
-concurrently, or grows well beyond routing tables, Postgres is the natural upgrade —
-the data model in `db.py` wouldn't need to change, just the storage layer.
+### Connection Test (`connection-test` feature permission required)
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/api/connection-test/run` | Run TCP connectivity checks from all sources (returns rows + CSV) |
 
-The table isn't wired up to live hosts yet. The natural next step is reusing the
-SSH/WinRM machinery Connection Test already has to populate it by running
-`ip route`/`route -n` (Linux) or `Get-NetRoute` (Windows) instead of typing routes in
-by hand.
+### Routing Map (`routing-map` feature permission required)
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/routing/hosts` | List saved hosts with route counts |
+| `GET` | `/api/routing/hosts/{host}` | Get routing table for host |
+| `PUT` | `/api/routing/hosts/{host}` | Save/upsert routing table for host |
+| `DELETE` | `/api/routing/hosts/{host}` | Delete host and routing table |
+| `GET` | `/api/routing/export` | Export full routing table database |
 
-## IPAM — storage & scanning
+### Troubleshoot & Device Inventory
+> These endpoints are not role-gated on the backend (tool visibility is filtered client-side via `visibleTools()`).
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/devices` | List inventory network devices |
+| `POST` | `/api/devices` | Add switch/gateway to inventory |
+| `PUT` | `/api/devices/{device_id}` | Update inventory device |
+| `DELETE` | `/api/devices/{device_id}` | Remove device from inventory |
+| `POST` | `/api/troubleshoot/test-connection` | Test SSH connectivity to a device |
+| `POST` | `/api/troubleshoot/locate` | Trace IP -> MAC -> switch port |
+| `POST` | `/api/troubleshoot/port-health` | Query port status, speed, errors |
+| `POST` | `/api/troubleshoot/cable-test` | Execute TDR cable diagnostic |
+| `POST` | `/api/troubleshoot/transceiver-health` | Query SFP DOM optical diagnostic |
+| `POST` | `/api/troubleshoot/access-check` | Query 802.1X/MAB auth status |
+| `POST` | `/api/troubleshoot/ping` | Execute remote ping from device |
+| `POST` | `/api/troubleshoot/route-check` | Query route table on device |
+| `POST` | `/api/troubleshoot/stp-report` | Scan inventory for STP topology changes |
+| `POST` | `/api/troubleshoot/run` | Execute full multi-step diagnostic workflow |
+| `GET` | `/api/troubleshoot/audit-log` | Retrieve device execution audit logs |
 
-Subnets and their IP addresses are persisted in a separate SQLite database at
-`server/db.py` (distinct from auth data). Each subnet tracks VLAN ID, description,
-and a list of addresses with status (used/free/reserved), hostname, team, machine
-type, VM cluster, environment, and lock state.
+### IPAM (`ipam` feature permission required)
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/api/ipam/dashboard` | List all subnets with utilization metrics |
+| `GET` | `/api/ipam/settings` | Get scanner configuration settings |
+| `PUT` | `/api/ipam/settings` | Save scanner settings |
+| `GET` | `/api/ipam/subnets` | List subnets with hierarchy tree |
+| `POST` | `/api/ipam/subnets` | Create subnet |
+| `GET` | `/api/ipam/subnets/{subnet_id}` | Get subnet detail and recorded IP addresses |
+| `PUT` | `/api/ipam/subnets/{subnet_id}` | Update subnet properties |
+| `DELETE` | `/api/ipam/subnets/{subnet_id}` | Delete subnet and addresses |
+| `POST` | `/api/ipam/subnets/{subnet_id}/addresses` | Record single IP address |
+| `PUT` | `/api/ipam/subnets/{subnet_id}/addresses/{address_id}` | Update recorded address |
+| `DELETE` | `/api/ipam/subnets/{subnet_id}/addresses/{address_id}` | Delete recorded address |
+| `PATCH` | `/api/ipam/subnets/{subnet_id}/addresses/bulk` | Bulk edit address status/metadata |
+| `POST` | `/api/ipam/subnets/{subnet_id}/addresses/bulk-delete` | Bulk delete addresses |
+| `POST` | `/api/ipam/subnets/{subnet_id}/addresses/bulk-move` | Bulk move addresses to target subnet |
+| `POST` | `/api/ipam/subnets/{subnet_id}/addresses/{address_id}/move` | Move a single address to another subnet |
+| `POST` | `/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan` | Rescan specific IP address |
+| `GET` | `/api/ipam/subnets/{subnet_id}/scan-excludes` | List scan exclude rules |
+| `POST` | `/api/ipam/subnets/{subnet_id}/scan-excludes` | Add scan exclude rule |
+| `DELETE` | `/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}` | Remove scan exclude rule |
+| `POST` | `/api/ipam/subnets/{subnet_id}/autodiscover/start` | Launch async autodiscovery scan |
+| `GET` | `/api/ipam/subnets/{subnet_id}/autodiscover/active` | Query active scan status |
+| `GET` | `/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}` | SSE stream of scan progress |
+| `GET` | `/api/ipam/subnets/{subnet_id}/scans` | List scan history for subnet |
 
-**Autodiscovery scan**: when triggered on a subnet, the backend:
-1. Enumerates all usable host addresses in the CIDR, minus scan excludes
-2. Pings each address (configurable timeout/attempts via settings)
-3. For live hosts, performs reverse DNS lookup for hostname
-4. Updates the database with alive status and resolved hostnames
+---
 
-Scan jobs stream progress via Server-Sent Events (`/api/ipam/subnets/{id}/autodiscover/stream/{job_id}`).
+## Database Schemas
 
-API highlights (all under `/api/ipam/`):
-- `GET/POST /subnets` — list/create subnets
-- `GET/PUT/DELETE /subnets/{id}` — fetch/update/delete a subnet
-- `POST /subnets/{id}/addresses` — add an address
-- `PUT/DELETE /subnets/{id}/addresses/{addrId}` — edit/remove an address
-- `PATCH /subnets/{id}/addresses/bulk` — bulk update addresses
-- `POST /subnets/{id}/autodiscover` — start a ping+DNS scan
-- `GET /subnets/{id}/scan-excludes` — list excluded addresses
-- `POST/DELETE /subnets/{id}/scan-excludes` — manage exclude list
-- `GET /dashboard` — summary view of all subnets with utilization
+### Application Database (`server/toolbox.db`)
 
-## Authentication & Authorization
+#### `hosts`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique host ID |
+| `name` | TEXT | NOT NULL UNIQUE | Hostname |
+| `updated_at` | TEXT | NOT NULL | ISO 8601 timestamp |
 
-**Auth database**: user credentials, sessions, roles, and app settings live in
-`server/auth.db`, deliberately separate from application data (`toolbox.db`).
+#### `routes`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Route ID |
+| `host_id` | INTEGER | FK -> `hosts.id` ON DELETE CASCADE | Parent host |
+| `network` | TEXT | NOT NULL | CIDR block |
+| `next_hop` | TEXT | NOT NULL | Next hop IP or `directly connected` |
+| `interface` | TEXT | NULL | Egress interface name (migrated column) |
 
-**Local authentication**:
-- Passwords hashed with bcrypt before storage
-- Session tokens issued on login, stored with expiry
-- Configurable session timeout via admin settings
-- Optional login requirement (app can run in open mode)
+#### `interfaces`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Interface ID |
+| `host_id` | INTEGER | FK -> `hosts.id` ON DELETE CASCADE | Parent host |
+| `name` | TEXT | NOT NULL | Interface name |
+| `ip_address` | TEXT | NOT NULL | Interface IP in CIDR notation |
+| `description` | TEXT | NULL | Description |
 
-**Active Directory authentication**:
-- Direct bind using typed credentials (no service account stored)
-- Supports UPN format (`user@domain`) or plain username + domain suffix
-- Required group DN restricts access to AD group members
-- Each role can be bound to one or more AD group DNs (`role_ad_groups` table);
-  a first-time AD login is assigned the role whose bound group it transitively
-  belongs to, falling back to the default "user" role if none match
-- A group DN can only be bound to one role — enforced when the binding is
-  created, so role resolution for a given group is always unambiguous
-- If a user's memberships happen to match more than one role's groups (i.e.
-  they belong to two different bound groups), "admin" takes precedence if
-  it's one of the matches, otherwise the alphabetically-first matching role
-  name is used
-- Role assignment happens once, at first login — later AD group membership
-  changes for that user do not automatically change their role afterward
-- Transitive group membership resolution (nested groups via `memberOf:1.2.840.113556.1.4.1941`)
-- LDAPS support with certificate validation
-- Connection test endpoint validates AD configuration before saving
+#### `devices`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Device ID |
+| `name` | TEXT | NOT NULL UNIQUE | Hostname/Device name |
+| `mgmt_ip` | TEXT | NOT NULL | Management IP address |
+| `vendor` | TEXT | NOT NULL | Vendor name |
+| `model` | TEXT | NOT NULL | Hardware model |
+| `os_version` | TEXT | NULL | OS version string |
+| `device_type` | TEXT | NOT NULL | `cisco_ios`, `aruba_aoscx`, or `checkpoint_gaia` |
+| `updated_at` | TEXT | NOT NULL | Timestamp |
 
-**Role-based access control**:
-- Custom roles with per-tool permissions (`subnet-splitter`, `connection-test`, etc.)
-- Admin role (`*` permission) bypasses all tool restrictions
-- Default "user" role seeded with all tool permissions
-- Users assigned exactly one role
-- Tool visibility filtered by `visibleTools()` based on user's role permissions
-- Roles can be bound to AD group DNs (see Active Directory authentication
-  above); a role with bindings still in place cannot be deleted until those
-  bindings are removed first
-- `PATCH /users/{id}/role` rejects changes for AD-sourced accounts — their
-  role is managed by AD group membership, not manually
+#### `audit_log`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Audit log ID |
+| `device_name` | TEXT | NULL | Target device name |
+| `command` | TEXT | NOT NULL | Command executed |
+| `username` | TEXT | NULL | Execution user |
+| `success` | INTEGER | NOT NULL | `1` for success, `0` for failure |
+| `error` | TEXT | NULL | Error message if failed |
+| `created_at` | TEXT | NOT NULL | Timestamp |
 
-Admin API endpoints (all under `/api/admin/`):
-- `POST /bootstrap` — create first admin user
-- `GET/POST /users`, `PATCH /users/{id}/role`, `DELETE /users/{id}` — user management
-- `GET/POST /roles`, `PUT/DELETE /roles/{id}` — role management
-- `GET/POST/DELETE /roles/{id}/ad-groups` — manage a role's bound AD group DNs
-- `PUT /settings/require-login` — toggle login requirement
-- `GET/PUT /settings/ad`, `POST /settings/ad/test-connection` — AD configuration
+#### `ipam_subnets`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Subnet ID |
+| `cidr` | TEXT | NOT NULL UNIQUE | Subnet in CIDR format |
+| `vlan` | INTEGER | NULL | VLAN tag (1-4094) |
+| `description` | TEXT | NULL | Subnet description |
+| `parent_id` | INTEGER | FK -> `ipam_subnets.id` | Parent supernet ID |
+| `updated_at` | TEXT | NOT NULL | Timestamp |
 
-**Security notes**
+#### `ipam_addresses`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Address record ID |
+| `subnet_id` | INTEGER | FK -> `ipam_subnets.id` ON DELETE CASCADE | Subnet ID |
+| `address` | TEXT | NOT NULL | IP address |
+| `status` | TEXT | NOT NULL | `used`, `free`, or `reserved` |
+| `hostname` | TEXT | NULL | Resolved/assigned hostname |
+| `description` | TEXT | NULL | Description |
+| `team` | TEXT | NULL | Owning team |
+| `machine_type` | TEXT | NULL | `physical` or `VM` |
+| `vm_cluster` | TEXT | NULL | Hypervisor/VM cluster name |
+| `environment` | TEXT | NULL | `prod`, `test`, or `dev` |
+| `locked` | INTEGER | DEFAULT 0 | Locked state toggle |
+| `updated_at` | TEXT | NOT NULL | Timestamp |
 
-- Credentials entered in the UI are sent to the backend for that run only and are not
-  stored or logged anywhere.
-- Credentials travel from the browser to the backend as plain JSON — put the backend
-  behind HTTPS (a reverse proxy is the easiest way) before using this anywhere other
-  than localhost.
-- The backend's CORS policy (`allow_origins=["*"]`) and SSH host-key policy
-  (`AutoAddPolicy`) are permissive defaults meant for getting started — tighten both
-  before running this somewhere production-adjacent.
+#### `ipam_scan_excludes`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Rule ID |
+| `subnet_id` | INTEGER | FK -> `ipam_subnets.id` ON DELETE CASCADE | Subnet ID |
+| `address` | TEXT | NOT NULL | IP or CIDR range to skip |
 
-## Troubleshoot — known limitations
-- **MAC locate doesn't walk uplinks.** If host's MAC only shows up on inter-switch trunk port in mac-address-table (rather than true
-  Access port), Locate will report that trunk port, not real edge port.
-- **STP flap report ignores VLAN/instance.** Cisco reports topology changes
-  Per-VLAN; this tool collapses that down to "port, count, how recent"
-  Across whole switch, so it can't tell you which VLAN is flapping.
-- **Transceiver health uses transceiver's own reported alarm/warning
-  Thresholds where available** — not fixed generic number — but parsing
-  Depends on exact output format of `show interface transceiver
-  Detail`, which can vary by platform/firmware.
-- **Several AOS-CX and Checkpoint Gaia command outputs were implemented
-  Against best-guess formatting, not confirmed real hardware output**,
-  Specifically: AOS-CX port-access status, AOS-CX cable diagnostics, AOS-CX
-  Spanning-tree detail, and the Checkpoint route-lookup command and its
-  Output format. Verify each against real output before trusting results
-  From these specific checks.
-- **Route check queries live device**, it does not reuse the Routing
-  Map tool's stored routes table — that integration was considered and
-  Intentionally left out.
-- **The "Run full diagnosis" orchestration opens several sequential SSH
-  Sessions per run** (not one reused session) — expect it to take
-  20-30 seconds, this is expected behavior, not bug.
+#### `ipam_scans`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Scan job ID |
+| `subnet_id` | INTEGER | FK -> `ipam_subnets.id` ON DELETE CASCADE | Subnet ID |
+| `started_at` | TEXT | NOT NULL | Start timestamp |
+| `finished_at` | TEXT | NOT NULL | Completion timestamp |
+| `scanned_count` | INTEGER | NOT NULL | Addresses scanned |
+| `used_count` | INTEGER | NOT NULL | Responsive IPs found |
+| `free_count` | INTEGER | NOT NULL | Non-responsive IPs |
+| `skipped_count` | INTEGER | NOT NULL | Excluded/skipped addresses |
+| `newly_used_count` | INTEGER | NOT NULL | IPs newly discovered alive |
+| `went_quiet_count` | INTEGER | NOT NULL | IPs previously alive now quiet |
+| `hostname_changed_count` | INTEGER | NOT NULL | Hostnames updated |
+| `diff_json` | TEXT | NOT NULL | JSON diff of changes vs previous scan |
+
+#### `ipam_settings`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `key` | TEXT | PRIMARY KEY | Setting key |
+| `value` | TEXT | NOT NULL | Setting value |
+
+---
+
+### Auth Database (`server/auth.db`)
+
+#### `users`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | User ID |
+| `username` | TEXT | NOT NULL | Account username |
+| `password_hash` | TEXT | NOT NULL | Bcrypt password hash |
+| `role` | TEXT | NOT NULL DEFAULT 'user' | Assigned role name |
+| `auth_source` | TEXT | NOT NULL DEFAULT 'local' | `local` or `ad` |
+| `created_at` | TEXT | NOT NULL | Timestamp |
+
+*Constraint*: `UNIQUE(username, auth_source)`
+
+#### `sessions`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `token_hash` | TEXT | PRIMARY KEY | SHA-256 hashed session token |
+| `user_id` | INTEGER | FK -> `users.id` ON DELETE CASCADE | User ID |
+| `created_at` | TEXT | NOT NULL | ISO timestamp |
+| `expires_at` | TEXT | NOT NULL | Expiry ISO timestamp |
+
+#### `roles`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Role ID |
+| `name` | TEXT | NOT NULL UNIQUE | Role name |
+| `permissions` | TEXT | NOT NULL DEFAULT '[]' | JSON list of granted tool permissions |
+| `is_builtin` | INTEGER | NOT NULL DEFAULT 0 | 1 for built-in roles (`admin`, `user`), 0 for custom |
+| `created_at` | TEXT | NOT NULL | Timestamp |
+
+#### `role_ad_groups`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Mapping ID |
+| `role_id` | INTEGER | FK -> `roles.id` ON DELETE CASCADE | Role ID |
+| `group_dn` | TEXT | NOT NULL UNIQUE | Active Directory group Distinguished Name |
+| `created_at` | TEXT | NOT NULL | Timestamp |
+
+#### `ad_settings`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `key` | TEXT | PRIMARY KEY | Setting key (`enabled`, `host`, `port`, `use_tls`, etc.) |
+| `value` | TEXT | NOT NULL | Setting value |
+
+#### `app_settings`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `key` | TEXT | PRIMARY KEY | Setting key (`require_login`) |
+| `value` | TEXT | NOT NULL | Setting value |
+
+---
+
+## Environment Variables
+
+| Variable | Scope | Default | Description |
+|---|---|---|---|
+| `VITE_API_BASE_URL` | Frontend Build | `http://localhost:8000` | Backend base URL for browser API calls |
+| `IPAM_BASE_URL` | Scripts (`scan_all_subnets.py`) | `http://localhost:8000` | Target backend URL for CLI subnet scan trigger |
+| `ROLE` | Docker | `backend` | Sets container mode (`backend` or `frontend`) |
+| `REPO_URL` | Docker | `https://github.com/eveen91/net-toolbox.git` | Git repo cloned on container startup |
+| `BRANCH` | Docker | `main` | Git branch target for Docker auto-update |
+| `ROUTER_IP` | Docker Compose | `192.168.1.1` | LAN Gateway IP configured for container DNS resolver |
+
+---
+
+## Project Layout
+
+```
+net-toolbox/
+├── docker/                     # Docker Compose deployment setup
+│   ├── Dockerfile              # Unified Python/Node image
+│   ├── docker-compose.yml      # Backend and Frontend services
+│   ├── entrypoint.sh           # Dynamic Git clone & execution script
+│   ├── .env.example            # Environment variables template
+│   └── README.md               # Detailed Docker Desktop guide
+├── server/                     # FastAPI backend
+│   ├── main.py                 # Core API endpoints & auth dependencies
+│   ├── db.py                   # Application SQLite database (toolbox.db)
+│   ├── auth_db.py              # Auth SQLite database (auth.db)
+│   ├── auth.py                 # Bcrypt password hashing & session management
+│   ├── ldap_auth.py            # Active Directory LDAP/LDAPS bind engine
+│   ├── ipam_scan.py            # Async ping sweep & DNS resolver engine
+│   ├── troubleshoot_devices.py # SQLite device inventory management
+│   ├── troubleshoot_logic.py   # Parsing & multi-step diagnostic logic
+│   ├── troubleshoot_audit.py   # SQLite audit logging for troubleshoot CLI runs
+│   ├── device_drivers/         # Vendor SSH drivers (netmiko wrappers)
+│   │   ├── base.py             # DeviceSession context manager
+│   │   ├── cisco_ios.py        # Cisco IOS-XE CLI drivers
+│   │   ├── aruba_cx.py         # Aruba AOS-CX CLI drivers
+│   │   └── checkpoint_gaia.py  # Checkpoint Gaia CLI drivers
+│   ├── scripts/                # Automated background scripts
+│   │   ├── scan_all_subnets.py # Leaf subnet autodiscovery trigger CLI
+│   │   ├── ipam-scan-all.service # Systemd unit template
+│   │   └── ipam-scan-all.timer   # Systemd timer template
+│   ├── tests/                  # Pytest test suite (18 test modules)
+│   ├── conftest.py             # Test fixtures and DB isolation setup
+│   └── requirements.txt        # Python package requirements
+├── src/                        # React frontend
+│   ├── App.jsx                 # Top-level shell and page routing
+│   ├── index.css               # Global theme & layout CSS
+│   ├── components/             # Global components (Toolbar, Nav)
+│   ├── pages/                  # Home page grid
+│   ├── admin/                  # Config Panel, user/role management, AD settings
+│   ├── auth/                   # Login modal, auth context, password forms
+│   └── tools/                  # Pluggable tools directory
+│       ├── registry.js         # Single registry array defining all tools
+│       ├── shared.css          # Shared tool design system styles
+│       ├── subnet-splitter/    # Subnet Splitter component & logic
+│       ├── connection-test/    # Connection Test component, API & logic
+│       ├── routing-map/        # Routing Map component & logic
+│       ├── ip-calculator/      # IP Calculator component & logic
+│       ├── ipam/               # IPAM components, dashboard & logic
+│       └── troubleshoot/       # Troubleshoot tabs & diagnostic components
+├── index.html                  # HTML entry point
+├── vite.config.js              # Vite bundler configuration & dev proxy
+└── package.json                # Frontend dependencies and npm scripts
+```
+
+---
+
+## Adding a New Tool
+
+`net::toolbox` uses a pluggable tool architecture. Adding a tool requires only two steps:
+
+1. Create a new directory under `src/tools/<your-tool>/`:
+   - Create `YourTool.jsx` for the React component.
+   - (Optional) Include tool-specific `logic.js`, `api.js`, or `<your-tool>.css`. Re-use shared styling classes from `src/tools/shared.css` where possible.
+2. Register the tool in `src/tools/registry.js`:
+   ```javascript
+   import YourTool from "./your-tool/YourTool.jsx";
+
+   export const TOOLS = [
+     // ... existing tools ...
+     {
+       id: "your-tool",
+       name: "Your Tool Name",
+       icon: "🔧",
+       tagline: "Short summary of what your tool does.",
+       status: "live",
+       Component: YourTool,
+     },
+   ];
+   ```
+The top navigation toolbar and home page card grid will automatically render the new tool and apply role-based access filtering.
+
+---
+
+## Testing
+
+The backend includes a unit and integration test suite built with `pytest` and FastAPI `TestClient`.
+
+Run tests:
+```bash
+cd server
+pytest
+```
+Tests automatically execute in an isolated environment using temporary in-memory/file-backed SQLite databases (`conftest.py`) without affecting production `toolbox.db` or `auth.db` files.
