@@ -17,6 +17,7 @@ Run it with:
 import asyncio
 import json
 import logging
+import os
 import re
 import time
 import uuid
@@ -37,6 +38,7 @@ import auth
 import auth_db
 import ldap_auth
 import ipam_scan
+import ssh_security
 import troubleshoot_devices
 import troubleshoot_logic
 import troubleshoot_audit
@@ -58,22 +60,26 @@ def _init_db():
     troubleshoot_audit.init_db()
 
 
-# In development the frontend runs on a different port (Vite), so allow it.
-# In Docker (docker/entrypoint.sh) the frontend is served on :3000, but the
-# browser may reach it via localhost, 127.0.0.1, or a LAN IP depending on
-# which machine you're browsing from — so instead of hardcoding one exact
-# origin, allow_origin_regex below matches "any host on port 3000". Lock
-# this down further if you expose the app beyond your own network.
+# Browser origins allowed to make credentialed cross-origin requests.
+# Dev (Vite, :5173) and Docker (serve, :3000) both serve the frontend from
+# localhost/loopback, so those are allowed by default. If you browse from
+# another machine via a LAN IP/hostname (e.g. http://192.168.1.10:3000), add
+# it explicitly via the CORS_ORIGINS env var (comma-separated). Never use a
+# wildcard or broad regex together with allow_credentials=True — that would
+# let any page on a matching port make authenticated requests as the user.
 FRONTEND_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://[::1]:3000",
 ]
-FRONTEND_ORIGIN_REGEX = r"^https?://[^/]+:3000$"
+_extra_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+FRONTEND_ORIGINS.extend(_extra_origins)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=FRONTEND_ORIGINS,
-    allow_origin_regex=FRONTEND_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -371,7 +377,7 @@ def test_linux_source(
     ssh_port: int,
 ) -> List[ResultRow]:
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_security.configure_ssh_client(client)
     try:
         client.connect(
             hostname=host,
@@ -445,11 +451,20 @@ def test_windows_source(
 ) -> List[ResultRow]:
     try:
         endpoint = f"{winrm_scheme}://{host}:{winrm_port}/wsman"
+        # Fail closed on TLS: validate the server certificate instead of
+        # ignoring it. Point WINRM_CA_TRUST_PATH at a CA bundle (e.g. your
+        # internal issuing CA) to trust self-signed WinRM hosts securely.
+        winrm_kwargs = {
+            "transport": winrm_transport,
+            "server_cert_validation": "validate",
+        }
+        ca_trust_path = os.environ.get("WINRM_CA_TRUST_PATH")
+        if ca_trust_path:
+            winrm_kwargs["ca_trust_path"] = ca_trust_path
         session = winrm.Session(
             endpoint,
             auth=(creds.username, creds.password),
-            transport=winrm_transport,
-            server_cert_validation="ignore",
+            **winrm_kwargs,
         )
         script = build_windows_script(destinations, ports, timeout_seconds * 1000)
         result = session.run_ps(script)

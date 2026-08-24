@@ -146,6 +146,8 @@ Multi-vendor network device diagnostic and lookup suite.
 ### Security & Credential Handling
 - **Per-Session Credentials**: SSH, WinRM, and network device passwords entered in tools are used strictly in memory for the duration of the request/job and are **never** logged, cached, or written to disk.
 - **TLS Requirement**: Production deployments should place the backend behind an HTTPS reverse proxy (e.g., Nginx, Caddy, Traefik) to protect credentials in transit.
+- **SSH Host-Key Verification**: Outbound SSH connections (Connection Test Linux sources and all Troubleshoot device drivers) verify host keys and **reject unknown hosts**. Trusted keys are read from `~/.ssh/known_hosts` and `server/known_hosts`. To trust a new host, run `ssh-keyscan -H <host> >> server/known_hosts` on a machine you trust.
+- **WinRM TLS Verification**: Connection Test Windows sources validate the WinRM server's TLS certificate (no longer ignore it). To trust self-signed/internal WinRM hosts, set `WINRM_CA_TRUST_PATH` to a CA bundle containing your internal issuing CA.
 
 ---
 
@@ -501,6 +503,8 @@ These endpoints are not role-gated on the backend — tool visibility is filtere
 | `REPO_URL` | Docker | `https://github.com/eveen91/net-toolbox.git` | Git repo cloned on container startup |
 | `BRANCH` | Docker | `main` | Git branch target for Docker auto-update |
 | `ROUTER_IP` | Docker Compose | `192.168.1.1` | LAN Gateway IP configured for container DNS resolver |
+| `CORS_ORIGINS` | Backend | *(empty)* | Comma-separated extra browser origins allowed to call the API (e.g. `http://192.168.1.10:3000`) |
+| `WINRM_CA_TRUST_PATH` | Backend | *(unset)* | CA bundle path used to validate self-signed/internal WinRM host certificates |
 
 ---
 

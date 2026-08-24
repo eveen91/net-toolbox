@@ -4,6 +4,8 @@ import time
 from netmiko import ConnectHandler
 from netmiko.exceptions import NetmikoTimeoutException, NetmikoAuthenticationException
 
+from ssh_security import KNOWN_HOSTS_PATH
+
 logger = logging.getLogger("net_toolbox.device_drivers.base")
 
 
@@ -34,6 +36,10 @@ class DeviceSession:
                     username=self.username,
                     password=self.password,
                     timeout=10,
+                    ssh_strict=True,
+                    system_host_keys=True,
+                    alt_host_keys=True,
+                    alt_key_file=str(KNOWN_HOSTS_PATH),
                 )
                 logger.info(
                     "Connected to %s (%s, type=%s, user=%s)",
