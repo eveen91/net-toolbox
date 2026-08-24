@@ -279,7 +279,9 @@ All backend endpoints are hosted under `/api`.
 | `GET` | `/api/routing/export` | Export full routing table database |
 
 ### Troubleshoot & Device Inventory
-> These endpoints are not role-gated on the backend (tool visibility is filtered client-side via `visibleTools()`).
+
+These endpoints are not role-gated on the backend — tool visibility is filtered client-side via `visibleTools()`.
+
 | Method | Endpoint | Description |
 |---|---|---|
 | `GET` | `/api/devices` | List inventory network devices |
