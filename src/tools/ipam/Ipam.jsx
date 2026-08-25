@@ -249,12 +249,14 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
           />
         </td>
         <td className="ip-actions-cell">
-          <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={save} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setEditing(false)} disabled={saving}>
-            Cancel
-          </button>
+          <div className="ip-actions-inner">
+            <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={save} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setEditing(false)} disabled={saving}>
+              Cancel
+            </button>
+          </div>
         </td>
       </tr>
     );
@@ -281,38 +283,40 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
       <td>{addr.environment ? ENVIRONMENT_LABELS[addr.environment] : "—"}</td>
       <td>{addr.locked ? "🔒" : "—"}</td>
       <td className="ip-actions-cell">
-        {confirmingDelete ? (
-          <>
-            <button className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger" onClick={remove} disabled={saving}>
-              {saving ? "…" : "Confirm"}
-            </button>
-            <button
-              className="tool-btn tool-btn-ghost ip-row-btn"
-              onClick={() => setConfirmingDelete(false)}
-              disabled={saving}
-            >
-              Cancel
-            </button>
-          </>
-        ) : (
-          <>
-            {addr.status !== "reserved" && (
+        <div className="ip-actions-inner">
+          {confirmingDelete ? (
+            <>
+              <button className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger" onClick={remove} disabled={saving}>
+                {saving ? "…" : "Confirm"}
+              </button>
               <button
                 className="tool-btn tool-btn-ghost ip-row-btn"
-                onClick={rescan}
-                disabled={rescanning}
+                onClick={() => setConfirmingDelete(false)}
+                disabled={saving}
               >
-                {rescanning ? "…" : "Rescan"}
+                Cancel
               </button>
-            )}
-            <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEdit}>
-              Edit
-            </button>
-            <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setConfirmingDelete(true)}>
-              Delete
-            </button>
-          </>
-        )}
+            </>
+          ) : (
+            <>
+              {addr.status !== "reserved" && (
+                <button
+                  className="tool-btn tool-btn-ghost ip-row-btn"
+                  onClick={rescan}
+                  disabled={rescanning}
+                >
+                  {rescanning ? "…" : "Rescan"}
+                </button>
+              )}
+              <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEdit}>
+                Edit
+              </button>
+              <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setConfirmingDelete(true)}>
+                Delete
+              </button>
+            </>
+          )}
+        </div>
       </td>
     </tr>
   );

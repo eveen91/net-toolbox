@@ -272,38 +272,40 @@ export default function DhcpPoolManager({ subnetId, subnets }) {
                 </td>
                 <td>{pool.description || "—"}</td>
                 <td className="ip-actions-cell">
-                  <button
-                    type="button"
-                    className="tool-btn tool-btn-ghost ip-row-btn"
-                    onClick={() => openEditModal(pool)}
-                  >
-                    Edit
-                  </button>
-                  {moveTargets.length > 0 && (
-                    <select
+                  <div className="ip-actions-inner">
+                    <button
+                      type="button"
                       className="tool-btn tool-btn-ghost ip-row-btn"
-                      value=""
-                      onChange={(e) => {
-                        if (e.target.value) handleMoveOne(pool, e.target.value);
-                      }}
-                      disabled={moving}
+                      onClick={() => openEditModal(pool)}
                     >
-                      <option value="">Move…</option>
-                      {moveTargets.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.cidr}
-                          {s.vlan ? ` (VLAN ${s.vlan})` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  <button
-                    type="button"
-                    className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger"
-                    onClick={() => handleDelete(pool.id)}
-                  >
-                    Delete
-                  </button>
+                      Edit
+                    </button>
+                    {moveTargets.length > 0 && (
+                      <select
+                        className="tool-btn tool-btn-ghost ip-row-btn"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value) handleMoveOne(pool, e.target.value);
+                        }}
+                        disabled={moving}
+                      >
+                        <option value="">Move…</option>
+                        {moveTargets.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.cidr}
+                            {s.vlan ? ` (VLAN ${s.vlan})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      type="button"
+                      className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger"
+                      onClick={() => handleDelete(pool.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
