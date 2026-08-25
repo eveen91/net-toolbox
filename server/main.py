@@ -1649,6 +1649,32 @@ class BulkMoveAddressesResponse(BaseModel):
     skipped: List[BulkMoveSkippedEntry] = []
 
 
+class DhcpPoolCreate(BaseModel):
+    start_ip: str
+    end_ip: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class BulkMoveDhcpPoolsRequest(BaseModel):
+    poolIds: List[int]
+    targetSubnetId: int
+
+
+class BulkMoveDhcpPoolsResponse(BaseModel):
+    movedCount: int
+
+
+class DhcpPoolResponse(BaseModel):
+    id: int
+    subnet_id: int
+    start_ip: str
+    end_ip: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    updated_at: str
+
+
 class ScanExcludeEntry(BaseModel):
     id: int
     address: str
@@ -1728,6 +1754,18 @@ class MisplacedAddressEntry(BaseModel):
     proposedSubnetCidr: str
 
 
+class MisplacedDhcpPoolEntry(BaseModel):
+    poolId: int
+    startIp: str
+    endIp: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    currentSubnetId: int
+    currentSubnetCidr: str
+    proposedSubnetId: int
+    proposedSubnetCidr: str
+
+
 class MoveAddressRequest(BaseModel):
     targetSubnetId: int
 
@@ -1773,6 +1811,15 @@ def get_subnets():
 )
 def get_misplaced_addresses():
     return db.list_misplaced_addresses()
+
+
+@app.get(
+    "/api/ipam/misplaced-dhcp-pools",
+    response_model=List[MisplacedDhcpPoolEntry],
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def get_misplaced_dhcp_pools():
+    return db.list_misplaced_dhcp_pools()
 
 
 @app.get(
@@ -1841,6 +1888,8 @@ def delete_subnet(subnet_id: int):
 @app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
 def create_address(subnet_id: int, req: AddressRequest):
     try:
+        if db.check_ip_in_dhcp_pool(req.address, subnet_id):
+            raise HTTPException(status_code=400, detail="IP is within DHCP pool range")
         return db.add_address(
             subnet_id, req.address, req.status, req.hostname, req.description,
             req.team, req.machineType, req.vmCluster, req.environment, req.locked,
@@ -1973,6 +2022,74 @@ def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
         raise HTTPException(status_code=404, detail="Subnet not found")
     db.remove_scan_exclude_by_id(subnet_id, exclude_id)
     return db.list_scan_excludes_detailed(subnet_id)
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=DhcpPoolResponse, dependencies=[Depends(require_feature("ipam"))])
+def create_dhcp_pool(subnet_id: int, req: DhcpPoolCreate):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    try:
+        return db.add_dhcp_pool(subnet_id, req.start_ip, req.end_ip, req.name, req.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=List[DhcpPoolResponse], dependencies=[Depends(require_feature("ipam"))])
+def list_dhcp_pools(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return db.get_dhcp_pools(subnet_id)
+
+
+@app.delete("/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}", dependencies=[Depends(require_feature("ipam"))])
+def delete_dhcp_pool(subnet_id: int, pool_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    deleted = db.delete_dhcp_pool(pool_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="DHCP pool not found")
+    return {"deleted": pool_id}
+
+
+@app.put(
+    "/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}",
+    response_model=DhcpPoolResponse,
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def update_dhcp_pool(subnet_id: int, pool_id: int, req: DhcpPoolCreate):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    try:
+        return db.update_dhcp_pool(pool_id, req.start_ip, req.end_ip, req.name, req.description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post(
+    "/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}/move",
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def move_dhcp_pool(subnet_id: int, pool_id: int, req: MoveAddressRequest):
+    try:
+        return db.move_dhcp_pool(subnet_id, pool_id, req.targetSubnetId)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post(
+    "/api/ipam/dhcp-pools/bulk-move",
+    response_model=BulkMoveDhcpPoolsResponse,
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def bulk_move_dhcp_pools(req: BulkMoveDhcpPoolsRequest):
+    try:
+        return db.bulk_move_dhcp_pools(req.poolIds, req.targetSubnetId)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, on_address_update=None) -> dict:

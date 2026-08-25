@@ -245,3 +245,59 @@ export async function searchAddresses(query) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/addresses/search?q=${encodeURIComponent(query.trim())}`);
   return handle(res);
 }
+
+export async function createDhcpPool(subnetId, data) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handle(res);
+}
+
+export async function updateDhcpPool(subnetId, poolId, data) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools/${poolId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return handle(res);
+}
+
+export async function getDhcpPools(subnetId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools`);
+  return handle(res);
+}
+
+export async function deleteDhcpPool(subnetId, poolId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools/${poolId}`, {
+    method: "DELETE",
+  });
+  return handle(res);
+}
+
+export async function bulkMoveDhcpPools(poolIds, targetSubnetId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/dhcp-pools/bulk-move`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ poolIds, targetSubnetId }),
+  });
+  return handle(res);
+}
+
+export async function getMisplacedDhcpPools() {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/misplaced-dhcp-pools`);
+  return handle(res);
+}
+
+export async function moveDhcpPool(subnetId, poolId, targetSubnetId) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools/${poolId}/move`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetSubnetId }),
+    }
+  );
+  return handle(res);
+}

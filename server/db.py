@@ -126,6 +126,21 @@ def init_db() -> None:
         if "locked" not in ipam_addr_cols:
             conn.execute("ALTER TABLE ipam_addresses ADD COLUMN locked INTEGER DEFAULT 0")
 
+        # DHCP Pools table
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_dhcp_pools (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                start_ip TEXT NOT NULL,
+                end_ip TEXT NOT NULL,
+                name TEXT,
+                description TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ipam_scan_excludes (
@@ -584,6 +599,54 @@ def recompute_subnet_hierarchy(conn: sqlite3.Connection) -> None:
                     best_parent, best_size = oid, onet.num_addresses
         updates.append((best_parent, sid))
     conn.executemany("UPDATE ipam_subnets SET parent_id = ? WHERE id = ?", updates)
+    auto_relocate_dhcp_pools(conn)
+
+
+def find_best_subnet_for_ip_range(start_ip: str, end_ip: str, subnets: List[Dict]) -> Optional[Dict]:
+    """
+    Given a range [start_ip, end_ip] and a list of subnet dicts, return the subnet dict
+    whose CIDR contains both endpoints and has the smallest number of addresses.
+    Returns None if no subnet in the list contains the entire range.
+    """
+    try:
+        start_addr = ipaddress.IPv4Address(start_ip.strip())
+        end_addr = ipaddress.IPv4Address(end_ip.strip())
+    except ValueError:
+        return None
+    best = None
+    best_size = None
+    for s in subnets:
+        net = ipaddress.IPv4Network(s["cidr"])
+        if start_addr in net and end_addr in net:
+            if best_size is None or net.num_addresses < best_size:
+                best, best_size = s, net.num_addresses
+    return best
+
+
+def auto_relocate_dhcp_pools(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("SELECT id, cidr FROM ipam_subnets").fetchall()
+    if not rows:
+        return
+    subnets = [{"id": r["id"], "cidr": r["cidr"]} for r in rows]
+    pool_rows = conn.execute("SELECT id, subnet_id, start_ip, end_ip FROM ipam_dhcp_pools").fetchall()
+    for p in pool_rows:
+        best = find_best_subnet_for_ip_range(p["start_ip"], p["end_ip"], subnets)
+        if best and best["id"] != p["subnet_id"]:
+            start_int = ip_to_int(p["start_ip"])
+            end_int = ip_to_int(p["end_ip"])
+            existing_pools = conn.execute(
+                "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ? AND id != ?",
+                (best["id"], p["id"]),
+            ).fetchall()
+            overlap = False
+            for ep in existing_pools:
+                es = ip_to_int(ep["start_ip"])
+                ee = ip_to_int(ep["end_ip"])
+                if not (end_int < es or start_int > ee):
+                    overlap = True
+                    break
+            if not overlap:
+                conn.execute("UPDATE ipam_dhcp_pools SET subnet_id = ? WHERE id = ?", (best["id"], p["id"]))
 
 
 def find_best_subnet_for_address(address: str, subnets: List[Dict]) -> Optional[Dict]:
@@ -845,6 +908,18 @@ def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, descrip
             raise ValueError(
                 f"Can't resize to {cidr} — it would no longer contain nested subnet(s): "
                 f"{', '.join(outside_children)}. Resize or move them first."
+            )
+
+        pool_rows = conn.execute(
+            "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        outside_pools = [
+            f"{r['start_ip']}-{r['end_ip']}" for r in pool_rows
+            if ipaddress.IPv4Address(r["start_ip"]) not in network or ipaddress.IPv4Address(r["end_ip"]) not in network
+        ]
+        if outside_pools:
+            raise ValueError(
+                f"Can't resize to {cidr} — DHCP pool(s) would fall outside it ({outside_pools[0]}). Delete or move them first."
             )
 
         try:
@@ -1422,3 +1497,358 @@ def set_scan_concurrency_limit(value: int) -> int:
         )
     set_ipam_setting("scan_concurrency_limit", str(value))
     return value
+
+
+def ip_to_int(ip_str: str) -> int:
+    return int(ipaddress.IPv4Address(ip_str))
+
+
+def int_to_ip(ip_int: int) -> str:
+    return str(ipaddress.IPv4Address(ip_int))
+
+
+def add_dhcp_pool(
+    subnet_id: int,
+    start_ip: str,
+    end_ip: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Dict:
+    try:
+        start_addr = ipaddress.IPv4Address(start_ip)
+        end_addr = ipaddress.IPv4Address(end_ip)
+    except ipaddress.AddressValueError as e:
+        raise ValueError(f"Invalid IP address: {e}")
+
+    if start_addr > end_addr:
+        raise ValueError("start_ip must be less than or equal to end_ip")
+
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)
+        ).fetchone()
+        if not subnet_row:
+            raise ValueError(f"Subnet {subnet_id} not found")
+
+        subnet_net = ipaddress.IPv4Network(subnet_row["cidr"])
+        if start_addr not in subnet_net or end_addr not in subnet_net:
+            raise ValueError(
+                f"IP range {start_ip}-{end_ip} is not within subnet {subnet_row['cidr']}"
+            )
+
+        start_int = ip_to_int(start_ip)
+        end_int = ip_to_int(end_ip)
+
+        existing_pools = conn.execute(
+            "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ?",
+            (subnet_id,),
+        ).fetchall()
+
+        for pool in existing_pools:
+            existing_start = ip_to_int(pool["start_ip"])
+            existing_end = ip_to_int(pool["end_ip"])
+
+            if not (end_int < existing_start or start_int > existing_end):
+                raise ValueError(
+                    f"DHCP pool range overlaps with existing pool {pool['start_ip']}-{pool['end_ip']}"
+                )
+
+        updated_at = datetime.now(timezone.utc).isoformat()
+        cur = conn.execute(
+            """
+            INSERT INTO ipam_dhcp_pools
+                (subnet_id, start_ip, end_ip, name, description, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (subnet_id, start_ip, end_ip, name, description, updated_at),
+        )
+        pool_id = cur.lastrowid
+        # Re-check hierarchy now that the pool exists — if a more-specific
+        # subnet fully contains this range, auto-relocate into it.
+        auto_relocate_dhcp_pools(conn)
+        conn.commit()
+
+        row = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE id = ?", (pool_id,)
+        ).fetchone()
+        return dict(row)
+    finally:
+        conn.close()
+
+
+def get_dhcp_pools(subnet_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE subnet_id = ? ORDER BY start_ip",
+            (subnet_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def delete_dhcp_pool(pool_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cur = conn.execute("DELETE FROM ipam_dhcp_pools WHERE id = ?", (pool_id,))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def update_dhcp_pool(
+    pool_id: int,
+    start_ip: str,
+    end_ip: str,
+    name: Optional[str] = None,
+    description: Optional[str] = None,
+) -> Dict:
+    try:
+        start_addr = ipaddress.IPv4Address(start_ip)
+        end_addr = ipaddress.IPv4Address(end_ip)
+    except ipaddress.AddressValueError as e:
+        raise ValueError(f"Invalid IP address: {e}")
+
+    if start_addr > end_addr:
+        raise ValueError("start_ip must be less than or equal to end_ip")
+
+    conn = get_connection()
+    try:
+        pool_row = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE id = ?", (pool_id,)
+        ).fetchone()
+        if pool_row is None:
+            raise ValueError("DHCP pool not found")
+
+        subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (pool_row["subnet_id"],)
+        ).fetchone()
+        subnet_net = ipaddress.IPv4Network(subnet_row["cidr"])
+        if start_addr not in subnet_net or end_addr not in subnet_net:
+            raise ValueError(
+                f"IP range {start_ip}-{end_ip} is not within subnet {subnet_row['cidr']}"
+            )
+
+        start_int = ip_to_int(start_ip)
+        end_int = ip_to_int(end_ip)
+
+        # Check overlap with OTHER pools in the same subnet (exclude self)
+        existing_pools = conn.execute(
+            "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ? AND id != ?",
+            (pool_row["subnet_id"], pool_id),
+        ).fetchall()
+        for p in existing_pools:
+            es = ip_to_int(p["start_ip"])
+            ee = ip_to_int(p["end_ip"])
+            if not (end_int < es or start_int > ee):
+                raise ValueError(
+                    f"DHCP pool range overlaps with existing pool {p['start_ip']}-{p['end_ip']}"
+                )
+
+        updated_at = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            """
+            UPDATE ipam_dhcp_pools
+            SET start_ip = ?, end_ip = ?, name = ?, description = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (start_ip, end_ip, name, description, updated_at, pool_id),
+        )
+        conn.commit()
+        updated_row = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE id = ?", (pool_id,)
+        ).fetchone()
+        return dict(updated_row)
+    finally:
+        conn.close()
+
+
+def bulk_move_dhcp_pools(pool_ids: List[int], to_subnet_id: int) -> Dict:
+    if not pool_ids:
+        raise ValueError("No pools selected")
+    conn = get_connection()
+    try:
+        to_subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (to_subnet_id,)
+        ).fetchone()
+        if to_subnet_row is None:
+            raise ValueError("Destination subnet not found")
+        to_net = ipaddress.IPv4Network(to_subnet_row["cidr"])
+
+        skipped = []
+        moved_count = 0
+        pool_rows = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE id IN ({})".format(
+                ",".join("?" * len(pool_ids))
+            ),
+            pool_ids,
+        ).fetchall()
+
+        for p in pool_rows:
+            start_addr = ipaddress.IPv4Address(p["start_ip"])
+            end_addr = ipaddress.IPv4Address(p["end_ip"])
+            if start_addr not in to_net or end_addr not in to_net:
+                skipped.append({
+                    "poolId": p["id"],
+                    "startIp": p["start_ip"],
+                    "endIp": p["end_ip"],
+                    "reason": f"Range not within subnet {to_subnet_row['cidr']}",
+                })
+                continue
+
+            start_int = ip_to_int(p["start_ip"])
+            end_int = ip_to_int(p["end_ip"])
+            existing_in_target = conn.execute(
+                "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ? AND id != ?",
+                (to_subnet_id, p["id"]),
+            ).fetchall()
+            overlap = False
+            for ep in existing_in_target:
+                es = ip_to_int(ep["start_ip"])
+                ee = ip_to_int(ep["end_ip"])
+                if not (end_int < es or start_int > ee):
+                    overlap = True
+                    break
+            if overlap:
+                skipped.append({
+                    "poolId": p["id"],
+                    "startIp": p["start_ip"],
+                    "endIp": p["end_ip"],
+                    "reason": "Overlaps with existing pool in destination subnet",
+                })
+                continue
+
+            conn.execute(
+                "UPDATE ipam_dhcp_pools SET subnet_id = ? WHERE id = ?",
+                (to_subnet_id, p["id"]),
+            )
+            moved_count += 1
+
+        conn.commit()
+        return {
+            "movedCount": moved_count,
+            "skipped": skipped,
+            "fromSubnet": None,
+            "toSubnet": get_subnet(to_subnet_id),
+        }
+    finally:
+        conn.close()
+
+
+def check_ip_in_dhcp_pool(ip_address: str, subnet_id: int) -> bool:
+    try:
+        ip_addr = ipaddress.IPv4Address(ip_address)
+    except ipaddress.AddressValueError:
+        return False
+
+    ip_int = ip_to_int(ip_address)
+
+    conn = get_connection()
+    try:
+        pools = conn.execute(
+            "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ?",
+            (subnet_id,),
+        ).fetchall()
+
+        for pool in pools:
+            start_int = ip_to_int(pool["start_ip"])
+            end_int = ip_to_int(pool["end_ip"])
+            if start_int <= ip_int <= end_int:
+                return True
+
+        return False
+    finally:
+        conn.close()
+
+
+def get_dhcp_pool_by_id(pool_id: int) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE id = ?", (pool_id,)
+        ).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_misplaced_dhcp_pools() -> List[Dict]:
+    subnets = list_subnets()
+    misplaced = []
+    conn = get_connection()
+    try:
+        pool_rows = conn.execute(
+            """
+            SELECT p.*, s.cidr AS current_cidr
+            FROM ipam_dhcp_pools p
+            JOIN ipam_subnets s ON p.subnet_id = s.id
+            """
+        ).fetchall()
+        for p in pool_rows:
+            best = find_best_subnet_for_ip_range(p["start_ip"], p["end_ip"], subnets)
+            if best is not None and best["id"] != p["subnet_id"]:
+                misplaced.append({
+                    "poolId": p["id"],
+                    "startIp": p["start_ip"],
+                    "endIp": p["end_ip"],
+                    "name": p["name"],
+                    "description": p["description"],
+                    "currentSubnetId": p["subnet_id"],
+                    "currentSubnetCidr": p["current_cidr"],
+                    "proposedSubnetId": best["id"],
+                    "proposedSubnetCidr": best["cidr"],
+                })
+        return misplaced
+    finally:
+        conn.close()
+
+
+def move_dhcp_pool(from_subnet_id: int, pool_id: int, to_subnet_id: int) -> Dict:
+    conn = get_connection()
+    try:
+        pool_row = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE id = ? AND subnet_id = ?",
+            (pool_id, from_subnet_id),
+        ).fetchone()
+        if pool_row is None:
+            raise ValueError("DHCP pool not found in source subnet")
+        to_subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (to_subnet_id,)
+        ).fetchone()
+        if to_subnet_row is None:
+            raise ValueError("Destination subnet not found")
+
+        start_addr = ipaddress.IPv4Address(pool_row["start_ip"])
+        end_addr = ipaddress.IPv4Address(pool_row["end_ip"])
+        to_net = ipaddress.IPv4Network(to_subnet_row["cidr"])
+        if start_addr not in to_net or end_addr not in to_net:
+            raise ValueError(
+                f"DHCP pool range {pool_row['start_ip']}-{pool_row['end_ip']} is not within subnet {to_subnet_row['cidr']}"
+            )
+
+        start_int = ip_to_int(pool_row["start_ip"])
+        end_int = ip_to_int(pool_row["end_ip"])
+        existing_pools = conn.execute(
+            "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ? AND id != ?",
+            (to_subnet_id, pool_id),
+        ).fetchall()
+
+        for p in existing_pools:
+            es = ip_to_int(p["start_ip"])
+            ee = ip_to_int(p["end_ip"])
+            if not (end_int < es or start_int > ee):
+                raise ValueError(
+                    f"DHCP pool range overlaps with existing pool in destination subnet: {p['start_ip']}-{p['end_ip']}"
+                )
+
+        conn.execute(
+            "UPDATE ipam_dhcp_pools SET subnet_id = ? WHERE id = ?",
+            (to_subnet_id, pool_id),
+        )
+        conn.commit()
+        return {"fromSubnet": get_subnet(from_subnet_id), "toSubnet": get_subnet(to_subnet_id)}
+    finally:
+        conn.close()

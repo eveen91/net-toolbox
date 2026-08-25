@@ -183,6 +183,7 @@ table.tool-table {
   border-bottom: 1px solid var(--border-soft);
   color: var(--text);
   white-space: nowrap;
+  vertical-align: middle;
 }
 .tool-table tr:hover td {
   background: #16233a;

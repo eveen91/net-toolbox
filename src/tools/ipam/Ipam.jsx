@@ -4,6 +4,7 @@ import SubnetSearch from "./SubnetSearch.jsx";
 import AddSubnetForm from "./AddSubnetForm.jsx";
 import IpamDashboard from "./IpamDashboard.jsx";
 import ResubnetReview from "./ResubnetReview.jsx";
+import DhcpPoolManager from "./DhcpPoolManager.jsx";
 import {
   formatVlan,
   formatTimestamp,
@@ -1222,6 +1223,9 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           </div>
         </>
       )}
+
+      <h3 className="ip-section-sub-title">DHCP Pools</h3>
+      <DhcpPoolManager subnetId={subnet.id} subnets={subnets} />
 
       <h3 className="ip-section-sub-title">Addresses</h3>
       {rowError && <div className="tool-error">{rowError}</div>}
