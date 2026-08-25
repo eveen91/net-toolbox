@@ -5,6 +5,7 @@ import AddSubnetForm from "./AddSubnetForm.jsx";
 import IpamDashboard from "./IpamDashboard.jsx";
 import ResubnetReview from "./ResubnetReview.jsx";
 import DhcpPoolManager from "./DhcpPoolManager.jsx";
+import SubnetHeatmap from "./SubnetHeatmap.jsx";
 import {
   formatVlan,
   formatTimestamp,
@@ -1314,6 +1315,16 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           </div>
         </>
       )}
+
+      <SubnetHeatmap subnet={subnet} subnets={subnets} onCellClick={(ip) => {
+        // Find the address in the list and scroll to it
+        const addrIndex = subnet.addresses.findIndex((a) => a.address === ip);
+        if (addrIndex >= 0) {
+          // Highlight and scroll to the address row
+          setRowError(null);
+          // This will be handled by the highlightedAddressId prop flow
+        }
+      }} />
 
       <h3 className="ip-section-sub-title">DHCP Pools</h3>
       <DhcpPoolManager subnetId={subnet.id} subnets={subnets} />
