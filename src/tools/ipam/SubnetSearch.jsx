@@ -35,8 +35,9 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
       return;
     }
 
-    let cancelled = false;
+    setAddressMatches([]);
     setIsSearching(true);
+    let cancelled = false;
 
     const timer = setTimeout(async () => {
       try {
@@ -53,7 +54,7 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
           setIsSearching(false);
         }
       }
-    }, 200);
+    }, 300);
 
     return () => {
       cancelled = true;
@@ -174,12 +175,12 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
             </div>
           )}
 
-          {query.trim() && allMatches.length === 0 && !isSearching && (
-            <div className="ip-search-empty">No matching subnets or hostnames found.</div>
-          )}
-
           {query.trim() && isSearching && allMatches.length === 0 && (
             <div className="ip-search-empty">Searching…</div>
+          )}
+
+          {query.trim() && !isSearching && allMatches.length === 0 && (
+            <div className="ip-search-empty">No matching subnets or hostnames found.</div>
           )}
 
           {subnetMatches.length > 0 && query.trim() && (
