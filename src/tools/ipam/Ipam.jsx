@@ -386,7 +386,7 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
   }
 
   return (
-    <form className="ip-add-address-popover" onSubmit={submit}>
+    <form className="tool-popover ip-add-address-popover" onSubmit={submit}>
       <div className="tool-field">
         <div className="tool-label">
           <span>Address</span>
@@ -664,7 +664,7 @@ function BulkEditBar({ subnetId, subnets, selectedIds, onApplied, onMoved, onCle
       </div>
 
       {editOpen && (
-        <form className="ip-bulk-edit-popover" onSubmit={submit}>
+        <form className="tool-popover ip-bulk-edit-popover" onSubmit={submit}>
           <div className="tool-field">
             <div className="tool-label">
               <span>Status</span>
@@ -1526,7 +1526,7 @@ export default function Ipam() {
               ⚙
             </button>
             {showSettings && (
-              <div className="ip-settings-popover">
+              <div className="tool-popover ip-settings-popover">
                 <div className="tool-hint">Autodiscovery settings</div>
                 {scanConcurrencyLimit === null ? (
                   <div className="tool-hint">Loading…</div>

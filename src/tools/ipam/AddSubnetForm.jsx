@@ -54,7 +54,7 @@ export default function AddSubnetForm({ onCreated }) {
   }
 
   return (
-    <div className="ip-add-subnet-popover">
+    <div className="tool-popover ip-add-subnet-popover">
       <form className="ip-add-subnet-form" onSubmit={submit}>
         <div className="tool-field">
           <div className="tool-label">

@@ -219,3 +219,89 @@ table.tool-table {
   background: #1c2536;
   color: var(--muted);
 }
+
+.tool-muted {
+  color: var(--muted);
+}
+
+/* Type/category label — same visual language as .tool-pill but square
+   corners and a border, for tagging a row's kind rather than a status. */
+.tool-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
+.tool-badge-default {
+  background: #1c2536;
+  color: var(--muted);
+}
+.tool-badge-accent {
+  background: #0a121e;
+  color: var(--accent-2);
+  border-color: var(--accent-dim);
+}
+
+/* Centered modal dialog. Same panel/border/radius language as .tool-panel
+   and .nt-account-popover, but full-screen dimmed overlay instead of an
+   anchored popover. */
+.tool-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(6, 10, 18, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.tool-modal {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  width: 100%;
+  max-width: 420px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+}
+.tool-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.tool-modal-header h3 {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+}
+.tool-modal-close {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+}
+.tool-modal-close:hover {
+  color: var(--text);
+}
+
+/* Floating card anchored under a trigger button — the "Add subnet" /
+   "Add address" / bulk-edit / settings popovers all use this base. */
+.tool-popover {
+  position: relative;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}

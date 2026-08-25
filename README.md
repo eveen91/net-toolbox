@@ -92,12 +92,19 @@ Full-featured IP address and subnet management system.
     - Metadata: Hostname, description, team, machine type (`physical`/`VM`), VM cluster, environment (`prod`/`test`/`dev`), locked state.
     - Bulk operations: Bulk edit status/metadata, bulk delete, bulk move addresses between subnets.
   - **Autodiscovery Scanner**:
-    - Ping sweep + reverse DNS lookup across subnet host IPs (`server/ipam_scan.py`).
-    - Exclude lists (`scan-excludes`) to skip gateways, static ranges, or network devices.
-    - Configurable scan settings (ping timeout, attempts, DNS timeout, max concurrency limit).
-    - Server-Sent Events (SSE) progress streaming (`/autodiscover/stream/{job_id}`).
-    - Diff detection against previous scans (newly responsive IPs, hosts going quiet, hostname changes).
-    - Single IP re-scan on demand.
+     - Ping sweep + reverse DNS lookup across subnet host IPs (`server/ipam_scan.py`).
+     - Exclude lists (`scan-excludes`) to skip gateways, static ranges, or network devices.
+     - Configurable scan settings (ping timeout, attempts, DNS timeout, max concurrency limit).
+     - Server-Sent Events (SSE) progress streaming (`/autodiscover/stream/{job_id}`).
+     - Diff detection against previous scans (newly responsive IPs, hosts going quiet, hostname changes).
+     - Single IP re-scan on demand.
+  - **DHCP Pool Management**:
+     - Create, update, and delete DHCP scope pools per subnet.
+     - Overlap detection between pools and validation against subnet CIDR.
+     - Automatic relocation: when a child subnet is created that fully contains an existing pool range, the pool is auto-migrated to the narrower subnet.
+     - Manual move and bulk-move of DHCP pools between subnets with overlap/containment validation.
+     - Dedicated **Resubnet Review** tab surfaces both misplaced addresses and misplaced DHCP pools, allowing one-click Move/Dismiss for all out-of-place resources in a single unified table.
+  - **Address Search**: Search IP addresses and hostnames across all subnets via `GET /api/ipam/addresses/search`.
 
 ### Troubleshoot
 Multi-vendor network device diagnostic and lookup suite.
@@ -334,7 +341,16 @@ These endpoints are not role-gated on the backend — tool visibility is filtere
 | `GET` | `/api/ipam/subnets/{subnet_id}/scan-excludes` | List scan exclude rules |
 | `POST` | `/api/ipam/subnets/{subnet_id}/scan-excludes` | Add scan exclude rule |
 | `DELETE` | `/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}` | Remove scan exclude rule |
-| `POST` | `/api/ipam/subnets/{subnet_id}/autodiscover/start` | Launch async autodiscovery scan |
+| `POST` | `/api/ipam/subnets/{subnet_id}/dhcp-pools` | Create a DHCP pool range |
+| `GET` | `/api/ipam/subnets/{subnet_id}/dhcp-pools` | List DHCP pools for subnet |
+| `PUT` | `/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}` | Update DHCP pool range or metadata |
+| `DELETE` | `/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}` | Delete a DHCP pool |
+| `POST` | `/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}/move` | Move a DHCP pool to a different subnet |
+| `POST` | `/api/ipam/dhcp-pools/bulk-move` | Bulk-move multiple DHCP pools to a subnet |
+| `GET` | `/api/ipam/misplaced-addresses` | List addresses not in their most-specific subnet |
+| `POST` | `/api/ipam/subnets/{subnet_id}/addresses/{address_id}/move` | Move a single address to another subnet |
+| `GET` | `/api/ipam/misplaced-dhcp-pools` | List DHCP pools not in their most-specific subnet |
+| `GET` | `/api/ipam/addresses/search?q=...` | Search addresses by IP or hostname across all subnets |
 | `GET` | `/api/ipam/subnets/{subnet_id}/autodiscover/active` | Query active scan status |
 | `GET` | `/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}` | SSE stream of scan progress |
 | `GET` | `/api/ipam/subnets/{subnet_id}/scans` | List scan history for subnet |
@@ -447,6 +463,17 @@ These endpoints are not role-gated on the backend — tool visibility is filtere
 |---|---|---|---|
 | `key` | TEXT | PRIMARY KEY | Setting key |
 | `value` | TEXT | NOT NULL | Setting value |
+
+#### `ipam_dhcp_pools`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Pool ID |
+| `subnet_id` | INTEGER | FK -> `ipam_subnets.id` ON DELETE CASCADE | Parent subnet ID |
+| `start_ip` | TEXT | NOT NULL | Start of DHCP range (IPv4) |
+| `end_ip` | TEXT | NOT NULL | End of DHCP range (IPv4) |
+| `name` | TEXT | NULL | Optional human-readable name |
+| `description` | TEXT | NULL | Optional description |
+| `updated_at` | TEXT | NOT NULL | Last-modified timestamp |
 
 ---
 

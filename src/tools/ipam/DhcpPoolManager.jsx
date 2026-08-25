@@ -191,7 +191,7 @@ export default function DhcpPoolManager({ subnetId, subnets }) {
 
   return (
     <div>
-      <div style={{ marginBottom: "12px", display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+      <div className="ip-add-row" style={{ alignItems: "center" }}>
         <button type="button" className="tool-btn tool-btn-primary" onClick={openAddModal}>
           + Add Pool
         </button>
@@ -237,6 +237,7 @@ export default function DhcpPoolManager({ subnetId, subnets }) {
       )}
 
       {pools.length > 0 && (
+        <div className="tool-table-wrap ip-table-wrap-full">
         <table className="tool-table">
           <thead>
             <tr>
@@ -308,6 +309,7 @@ export default function DhcpPoolManager({ subnetId, subnets }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
 
       {modalOpen && (

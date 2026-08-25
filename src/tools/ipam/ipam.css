@@ -130,12 +130,6 @@
   min-width: 160px;
 }
 .ip-bulk-edit-popover {
-  position: relative;
-  z-index: 10;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
   margin-top: 10px;
   display: flex;
   flex-wrap: wrap;
@@ -158,12 +152,6 @@
   margin-bottom: 14px;
 }
 .ip-add-address-popover {
-  position: relative;
-  z-index: 10;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
   margin-bottom: 14px;
   display: flex;
   flex-wrap: wrap;
@@ -209,18 +197,30 @@
   overflow: visible;
 }
 
+/* Clickable/sortable column header, and the emphasized CIDR cell used
+   wherever a subnet or address is the "headline" value of a row. */
+.ip-sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+.ip-sortable-th:hover {
+  color: var(--text);
+}
+.ip-subnet-cidr {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text);
+}
+.ip-scan-status-addr {
+  color: var(--muted);
+}
+
 /* "Add a subnet" trigger button + popover form (used in the new header
    row instead of a permanently-visible left-column form). */
 .ip-add-subnet-trigger {
   white-space: nowrap;
 }
 .ip-add-subnet-popover {
-  position: relative;
-  z-index: 10;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 16px;
   margin-top: 10px;
 }
 .ip-add-subnet-popover .ip-add-subnet-form .tool-field {
@@ -453,11 +453,8 @@
   top: 34px;
   right: 0;
   z-index: 20;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px;
   min-width: 240px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
