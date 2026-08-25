@@ -35,6 +35,7 @@ import {
   removeScanExclude,
   getIpamSettings,
   updateIpamSettings,
+  getNextAvailableIp,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -68,7 +69,7 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
       rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [highlighted]);
-  const [editing, setEditing] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rescanning, setRescanning] = useState(false);
@@ -83,6 +84,7 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
     environment: addr.environment || "",
     locked: addr.locked || false,
   });
+  const [formError, setFormError] = useState(null);
 
   const startEdit = () => {
     setDraft({
@@ -96,11 +98,17 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
       environment: addr.environment || "",
       locked: addr.locked || false,
     });
-    setEditing(true);
+    setModalOpen(true);
+    setFormError(null);
+  };
+
+  const closeModal = () => {
+    setModalOpen(false);
+    setFormError(null);
   };
 
   const save = async () => {
-    onError(null);
+    setFormError(null);
     setSaving(true);
     try {
       const updated = await updateAddress(
@@ -117,42 +125,40 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
         draft.locked
       );
       onUpdated(updated);
-      setEditing(false);
+      closeModal();
     } catch (e) {
-      onError(e.message);
+      setFormError(e.message);
     } finally {
       setSaving(false);
     }
   };
 
   const remove = async () => {
-    onError(null);
     setSaving(true);
     try {
       const updated = await deleteAddress(subnetId, addr.id);
       onUpdated(updated);
     } catch (e) {
-      onError(e.message);
+      setFormError(e.message);
       setSaving(false);
     }
   };
 
   const rescan = async () => {
-    onError(null);
     setRescanning(true);
     try {
       const updated = await rescanAddress(subnetId, addr.id);
       onUpdated(updated);
     } catch (e) {
-      onError(e.message);
+      setFormError(e.message);
     } finally {
       setRescanning(false);
     }
   };
 
-  if (editing) {
-    return (
-      <tr>
+  return (
+    <>
+      <tr ref={rowRef} className={highlighted ? "ip-row-highlighted" : ""}>
         <td>
           <input
             type="checkbox"
@@ -160,170 +166,211 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
             onChange={() => onToggleSelect(addr.id)}
           />
         </td>
+        <td className="ip-mono">{addr.address}</td>
         <td>
-          <input
-            className="tool-input ip-row-input"
-            value={draft.address}
-            onChange={(e) => setDraft({ ...draft, address: e.target.value })}
-          />
+          <span className={`tool-pill ${STATUS_PILL_CLASS[addr.status]}`}>{STATUS_LABELS[addr.status]}</span>
         </td>
-        <td>
-          <select
-            className="tool-input ip-row-input"
-            value={draft.status}
-            onChange={(e) => setDraft({ ...draft, status: e.target.value })}
-          >
-            {Object.entries(STATUS_LABELS).map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </td>
-        <td>
-          <input
-            className="tool-input ip-row-input"
-            value={draft.hostname}
-            onChange={(e) => setDraft({ ...draft, hostname: e.target.value })}
-            placeholder="hostname"
-          />
-        </td>
-<td>
-          <input
-            className="tool-input ip-row-input"
-            value={draft.description}
-            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-            placeholder="description"
-          />
-        </td>
-        <td>
-          <input
-            className="tool-input ip-row-input"
-            value={draft.team}
-            onChange={(e) => setDraft({ ...draft, team: e.target.value })}
-            placeholder="team"
-          />
-        </td>
-        <td>
-          <select
-            className="tool-input ip-row-input"
-            value={draft.machineType}
-            onChange={(e) => setDraft({ ...draft, machineType: e.target.value, vmCluster: "" })}
-          >
-            <option value="">—</option>
-            {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </td>
-        <td>
-          <input
-            className="tool-input ip-row-input"
-            value={draft.vmCluster}
-            onChange={(e) => setDraft({ ...draft, vmCluster: e.target.value })}
-            placeholder="cluster"
-            disabled={draft.machineType !== "vm"}
-          />
-        </td>
-        <td>
-          <select
-            className="tool-input ip-row-input"
-            value={draft.environment}
-            onChange={(e) => setDraft({ ...draft, environment: e.target.value })}
-          >
-            <option value="">—</option>
-            {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
-              <option key={v} value={v}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </td>
-        <td>
-          <input
-            type="checkbox"
-            checked={draft.locked}
-            onChange={(e) => setDraft({ ...draft, locked: e.target.checked })}
-          />
-        </td>
+        <td>{addr.hostname || "—"}</td>
+        <td>{addr.description || "—"}</td>
+        <td>{addr.team || "—"}</td>
+        <td>{addr.machineType ? MACHINE_TYPE_LABELS[addr.machineType] : "—"}</td>
+        <td>{addr.machineType === "vm" ? addr.vmCluster || "—" : "—"}</td>
+        <td>{addr.environment ? ENVIRONMENT_LABELS[addr.environment] : "—"}</td>
+        <td>{addr.locked ? "🔒" : "—"}</td>
         <td className="ip-actions-cell">
           <div className="ip-actions-inner">
-            <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={save} disabled={saving}>
-              {saving ? "Saving…" : "Save"}
-            </button>
-            <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setEditing(false)} disabled={saving}>
-              Cancel
-            </button>
+            {confirmingDelete ? (
+              <>
+                <button className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger" onClick={remove} disabled={saving}>
+                  {saving ? "…" : "Confirm"}
+                </button>
+                <button
+                  className="tool-btn tool-btn-ghost ip-row-btn"
+                  onClick={() => setConfirmingDelete(false)}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              </>
+            ) : (
+              <>
+                {addr.status !== "reserved" && (
+                  <button
+                    className="tool-btn tool-btn-ghost ip-row-btn"
+                    onClick={rescan}
+                    disabled={rescanning}
+                  >
+                    {rescanning ? "…" : "Rescan"}
+                  </button>
+                )}
+                <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEdit}>
+                  Edit
+                </button>
+                <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setConfirmingDelete(true)}>
+                  Delete
+                </button>
+              </>
+            )}
           </div>
         </td>
       </tr>
-    );
-  }
 
-  return (
-    <tr ref={rowRef} className={highlighted ? "ip-row-highlighted" : ""}>
-      <td>
-        <input
-          type="checkbox"
-          checked={selected}
-          onChange={() => onToggleSelect(addr.id)}
-        />
-      </td>
-      <td className="ip-mono">{addr.address}</td>
-      <td>
-        <span className={`tool-pill ${STATUS_PILL_CLASS[addr.status]}`}>{STATUS_LABELS[addr.status]}</span>
-      </td>
-      <td>{addr.hostname || "—"}</td>
-      <td>{addr.description || "—"}</td>
-      <td>{addr.team || "—"}</td>
-      <td>{addr.machineType ? MACHINE_TYPE_LABELS[addr.machineType] : "—"}</td>
-      <td>{addr.machineType === "vm" ? addr.vmCluster || "—" : "—"}</td>
-      <td>{addr.environment ? ENVIRONMENT_LABELS[addr.environment] : "—"}</td>
-      <td>{addr.locked ? "🔒" : "—"}</td>
-      <td className="ip-actions-cell">
-        <div className="ip-actions-inner">
-          {confirmingDelete ? (
-            <>
-              <button className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger" onClick={remove} disabled={saving}>
-                {saving ? "…" : "Confirm"}
+      {modalOpen && (
+        <div className="tool-modal-overlay" onClick={closeModal}>
+          <div className="tool-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="tool-modal-header">
+              <h3>Edit Address</h3>
+              <button type="button" className="tool-modal-close" onClick={closeModal}>
+                ×
               </button>
-              <button
-                className="tool-btn tool-btn-ghost ip-row-btn"
-                onClick={() => setConfirmingDelete(false)}
-                disabled={saving}
-              >
-                Cancel
-              </button>
-            </>
-          ) : (
-            <>
-              {addr.status !== "reserved" && (
-                <button
-                  className="tool-btn tool-btn-ghost ip-row-btn"
-                  onClick={rescan}
-                  disabled={rescanning}
+            </div>
+            <form onSubmit={save}>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Address</span>
+                </div>
+                <input
+                  autoFocus
+                  className="tool-input"
+                  value={draft.address}
+                  onChange={(e) => setDraft({ ...draft, address: e.target.value })}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Status</span>
+                </div>
+                <select
+                  className="tool-input"
+                  value={draft.status}
+                  onChange={(e) => setDraft({ ...draft, status: e.target.value })}
                 >
-                  {rescanning ? "…" : "Rescan"}
+                  {Object.entries(STATUS_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>
+                    Hostname <span className="tool-hint">optional</span>
+                  </span>
+                </div>
+                <input
+                  className="tool-input"
+                  value={draft.hostname}
+                  onChange={(e) => setDraft({ ...draft, hostname: e.target.value })}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>
+                    Description <span className="tool-hint">optional</span>
+                  </span>
+                </div>
+                <input
+                  className="tool-input"
+                  value={draft.description}
+                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>
+                    Team <span className="tool-hint">optional</span>
+                  </span>
+                </div>
+                <input
+                  className="tool-input"
+                  value={draft.team}
+                  onChange={(e) => setDraft({ ...draft, team: e.target.value })}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Machine type</span>
+                </div>
+                <select
+                  className="tool-input"
+                  value={draft.machineType}
+                  onChange={(e) => setDraft({ ...draft, machineType: e.target.value, vmCluster: "" })}
+                >
+                  <option value="">—</option>
+                  {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>VM cluster</span>
+                </div>
+                <input
+                  className="tool-input"
+                  value={draft.vmCluster}
+                  onChange={(e) => setDraft({ ...draft, vmCluster: e.target.value })}
+                  disabled={draft.machineType !== "vm"}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Environment</span>
+                </div>
+                <select
+                  className="tool-input"
+                  value={draft.environment}
+                  onChange={(e) => setDraft({ ...draft, environment: e.target.value })}
+                >
+                  <option value="">—</option>
+                  {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="tool-field">
+                <label className="tool-hint">
+                  <input
+                    type="checkbox"
+                    checked={draft.locked}
+                    onChange={(e) => setDraft({ ...draft, locked: e.target.checked })}
+                  />
+                  Locked
+                </label>
+              </div>
+              <div className="tool-actions">
+                <button
+                  className="tool-btn tool-btn-primary"
+                  type="submit"
+                  disabled={saving || !draft.address.trim()}
+                >
+                  {saving ? "Saving…" : "Save"}
                 </button>
-              )}
-              <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEdit}>
-                Edit
-              </button>
-              <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setConfirmingDelete(true)}>
-                Delete
-              </button>
-            </>
-          )}
+                <button
+                  type="button"
+                  className="tool-btn tool-btn-ghost"
+                  onClick={closeModal}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+              </div>
+              {formError && <div className="tool-error">{formError}</div>}
+            </form>
+          </div>
         </div>
-      </td>
-    </tr>
+      )}
+    </>
   );
 }
 
 function AddAddressForm({ subnetId, onAdded, onError }) {
-  const [open, setOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [address, setAddress] = useState("");
   const [status, setStatus] = useState("used");
   const [hostname, setHostname] = useState("");
@@ -334,6 +381,8 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
   const [environment, setEnvironment] = useState("");
   const [locked, setLocked] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [findingNext, setFindingNext] = useState(false);
+  const [formError, setFormError] = useState(null);
 
   const reset = () => {
     setAddress("");
@@ -347,16 +396,33 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
     setLocked(false);
   };
 
-  const close = () => {
-    setOpen(false);
-    onError(null);
+  const closeModal = () => {
+    setModalOpen(false);
+    setFormError(null);
     reset();
+  };
+
+  const handleFindNextIp = async () => {
+    setFormError(null);
+    setFindingNext(true);
+    try {
+      const res = await getNextAvailableIp(subnetId);
+      if (res.nextAvailableIp) {
+        setAddress(res.nextAvailableIp);
+      } else {
+        setFormError("No available IP addresses remaining in this subnet.");
+      }
+    } catch (err) {
+      setFormError(err.message);
+    } finally {
+      setFindingNext(false);
+    }
   };
 
   const submit = async (e) => {
     e.preventDefault();
     if (!address.trim()) return;
-    onError(null);
+    setFormError(null);
     setAdding(true);
     try {
       const updated = await addAddress(
@@ -373,147 +439,168 @@ function AddAddressForm({ subnetId, onAdded, onError }) {
       );
       onAdded(updated);
       reset();
-      setOpen(false);
+      setModalOpen(false);
     } catch (e2) {
-      onError(e2.message);
+      setFormError(e2.message);
     } finally {
       setAdding(false);
     }
   };
 
-  if (!open) {
-    return (
-      <button type="button" className="tool-btn tool-btn-primary ip-add-address-trigger" onClick={() => setOpen(true)}>
+  return (
+    <>
+      <button type="button" className="tool-btn tool-btn-primary" onClick={() => setModalOpen(true)}>
         + Add address
       </button>
-    );
-  }
 
-  return (
-    <form className="tool-popover ip-add-address-popover" onSubmit={submit}>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>Address</span>
+      {modalOpen && (
+        <div className="tool-modal-overlay" onClick={closeModal}>
+          <div className="tool-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="tool-modal-header">
+              <h3>Add Address</h3>
+              <button type="button" className="tool-modal-close" onClick={closeModal}>
+                ×
+              </button>
+            </div>
+            <form onSubmit={submit}>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Address</span>
+                  <button
+                    type="button"
+                    className="tool-btn tool-btn-ghost ip-row-btn"
+                    onClick={handleFindNextIp}
+                    disabled={findingNext}
+                    style={{ fontSize: "11px", padding: "2px 6px", textTransform: "none" }}
+                  >
+                    {findingNext ? "Finding…" : "⚡ Next Available IP"}
+                  </button>
+                </div>
+                <input
+                  autoFocus
+                  className="tool-input"
+                  placeholder="10.0.1.10"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Status</span>
+                </div>
+                <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+                  {Object.entries(STATUS_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>
+                    Hostname <span className="tool-hint">optional</span>
+                  </span>
+                </div>
+                <input
+                  className="tool-input"
+                  placeholder="hostname (optional)"
+                  value={hostname}
+                  onChange={(e) => setHostname(e.target.value)}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>
+                    Description <span className="tool-hint">optional</span>
+                  </span>
+                </div>
+                <input
+                  className="tool-input"
+                  placeholder="description (optional)"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>
+                    Team <span className="tool-hint">optional</span>
+                  </span>
+                </div>
+                <input
+                  className="tool-input"
+                  placeholder="team (optional)"
+                  value={team}
+                  onChange={(e) => setTeam(e.target.value)}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Machine type</span>
+                </div>
+                <select
+                  className="tool-input"
+                  value={machineType}
+                  onChange={(e) => {
+                    setMachineType(e.target.value);
+                    setVmCluster("");
+                  }}
+                >
+                  <option value="">Type…</option>
+                  {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>VM cluster</span>
+                </div>
+                <input
+                  className="tool-input"
+                  placeholder="vm cluster"
+                  value={vmCluster}
+                  onChange={(e) => setVmCluster(e.target.value)}
+                  disabled={machineType !== "vm"}
+                />
+              </div>
+              <div className="tool-field">
+                <div className="tool-label">
+                  <span>Environment</span>
+                </div>
+                <select className="tool-input" value={environment} onChange={(e) => setEnvironment(e.target.value)}>
+                  <option value="">Env…</option>
+                  {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="tool-field">
+                <label className="tool-hint">
+                  <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
+                  Locked
+                </label>
+              </div>
+               <div className="tool-actions">
+                <button className="tool-btn tool-btn-primary" type="submit" disabled={adding || !address.trim()}>
+                  {adding ? "Adding…" : "Add address"}
+                </button>
+                <button type="button" className="tool-btn tool-btn-ghost" onClick={closeModal} disabled={adding}>
+                  Cancel
+                </button>
+              </div>
+              {formError && <div className="tool-error">{formError}</div>}
+            </form>
+          </div>
         </div>
-        <input
-          autoFocus
-          className="tool-input"
-          placeholder="10.0.1.10"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-        />
-      </div>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>Status</span>
-        </div>
-        <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
-          {Object.entries(STATUS_LABELS).map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>
-            Hostname <span className="tool-hint">optional</span>
-          </span>
-        </div>
-        <input
-          className="tool-input"
-          placeholder="hostname (optional)"
-          value={hostname}
-          onChange={(e) => setHostname(e.target.value)}
-        />
-      </div>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>
-            Description <span className="tool-hint">optional</span>
-          </span>
-        </div>
-        <input
-          className="tool-input"
-          placeholder="description (optional)"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </div>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>
-            Team <span className="tool-hint">optional</span>
-          </span>
-        </div>
-        <input
-          className="tool-input"
-          placeholder="team (optional)"
-          value={team}
-          onChange={(e) => setTeam(e.target.value)}
-        />
-      </div>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>Machine type</span>
-        </div>
-        <select
-          className="tool-input"
-          value={machineType}
-          onChange={(e) => {
-            setMachineType(e.target.value);
-            setVmCluster("");
-          }}
-        >
-          <option value="">Type…</option>
-          {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>VM cluster</span>
-        </div>
-        <input
-          className="tool-input"
-          placeholder="vm cluster"
-          value={vmCluster}
-          onChange={(e) => setVmCluster(e.target.value)}
-          disabled={machineType !== "vm"}
-        />
-      </div>
-      <div className="tool-field">
-        <div className="tool-label">
-          <span>Environment</span>
-        </div>
-        <select className="tool-input" value={environment} onChange={(e) => setEnvironment(e.target.value)}>
-          <option value="">Env…</option>
-          {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="tool-field">
-        <label className="tool-hint ip-add-address-locked">
-          <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
-          Locked
-        </label>
-      </div>
-      <div className="tool-actions">
-        <button className="tool-btn tool-btn-primary" type="submit" disabled={adding || !address.trim()}>
-          {adding ? "Adding…" : "Add address"}
-        </button>
-        <button type="button" className="tool-btn tool-btn-ghost" onClick={close} disabled={adding}>
-          Cancel
-        </button>
-      </div>
-    </form>
+      )}
+    </>
   );
 }
 

@@ -1813,6 +1813,27 @@ def get_misplaced_addresses():
     return db.list_misplaced_addresses()
 
 
+class NextAvailableIpResponse(BaseModel):
+    subnetId: int
+    nextAvailableIp: Optional[str] = None
+
+
+@app.get(
+    "/api/ipam/subnets/{subnet_id}/next-available",
+    response_model=NextAvailableIpResponse,
+    dependencies=[Depends(require_feature("ipam"))],
+)
+def get_next_available_ip(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    try:
+        ip = db.get_next_available_ip(subnet_id)
+        return NextAvailableIpResponse(subnetId=subnet_id, nextAvailableIp=ip)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get(
     "/api/ipam/misplaced-dhcp-pools",
     response_model=List[MisplacedDhcpPoolEntry],

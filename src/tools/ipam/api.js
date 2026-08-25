@@ -290,6 +290,11 @@ export async function getMisplacedDhcpPools() {
   return handle(res);
 }
 
+export async function getNextAvailableIp(subnetId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/next-available`);
+  return handle(res);
+}
+
 export async function moveDhcpPool(subnetId, poolId, targetSubnetId) {
   const res = await apiFetch(
     `${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools/${poolId}/move`,

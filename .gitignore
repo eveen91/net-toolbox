@@ -11,3 +11,4 @@ opencode.json
 .gitignore
 */.pytest_cache
 .plans
+dist

@@ -160,32 +160,8 @@ select.ip-row-btn {
   gap: 8px;
 }
 
-/* "Add address" trigger button + popover form — same convention as
-   .ip-add-subnet-popover and the bulk-edit popover above. */
+/* "Add address" trigger button — no longer needs special popover styles since it now uses a modal. */
 .ip-add-address-trigger {
-  margin-bottom: 14px;
-}
-.ip-add-address-popover {
-  margin-bottom: 14px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.ip-add-address-popover .tool-field {
-  flex: 1 1 160px;
-  min-width: 160px;
-  margin-bottom: 0;
-}
-.ip-add-address-popover .tool-actions {
-  flex-basis: 100%;
-  display: flex;
-  gap: 8px;
-}
-.ip-add-address-locked {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 100%;
 }
 
 td.ip-actions-cell {

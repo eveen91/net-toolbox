@@ -669,6 +669,75 @@ def find_best_subnet_for_address(address: str, subnets: List[Dict]) -> Optional[
     return best
 
 
+def get_next_available_ip(subnet_id: int) -> Optional[str]:
+    """
+    返回指定subnet中第一个可用的未分配IP地址。
+    可用定义：不在 ipam_addresses(status='used'/'reserved') 中，且不在 ipam_scan_excludes 中，
+    且不在 ipam_dhcp_pools 的 start_ip~end_ip 范围内。
+    遍历 net.hosts()（/31或/32时用net.network_address/net.broadcast_address）。
+    全部占满则返回 None。
+    """
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)
+        ).fetchone()
+        if subnet_row is None:
+            raise ValueError(f"Subnet {subnet_id} not found")
+        net = ipaddress.ip_network(subnet_row["cidr"])
+
+        # Collect used IPs (status 'used' or 'reserved')
+        used_rows = conn.execute(
+            "SELECT address FROM ipam_addresses WHERE subnet_id = ? AND status IN ('used','reserved')",
+            (subnet_id,),
+        ).fetchall()
+        unavailable = {ipaddress.ip_address(r["address"]) for r in used_rows}
+
+        # Collect scan exclude IPs
+        exclude_rows = conn.execute(
+            "SELECT address FROM ipam_scan_excludes WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        for ex in exclude_rows:
+            try:
+                # The exclude might be a CIDR range; first try to parse as a single IP
+                ip = ipaddress.ip_address(ex["address"])
+                unavailable.add(ip)
+            except ValueError:
+                # CIDR format — exclude the entire network
+                try:
+                    excl_net = ipaddress.ip_network(ex["address"], strict=False)
+                    for host in excl_net.hosts():
+                        unavailable.add(host)
+                except ValueError:
+                    pass
+
+        # Collect DHCP pool IPs
+        pool_rows = conn.execute(
+            "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        for p in pool_rows:
+            s = ipaddress.IPv4Address(p["start_ip"])
+            e = ipaddress.IPv4Address(p["end_ip"])
+            for ip_int in range(int(s), int(e) + 1):
+                unavailable.add(ipaddress.IPv4Address(ip_int))
+
+        # Iterate through available IPs
+        if net.prefixlen >= 31:
+            # /31 or /32: return network address (typically not broadcast)
+            candidates = [net.network_address]
+            if net.prefixlen == 32:
+                candidates = [net.network_address]
+        else:
+            candidates = list(net.hosts())
+
+        for candidate in candidates:
+            if candidate not in unavailable:
+                return str(candidate)
+        return None
+    finally:
+        conn.close()
+
+
 def list_misplaced_addresses() -> List[Dict]:
     """
     Scan every recorded address across every subnet and flag the ones
