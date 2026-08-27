@@ -12,3 +12,4 @@ opencode.json
 */.pytest_cache
 .plans
 dist
+dist/*
