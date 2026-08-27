@@ -364,3 +364,83 @@ def test_resize_subnet_blocked_by_dhcp_pool(client):
     )
     assert shrink_resp.status_code == 400
     assert "DHCP pool" in shrink_resp.json()["detail"]
+
+
+def test_manually_moved_pool_survives_later_auto_relocation(client):
+    # Regression test: a pool the user explicitly moves via the move
+    # endpoint must stay put even after a later action (creating another
+    # subnet) triggers auto_relocate_dhcp_pools — previously this silently
+    # dragged manually-moved pools back into the most specific containing
+    # subnet, making a manual move appear to "undo itself".
+    broad_resp = client.post("/api/ipam/subnets", json={"cidr": "10.7.0.0/16"})
+    assert broad_resp.status_code == 200
+    broad_id = broad_resp.json()["id"]
+
+    narrow_resp = client.post("/api/ipam/subnets", json={"cidr": "10.7.5.0/24"})
+    assert narrow_resp.status_code == 200
+    narrow_id = narrow_resp.json()["id"]
+
+    # Pool created inside the narrow subnet, so it starts out there.
+    pool_resp = client.post(
+        f"/api/ipam/subnets/{narrow_id}/dhcp-pools",
+        json={"start_ip": "10.7.5.10", "end_ip": "10.7.5.50", "name": "Manually moved"}
+    )
+    assert pool_resp.status_code == 200
+    pool_id = pool_resp.json()["id"]
+
+    # User explicitly moves it back out to the broader subnet.
+    move_resp = client.post(
+        f"/api/ipam/subnets/{narrow_id}/dhcp-pools/{pool_id}/move",
+        json={"targetSubnetId": broad_id}
+    )
+    assert move_resp.status_code == 200
+    pools_in_broad = client.get(f"/api/ipam/subnets/{broad_id}/dhcp-pools").json()
+    assert any(p["id"] == pool_id for p in pools_in_broad), "Pool should be in broad subnet right after the move"
+
+    # Create an unrelated subnet — this recomputes hierarchy and used to
+    # re-run auto-relocation over every pool, including this one.
+    unrelated_resp = client.post("/api/ipam/subnets", json={"cidr": "10.7.20.0/24"})
+    assert unrelated_resp.status_code == 200
+
+    # The manually-moved pool must still be in the broad subnet.
+    pools_in_broad_after = client.get(f"/api/ipam/subnets/{broad_id}/dhcp-pools").json()
+    assert any(p["id"] == pool_id for p in pools_in_broad_after), \
+        "Manually moved pool should NOT be auto-relocated back into the narrow subnet"
+
+    pools_in_narrow_after = client.get(f"/api/ipam/subnets/{narrow_id}/dhcp-pools").json()
+    assert not any(p["id"] == pool_id for p in pools_in_narrow_after)
+
+    # It also shouldn't show up as "misplaced" and invite moving it back.
+    misplaced = client.get("/api/ipam/misplaced-dhcp-pools").json()
+    assert not any(p["poolId"] == pool_id for p in misplaced)
+
+
+def test_bulk_moved_pool_survives_later_auto_relocation(client):
+    broad_resp = client.post("/api/ipam/subnets", json={"cidr": "10.8.0.0/16"})
+    assert broad_resp.status_code == 200
+    broad_id = broad_resp.json()["id"]
+
+    narrow_resp = client.post("/api/ipam/subnets", json={"cidr": "10.8.5.0/24"})
+    assert narrow_resp.status_code == 200
+    narrow_id = narrow_resp.json()["id"]
+
+    pool_resp = client.post(
+        f"/api/ipam/subnets/{narrow_id}/dhcp-pools",
+        json={"start_ip": "10.8.5.10", "end_ip": "10.8.5.50", "name": "Bulk moved"}
+    )
+    assert pool_resp.status_code == 200
+    pool_id = pool_resp.json()["id"]
+
+    bulk_move_resp = client.post(
+        "/api/ipam/dhcp-pools/bulk-move",
+        json={"poolIds": [pool_id], "targetSubnetId": broad_id}
+    )
+    assert bulk_move_resp.status_code == 200
+    assert bulk_move_resp.json()["movedCount"] == 1
+
+    # Unrelated subnet creation triggers hierarchy recompute again.
+    client.post("/api/ipam/subnets", json={"cidr": "10.8.30.0/24"})
+
+    pools_in_broad_after = client.get(f"/api/ipam/subnets/{broad_id}/dhcp-pools").json()
+    assert any(p["id"] == pool_id for p in pools_in_broad_after), \
+        "Bulk-moved pool should NOT be auto-relocated back into the narrow subnet"

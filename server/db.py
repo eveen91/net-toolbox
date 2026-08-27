@@ -137,10 +137,18 @@ def init_db() -> None:
                 end_ip TEXT NOT NULL,
                 name TEXT,
                 description TEXT,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                manually_placed INTEGER NOT NULL DEFAULT 0
             )
             """
         )
+        # Migration: databases created before manual-move tracking existed
+        # won't have this column yet — add it in place, same pattern as
+        # above. Existing pools default to 0 (not manually placed), so
+        # auto-relocation keeps behaving for them exactly as before.
+        dhcp_pool_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_dhcp_pools)").fetchall()}
+        if "manually_placed" not in dhcp_pool_cols:
+            conn.execute("ALTER TABLE ipam_dhcp_pools ADD COLUMN manually_placed INTEGER NOT NULL DEFAULT 0")
 
         conn.execute(
             """
@@ -689,11 +697,21 @@ def find_best_subnet_for_ip_range(start_ip: str, end_ip: str, subnets: List[Dict
 
 
 def auto_relocate_dhcp_pools(conn: sqlite3.Connection) -> None:
+    """Re-home DHCP pools into the most specific subnet that contains them.
+
+    Pools the user has explicitly moved (move_dhcp_pool / bulk_move_dhcp_pools)
+    are marked manually_placed and skipped here — otherwise a deliberate
+    manual move would get silently reverted the next time this runs (e.g.
+    on any subsequent subnet create/update/delete), which is confusing:
+    the pool appears to "move itself back" for no visible reason.
+    """
     rows = conn.execute("SELECT id, cidr FROM ipam_subnets").fetchall()
     if not rows:
         return
     subnets = [{"id": r["id"], "cidr": r["cidr"]} for r in rows]
-    pool_rows = conn.execute("SELECT id, subnet_id, start_ip, end_ip FROM ipam_dhcp_pools").fetchall()
+    pool_rows = conn.execute(
+        "SELECT id, subnet_id, start_ip, end_ip FROM ipam_dhcp_pools WHERE manually_placed = 0"
+    ).fetchall()
     for p in pool_rows:
         best = find_best_subnet_for_ip_range(p["start_ip"], p["end_ip"], subnets)
         if best and best["id"] != p["subnet_id"]:
@@ -1856,7 +1874,7 @@ def bulk_move_dhcp_pools(pool_ids: List[int], to_subnet_id: int) -> Dict:
                 continue
 
             conn.execute(
-                "UPDATE ipam_dhcp_pools SET subnet_id = ? WHERE id = ?",
+                "UPDATE ipam_dhcp_pools SET subnet_id = ?, manually_placed = 1 WHERE id = ?",
                 (to_subnet_id, p["id"]),
             )
             moved_count += 1
@@ -1919,6 +1937,7 @@ def list_misplaced_dhcp_pools() -> List[Dict]:
             SELECT p.*, s.cidr AS current_cidr
             FROM ipam_dhcp_pools p
             JOIN ipam_subnets s ON p.subnet_id = s.id
+            WHERE p.manually_placed = 0
             """
         ).fetchall()
         for p in pool_rows:
@@ -1979,7 +1998,7 @@ def move_dhcp_pool(from_subnet_id: int, pool_id: int, to_subnet_id: int) -> Dict
                 )
 
         conn.execute(
-            "UPDATE ipam_dhcp_pools SET subnet_id = ? WHERE id = ?",
+            "UPDATE ipam_dhcp_pools SET subnet_id = ?, manually_placed = 1 WHERE id = ?",
             (to_subnet_id, pool_id),
         )
         conn.commit()

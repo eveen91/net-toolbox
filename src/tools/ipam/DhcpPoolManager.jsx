@@ -21,7 +21,7 @@ function ipToNumber(ip) {
   return ip.split(".").reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
 }
 
-export default function DhcpPoolManager({ subnetId, subnets }) {
+export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
   const [pools, setPools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -48,6 +48,7 @@ export default function DhcpPoolManager({ subnetId, subnets }) {
     try {
       const data = await getDhcpPools(subnetId);
       setPools(data);
+      onPoolsChanged?.(data);
     } catch (e) {
       setError(e.message);
     } finally {

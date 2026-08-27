@@ -49,6 +49,7 @@ import {
   fetchAddressTags,
   addAddressTag,
   removeAddressTag,
+  getDhcpPools,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -971,6 +972,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const [lastScan, setLastScan] = useState(null);
   const [scanProgress, setScanProgress] = useState(null);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [dhcpPools, setDhcpPools] = useState([]);
   const eventSourceRef = useRef(null);
 
   const toggleSelect = (id) => {
@@ -1005,6 +1007,19 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     setLastScan(null);
     setScanProgress(null);
     setSelectedIds(new Set());
+
+    const loadDhcpPools = async () => {
+      try {
+        const pools = await getDhcpPools(subnet.id);
+        setDhcpPools(pools);
+      } catch {
+        // DHCP pools are supplementary to the heatmap — if they fail to
+        // load, leave the heatmap showing plain address cells rather than
+        // surfacing another error on this screen.
+        setDhcpPools([]);
+      }
+    };
+    loadDhcpPools();
 
     (async () => {
       try {
@@ -1337,7 +1352,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
         </>
       )}
 
-      <SubnetHeatmap subnet={subnet} subnets={subnets} onCellClick={(ip) => {
+      <SubnetHeatmap subnet={{ ...subnet, dhcpPools }} subnets={subnets} onCellClick={(ip) => {
         // Find the address in the list and scroll to it
         const addrIndex = subnet.addresses.findIndex((a) => a.address === ip);
         if (addrIndex >= 0) {
@@ -1348,7 +1363,11 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
       }} />
 
       <h3 className="ip-section-sub-title">DHCP Pools</h3>
-      <DhcpPoolManager subnetId={subnet.id} subnets={subnets} />
+      <DhcpPoolManager
+        subnetId={subnet.id}
+        subnets={subnets}
+        onPoolsChanged={setDhcpPools}
+      />
 
       <h3 className="ip-section-sub-title">Tags</h3>
       <TagSelector
