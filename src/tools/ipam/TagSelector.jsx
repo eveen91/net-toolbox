@@ -183,7 +183,10 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
               key={tag.id}
               type="button"
               className="ip-tag-selector-option"
-              onClick={() => { toggleTag(tag.id); setQuery(""); }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                toggleTag(tag.id);
+              }}
             >
               <span className="ip-tag-selector-option-dot" style={{ backgroundColor: tag.color }} />
               <span className="ip-tag-selector-option-name">{tag.name}</span>

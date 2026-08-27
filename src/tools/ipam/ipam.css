@@ -736,7 +736,7 @@ tr.ip-row-highlighted {
   align-items: center;
   gap: 8px;
   width: 100%;
-  background: none;
+  background: var(--panel);
   border: none;
   padding: 6px 4px;
   cursor: pointer;

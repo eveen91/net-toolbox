@@ -193,15 +193,6 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
         <td>{addr.locked ? "🔒" : "—"}</td>
         <td className="ip-actions-cell">
           <div className="ip-actions-inner">
-            {currentTags.map((tag) => (
-              <TagBadge
-                key={tag.id}
-                tag={tag}
-                size="sm"
-                removable
-                onRemove={() => onAddressTagChange(addr.id, currentTags.filter((t) => t.id !== tag.id).map((t) => t.id))}
-              />
-            ))}
             {tags && (
               <TagSelector
                 value={currentTags.map((t) => t.id)}
@@ -1366,20 +1357,6 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
         allTags={tags}
         placeholder="Add tags to this subnet"
       />
-      {subnetTagIds.length > 0 && (
-        <div className="ip-tag-filter-bar" style={{ marginTop: 8 }}>
-          <span className="ip-tag-filter-bar-label">Applied:</span>
-          {subnetTagIds.map((tag) => (
-            <TagBadge
-              key={tag.id}
-              tag={tag}
-              size="sm"
-              removable
-              onRemove={() => onTagChange(subnetTagIds.filter((t) => t.id !== tag.id).map((t) => t.id))}
-            />
-          ))}
-        </div>
-      )}
 
       <h3 className="ip-section-sub-title">Addresses</h3>
       {rowError && <div className="tool-error">{rowError}</div>}
@@ -1612,10 +1589,10 @@ export default function Ipam() {
     const toRemove = currentIds.filter((id) => !newTagIds.includes(id));
 
     for (const tagId of toAdd) {
-      try { await addSubnetTag(subnetId, tagId); } catch { /* ignore */ }
+      await addSubnetTag(subnetId, tagId);
     }
     for (const tagId of toRemove) {
-      try { await removeSubnetTag(subnetId, tagId); } catch { /* ignore */ }
+      await removeSubnetTag(subnetId, tagId);
     }
     await loadSubnetTags(subnetId);
   };
@@ -1627,10 +1604,10 @@ export default function Ipam() {
     const toRemove = currentIds.filter((id) => !newTagIds.includes(id));
 
     for (const tagId of toAdd) {
-      try { await addAddressTag(addressId, tagId); } catch { /* ignore */ }
+      await addAddressTag(addressId, tagId);
     }
     for (const tagId of toRemove) {
-      try { await removeAddressTag(addressId, tagId); } catch { /* ignore */ }
+      await removeAddressTag(addressId, tagId);
     }
     await loadAddressTags(addressId);
   };
@@ -1677,6 +1654,13 @@ export default function Ipam() {
     try {
       const detail = await getSubnet(id);
       setSelectedDetail(detail);
+      // Load tags for this subnet and all its addresses
+      await loadSubnetTags(id);
+      if (detail && detail.addresses) {
+        for (const addr of detail.addresses) {
+          await loadAddressTags(addr.id);
+        }
+      }
     } catch (e) {
       setDetailError(e.message);
     } finally {
