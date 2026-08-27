@@ -3,6 +3,9 @@
 :root {
   --bg: #0c1420;
   --panel: #121c2c;
+  --panel-muted: #0f1826;
+  --bg-elevated: #16223470;
+  --bg-hover: #17233688;
   --border: #223252;
   --border-soft: #1c2940;
   --text: #e7edf6;
@@ -13,6 +16,7 @@
   --warn: #f0a857;
   --warn-dim: #6b5030;
   --danger: #f2708a;
+  --success: #6ee7b7;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --sans: "Inter", system-ui, sans-serif;
 }

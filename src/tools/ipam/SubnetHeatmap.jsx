@@ -1,6 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 const MAX_HEATMAP_ADDRESSES = 1024;
+const CELL_MIN_PX = 14;
+const CELL_GAP_PX = 3;
 
 function ipToOffset(ip, subnetCidr) {
   const subnetBase = subnetCidr.split("/")[0];
@@ -11,6 +13,25 @@ function ipToOffset(ip, subnetCidr) {
 
 export default function SubnetHeatmap({ subnet, subnets = [], onCellClick }) {
   const [hoveredCell, setHoveredCell] = useState(null);
+  const containerRef = useRef(null);
+  const [columns, setColumns] = useState(1);
+
+  // The grid uses auto-fill columns (CSS decides the count from container
+  // width), so mirror that here to know how many columns per row for
+  // placing the child-subnet/DHCP-pool overlays at the right offset.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const width = el.clientWidth;
+      const cols = Math.max(1, Math.floor((width + CELL_GAP_PX) / (CELL_MIN_PX + CELL_GAP_PX)));
+      setColumns(cols);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const totalAddresses = Math.min(subnet.totalAddresses || 0, MAX_HEATMAP_ADDRESSES);
   const subnetPrefix = parseInt(subnet.cidr.split("/")[1]);
@@ -107,28 +128,39 @@ export default function SubnetHeatmap({ subnet, subnets = [], onCellClick }) {
   if (totalAddresses > MAX_HEATMAP_ADDRESSES) {
     return (
       <div className="tool-warning">
-        Heatmap disabled for broad prefixes (>1024 IPs). We recommend carving this block into nested subnets using the Subnet Splitter tool.
+        Heatmap disabled for broad prefixes ({"more than 1,024 IPs"}). We recommend carving this block into nested subnets using the Subnet Splitter tool.
       </div>
     );
   }
 
-  // Get cell count for child subnets
-  const getChildCellCount = (cs) => {
-    return cs.endOffset - cs.startOffset + 1;
-  };
-
-  // Get cell count for DHCP pools
-  const getDhcpCellCount = (p) => {
-    const poolStart = ipToOffset(p.start_ip, subnet.cidr);
-    const poolEnd = ipToOffset(p.end_ip, subnet.cidr);
-    return poolEnd - poolStart + 1;
+  // Convert an [startOffset, endOffset] address range into a CSS bounding
+  // box (as percentages of the container) covering every grid row the
+  // range touches, so multi-row child subnets / DHCP pools get one
+  // continuous overlay instead of only the first row.
+  const rowCount = Math.max(1, Math.ceil(totalAddresses / columns));
+  const rangeToBox = (startOffset, endOffset) => {
+    const startRow = Math.floor(startOffset / columns);
+    const endRow = Math.floor(endOffset / columns);
+    const spansFullRows = endRow > startRow;
+    const left = spansFullRows ? 0 : (startOffset % columns) / columns;
+    const right = spansFullRows ? columns : (endOffset % columns) + 1;
+    return {
+      top: `${(startRow / rowCount) * 100}%`,
+      height: `${((endRow - startRow + 1) / rowCount) * 100}%`,
+      left: `${left * 100}%`,
+      width: `${((right / columns) - left) * 100}%`,
+    };
   };
 
   return (
-    <div className="ip-heatmap-container">
+    <div className="ip-heatmap-container" ref={containerRef}>
       {/* Child subnet outlines */}
       {childSubnets.map((cs) => (
-        <div key={`child-${cs.id}`} className="ip-heatmap-child-outline">
+        <div
+          key={`child-${cs.id}`}
+          className="ip-heatmap-child-outline"
+          style={rangeToBox(cs.startOffset, cs.endOffset)}
+        >
           <div className="ip-heatmap-child-label" title={`${cs.cidr} ${cs.vlan ? `(VLAN ${cs.vlan})` : ""} ${cs.description ? `— ${cs.description}` : ""}`}>
             {cs.cidr}
           </div>
@@ -137,9 +169,14 @@ export default function SubnetHeatmap({ subnet, subnets = [], onCellClick }) {
 
       {/* DHCP pool as single block */}
       {subnetPools.map((p) => {
-        const cellCount = getDhcpCellCount(p);
+        const poolStart = ipToOffset(p.start_ip, subnet.cidr);
+        const poolEnd = ipToOffset(p.end_ip, subnet.cidr);
         return (
-          <div key={`pool-${p.id}`} className="ip-heatmap-dhcp-block">
+          <div
+            key={`pool-${p.id}`}
+            className="ip-heatmap-dhcp-block"
+            style={rangeToBox(poolStart, poolEnd)}
+          >
             <div className="ip-heatmap-dhcp-label" title={`${p.name || "DHCP Pool"}: ${p.start_ip} – ${p.end_ip} ${p.description ? `— ${p.description}` : ""}`}>
               {p.name || "DHCP"}
             </div>
@@ -147,26 +184,35 @@ export default function SubnetHeatmap({ subnet, subnets = [], onCellClick }) {
         );
       })}
 
-      {/* Individual IP cells */}
-      {cells.filter((c) => !c.isChildSubnet && !c.isDhcpPool).map((cell) => (
-        <div
-          key={cell.key}
-          className={cell.className}
-          onMouseEnter={() => setHoveredCell(cell)}
-          onMouseLeave={() => setHoveredCell(null)}
-          onClick={() => onCellClick?.(cell.ip)}
-          title={cell.hostname ? `${cell.ip} - ${cell.hostname}` : cell.ip}
-        >
-          {hoveredCell?.key === cell.key && (
-            <div className="ip-heatmap-tooltip">
-              <div className="ip-heatmap-tooltip-ip">{cell.ip}</div>
-              <div className="ip-heatmap-tooltip-status">{cell.status}</div>
-              {cell.hostname && <div className="ip-heatmap-tooltip-hostname">{cell.hostname}</div>}
-              {cell.description && <div className="ip-heatmap-tooltip-description">{cell.description}</div>}
-            </div>
-          )}
-        </div>
-      ))}
+      {/* Individual IP cells. Cells covered by a child subnet or DHCP pool
+          still render (as an invisible placeholder) so the grid's implicit
+          auto-flow keeps every remaining cell in its correct row/column —
+          otherwise removing them from the flow would shift later cells left
+          and desync them from the overlays' percentage-based positions
+          above. */}
+      {cells.map((cell) =>
+        cell.isChildSubnet || cell.isDhcpPool ? (
+          <div key={cell.key} className="ip-heatmap-cell ip-heatmap-placeholder" aria-hidden="true" />
+        ) : (
+          <div
+            key={cell.key}
+            className={cell.className}
+            onMouseEnter={() => setHoveredCell(cell)}
+            onMouseLeave={() => setHoveredCell(null)}
+            onClick={() => onCellClick?.(cell.ip)}
+            title={cell.hostname ? `${cell.ip} - ${cell.hostname}` : cell.ip}
+          >
+            {hoveredCell?.key === cell.key && (
+              <div className="ip-heatmap-tooltip">
+                <div className="ip-heatmap-tooltip-ip">{cell.ip}</div>
+                <div className="ip-heatmap-tooltip-status">{cell.status}</div>
+                {cell.hostname && <div className="ip-heatmap-tooltip-hostname">{cell.hostname}</div>}
+                {cell.description && <div className="ip-heatmap-tooltip-description">{cell.description}</div>}
+              </div>
+            )}
+          </div>
+        )
+      )}
     </div>
   );
 }

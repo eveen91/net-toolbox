@@ -522,6 +522,15 @@ tr.ip-row-highlighted {
 .ip-heatmap-cell.ip-heatmap-anomaly {
   background-color: var(--danger);
 }
+.ip-heatmap-cell.ip-heatmap-placeholder {
+  background-color: transparent;
+  cursor: default;
+  pointer-events: none;
+}
+.ip-heatmap-cell.ip-heatmap-placeholder:hover {
+  filter: none;
+  outline: none;
+}
 .ip-heatmap-tooltip {
   position: absolute;
   background: var(--panel);
@@ -548,6 +557,29 @@ tr.ip-row-highlighted {
 }
 .ip-heatmap-tooltip-description {
   color: var(--muted);
+}
+
+/* Wrapper for the child-subnet and DHCP-pool overlays. The grid uses
+   auto-fill columns, so the column count (and therefore each block's pixel
+   position) isn't knowable until layout — these wrappers are positioned
+   absolutely as a percentage of the container, computed in JSX from each
+   block's offset/size relative to totalAddresses, and simply center their
+   label inside that area. */
+.ip-heatmap-child-outline,
+.ip-heatmap-dhcp-block {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 14px;
+  border-radius: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.ip-heatmap-child-outline > *,
+.ip-heatmap-dhcp-block > * {
+  pointer-events: auto;
 }
 
 /* Heatmap child subnet labels */
