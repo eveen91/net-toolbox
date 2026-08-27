@@ -1,12 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { formatVlan } from "./logic.js";
 import { searchAddresses } from "./api.js";
+import TagBadge from "./TagBadge.jsx";
+import TagSelector from "./TagSelector.jsx";
 
 /**
  * Global Search box for finding subnets (by CIDR / description / VLAN)
  * and searching hostnames (or IP addresses / partial matches) across all tracked subnets.
  */
-export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus }) {
+export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus, tags = [], selectedTagIds = [], onTagFilterChange }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(0);
@@ -18,14 +20,24 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
 
   const subnetMatches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return subnets;
-    return subnets.filter(
+    let filtered = subnets;
+
+    if (selectedTagIds.length > 0) {
+      // Filter subnets that have ALL selected tags
+      filtered = filtered.filter((s) => {
+        const tagIds = s.tagIds || [];
+        return selectedTagIds.every((tid) => tagIds.includes(tid));
+      });
+    }
+
+    if (!q) return filtered;
+    return filtered.filter(
       (s) =>
         s.cidr.toLowerCase().includes(q) ||
         (s.description && s.description.toLowerCase().includes(q)) ||
         (s.vlan != null && String(s.vlan).includes(q))
     );
-  }, [subnets, query]);
+  }, [subnets, query, selectedTagIds]);
 
   useEffect(() => {
     const q = query.trim();
@@ -126,6 +138,10 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
     }
   };
 
+  const handleTagFilterChange = (newIds) => {
+    onTagFilterChange(newIds);
+  };
+
   return (
     <div className="ip-search" ref={containerRef}>
       <div className="ip-search-field">
@@ -163,6 +179,40 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus 
             ×
           </button>
         )}
+      </div>
+
+      {selectedTagIds.length > 0 && (
+        <div className="ip-tag-filter-bar">
+          <span className="ip-tag-filter-bar-label">Filter by tags:</span>
+          {tags
+            .filter((t) => selectedTagIds.includes(t.id))
+            .map((tag) => (
+              <TagBadge
+                key={tag.id}
+                tag={tag}
+                size="sm"
+                removable
+                onRemove={() => handleTagFilterChange(selectedTagIds.filter((id) => id !== tag.id))}
+              />
+            ))}
+          <button
+            type="button"
+            className="tool-btn tool-btn-ghost ip-tag-filter-bar-clear"
+            onClick={() => handleTagFilterChange([])}
+          >
+            Clear all
+          </button>
+        </div>
+      )}
+
+      <div className="ip-tag-filter-bar" style={{ borderBottom: "none", marginBottom: 0 }}>
+        <span className="ip-tag-filter-bar-label">Add tag filter:</span>
+        <TagSelector
+          value={selectedTagIds}
+          onChange={handleTagFilterChange}
+          allTags={tags}
+          placeholder="Select tags to filter"
+        />
       </div>
 
       {open && (

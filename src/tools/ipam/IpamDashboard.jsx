@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getIpamDashboard } from "./api.js";
 import { formatTimestamp, formatVlan } from "./logic.js";
+import TagBadge from "./TagBadge.jsx";
 
 /**
  * Cross-subnet overview: one row per subnet showing utilization and
@@ -11,7 +12,7 @@ import { formatTimestamp, formatVlan } from "./logic.js";
  * AddSubnetForm.jsx — this file owns its own data fetching and is
  * imported into Ipam.jsx rather than folded into that file.
  */
-export default function IpamDashboard({ onSelectSubnet }) {
+export default function IpamDashboard({ onSelectSubnet, tags = [] }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -53,8 +54,6 @@ export default function IpamDashboard({ onSelectSubnet }) {
       return av.localeCompare(bv);
     }
     if (sortBy === "lastScannedAt") {
-      // null (never scanned) is always treated as "oldest" so unscanned
-      // subnets consistently land at one end regardless of direction.
       if (a.lastScannedAt === null && b.lastScannedAt === null) return 0;
       if (a.lastScannedAt === null) return -1;
       if (b.lastScannedAt === null) return 1;
@@ -84,6 +83,7 @@ export default function IpamDashboard({ onSelectSubnet }) {
             <th className="ip-sortable-th" onClick={() => handleSort("usedCount")}>
               Used / Free / Reserved{sortIndicator("usedCount")}
             </th>
+            <th>Tags</th>
             <th className="ip-sortable-th" onClick={() => handleSort("lastScannedAt")}>
               Last scanned{sortIndicator("lastScannedAt")}
             </th>
@@ -92,30 +92,44 @@ export default function IpamDashboard({ onSelectSubnet }) {
           </tr>
         </thead>
         <tbody>
-          {sortedEntries.map((e) => (
-            <tr key={e.id} className={e.lastScannedAt ? "" : "ip-dashboard-unscanned"}>
-              <td className="ip-subnet-cidr">{e.cidr}</td>
-              <td>{e.description || "—"}</td>
-              <td>{formatVlan(e.vlan)}</td>
-              <td>
-                {e.usedCount} used · {e.freeCount} free · {e.reservedCount} reserved
-              </td>
-              <td>{e.lastScannedAt ? formatTimestamp(e.lastScannedAt) : "never"}</td>
-              <td>
-                {e.lastScannedAt
-                  ? `${e.lastScanNewlyUsed ?? 0} new · ${e.lastScanWentQuiet ?? 0} quiet · ${e.lastScanHostnameChanged ?? 0} renamed`
-                  : "—"}
-              </td>
-              <td>
-                <button
-                  className="tool-btn tool-btn-ghost ip-row-btn"
-                  onClick={() => onSelectSubnet(e.id)}
-                >
-                  View
-                </button>
-              </td>
-            </tr>
-          ))}
+          {sortedEntries.map((e) => {
+            const entryTags = tags.filter((t) => t.subnetIds?.includes(e.id));
+            return (
+              <tr key={e.id} className={e.lastScannedAt ? "" : "ip-dashboard-unscanned"}>
+                <td className="ip-subnet-cidr">{e.cidr}</td>
+                <td>{e.description || "—"}</td>
+                <td>{formatVlan(e.vlan)}</td>
+                <td>
+                  {e.usedCount} used · {e.freeCount} free · {e.reservedCount} reserved
+                </td>
+                <td>
+                  {entryTags.length > 0 ? (
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {entryTags.map((tag) => (
+                        <TagBadge key={tag.id} tag={tag} size="sm" />
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="tool-hint">—</span>
+                  )}
+                </td>
+                <td>{e.lastScannedAt ? formatTimestamp(e.lastScannedAt) : "never"}</td>
+                <td>
+                  {e.lastScannedAt
+                    ? `${e.lastScanNewlyUsed ?? 0} new · ${e.lastScanWentQuiet ?? 0} quiet · ${e.lastScanHostnameChanged ?? 0} renamed`
+                    : "—"}
+                </td>
+                <td>
+                  <button
+                    className="tool-btn tool-btn-ghost ip-row-btn"
+                    onClick={() => onSelectSubnet(e.id)}
+                  >
+                    View
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

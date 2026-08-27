@@ -17,6 +17,7 @@ Saving a host's table replaces its entire set of routes and interfaces.
 
 import ipaddress
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -180,6 +181,38 @@ def init_db() -> None:
             """
         )
 
+        # Custom Tags Tables
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                color TEXT NOT NULL DEFAULT '#6366f1',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_tag_subnets (
+                tag_id INTEGER NOT NULL REFERENCES ipam_tags(id) ON DELETE CASCADE,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                PRIMARY KEY (tag_id, subnet_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_tag_addresses (
+                tag_id INTEGER NOT NULL REFERENCES ipam_tags(id) ON DELETE CASCADE,
+                address_id INTEGER NOT NULL REFERENCES ipam_addresses(id) ON DELETE CASCADE,
+                PRIMARY KEY (tag_id, address_id)
+            )
+            """
+        )
+
         # Validation Tables
         conn.execute(
             """
@@ -253,6 +286,38 @@ def init_db() -> None:
                 signoff_notes TEXT,
                 generated_at TEXT,
                 report_data TEXT
+            )
+            """
+        )
+
+        # Custom Tags Tables
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT,
+                color TEXT NOT NULL DEFAULT '#6366f1',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_tag_subnets (
+                tag_id INTEGER NOT NULL REFERENCES ipam_tags(id) ON DELETE CASCADE,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                PRIMARY KEY (tag_id, subnet_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_tag_addresses (
+                tag_id INTEGER NOT NULL REFERENCES ipam_tags(id) ON DELETE CASCADE,
+                address_id INTEGER NOT NULL REFERENCES ipam_addresses(id) ON DELETE CASCADE,
+                PRIMARY KEY (tag_id, address_id)
             )
             """
         )
@@ -1919,5 +1984,311 @@ def move_dhcp_pool(from_subnet_id: int, pool_id: int, to_subnet_id: int) -> Dict
         )
         conn.commit()
         return {"fromSubnet": get_subnet(from_subnet_id), "toSubnet": get_subnet(to_subnet_id)}
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Custom Tags
+# ---------------------------------------------------------------------------
+
+_TAG_NAME_RE = re.compile(r'^[a-zA-Z0-9_-]{2,50}$')
+
+
+def _validate_tag_name(name: str) -> str:
+    name = name.strip()
+    if not name:
+        raise ValueError("Tag name is required")
+    if len(name) > 50:
+        raise ValueError("Tag name must be at most 50 characters")
+    if not _TAG_NAME_RE.match(name):
+        raise ValueError("Tag name must be 2-50 characters, alphanumeric, hyphens, and underscores only")
+    return name
+
+
+def _validate_tag_color(color: str) -> str:
+    color = color.strip()
+    if not color:
+        return "#6366f1"
+    if not re.match(r'^#[0-9a-fA-F]{6}$', color):
+        raise ValueError("Tag color must be a hex value (e.g. #6366f1)")
+    return color
+
+
+def create_tag(name: str, description: Optional[str] = None, color: Optional[str] = None) -> Dict:
+    name = _validate_tag_name(name)
+    if description is not None:
+        description = description.strip()
+        if len(description) > 200:
+            raise ValueError("Tag description must be at most 200 characters")
+    color = _validate_tag_color(color or "#6366f1")
+
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO ipam_tags (name, description, color, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (name, description, color, _now(), _now()),
+        )
+        conn.commit()
+        tag_id = cur.lastrowid
+        return get_tag(tag_id)
+    finally:
+        conn.close()
+
+
+def get_tag(tag_id: int) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "description": row["description"],
+            "color": row["color"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+    finally:
+        conn.close()
+
+
+def get_tags() -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute("SELECT * FROM ipam_tags ORDER BY name COLLATE NOCASE").fetchall()
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "description": row["description"],
+                "color": row["color"],
+                "createdAt": row["created_at"],
+                "updatedAt": row["updated_at"],
+            }
+            for row in rows
+        ]
+    finally:
+        conn.close()
+
+
+def delete_tag(tag_id: int) -> bool:
+    conn = get_connection()
+    try:
+        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        if tag is None:
+            return False
+        conn.execute("DELETE FROM ipam_tags WHERE id = ?", (tag_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def add_subnet_tag(subnet_id: int, tag_id: int) -> None:
+    conn = get_connection()
+    try:
+        subnet = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if subnet is None:
+            raise ValueError(f"Subnet {subnet_id} not found")
+        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        if tag is None:
+            raise ValueError(f"Tag {tag_id} not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO ipam_tag_subnets (tag_id, subnet_id) VALUES (?, ?)",
+            (tag_id, subnet_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_subnet_tag(subnet_id: int, tag_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM ipam_tag_subnets WHERE tag_id = ? AND subnet_id = ?",
+            (tag_id, subnet_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def add_address_tag(address_id: int, tag_id: int) -> None:
+    conn = get_connection()
+    try:
+        addr = conn.execute("SELECT id FROM ipam_addresses WHERE id = ?", (address_id,)).fetchone()
+        if addr is None:
+            raise ValueError(f"Address {address_id} not found")
+        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        if tag is None:
+            raise ValueError(f"Tag {tag_id} not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO ipam_tag_addresses (tag_id, address_id) VALUES (?, ?)",
+            (tag_id, address_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_address_tag(address_id: int, tag_id: int) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM ipam_tag_addresses WHERE tag_id = ? AND address_id = ?",
+            (tag_id, address_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_subnets_by_tag(tag_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        if tag is None:
+            raise ValueError(f"Tag {tag_id} not found")
+        rows = conn.execute(
+            """
+            SELECT s.id, s.cidr, s.vlan, s.description, s.updated_at
+            FROM ipam_subnets s
+            JOIN ipam_tag_subnets t ON s.id = t.subnet_id
+            WHERE t.tag_id = ?
+            ORDER BY s.cidr
+            """,
+            (tag_id,),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "cidr": r["cidr"],
+                "vlan": r["vlan"],
+                "description": r["description"],
+                "updatedAt": r["updated_at"],
+                "totalAddresses": 0,
+                "usedCount": 0,
+                "freeCount": 0,
+                "reservedCount": 0,
+                "recordedCount": 0,
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_addresses_by_tag(tag_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        if tag is None:
+            raise ValueError(f"Tag {tag_id} not found")
+        rows = conn.execute(
+            """
+            SELECT a.id, a.address, a.status, a.hostname, a.description,
+                   s.id AS subnet_id, s.cidr AS subnet_cidr, s.vlan AS subnet_vlan
+            FROM ipam_addresses a
+            JOIN ipam_tag_addresses ta ON a.id = ta.address_id
+            JOIN ipam_subnets s ON a.subnet_id = s.id
+            WHERE ta.tag_id = ?
+            ORDER BY s.cidr, a.address
+            """,
+            (tag_id,),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "address": r["address"],
+                "status": r["status"],
+                "hostname": r["hostname"],
+                "description": r["description"],
+                "subnetId": r["subnet_id"],
+                "subnetCidr": r["subnet_cidr"],
+                "subnetVlan": r["subnet_vlan"],
+                "locked": False,
+                "updatedAt": _now(),
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_subnet_tags(subnet_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT t.id, t.name, t.description, t.color
+            FROM ipam_tags t
+            JOIN ipam_tag_subnets ts ON t.id = ts.tag_id
+            WHERE ts.subnet_id = ?
+            ORDER BY t.name COLLATE NOCASE
+            """,
+            (subnet_id,),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "description": r["description"],
+                "color": r["color"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def get_address_tags(address_id: int) -> List[Dict]:
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT t.id, t.name, t.description, t.color
+            FROM ipam_tags t
+            JOIN ipam_tag_addresses ta ON t.id = ta.tag_id
+            WHERE ta.address_id = ?
+            ORDER BY t.name COLLATE NOCASE
+            """,
+            (address_id,),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "description": r["description"],
+                "color": r["color"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
+
+
+def search_tags(query: str) -> List[Dict]:
+    conn = get_connection()
+    try:
+        pattern = f"%{query}%"
+        rows = conn.execute(
+            "SELECT * FROM ipam_tags WHERE name LIKE ? OR description LIKE ? ORDER BY name COLLATE NOCASE LIMIT 20",
+            (pattern, pattern),
+        ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "description": r["description"],
+                "color": r["color"],
+            }
+            for r in rows
+        ]
     finally:
         conn.close()

@@ -104,7 +104,24 @@ Full-featured IP address and subnet management system.
      - Automatic relocation: when a child subnet is created that fully contains an existing pool range, the pool is auto-migrated to the narrower subnet.
      - Manual move and bulk-move of DHCP pools between subnets with overlap/containment validation.
      - Dedicated **Resubnet Review** tab surfaces both misplaced addresses and misplaced DHCP pools, allowing one-click Move/Dismiss for all out-of-place resources in a single unified table.
-  - **Address Search**: Search IP addresses and hostnames across all subnets via `GET /api/ipam/addresses/search`.
+   - **Address Search**: Search IP addresses and hostnames across all subnets via `GET /api/ipam/addresses/search`.
+   - **Custom Tags System**: Create and manage custom tags to categorize subnets and addresses.
+     - Tags have a name (2-50 chars, alphanumeric/hyphens/underscores), optional description, and a hex color.
+     - Tags can be attached to subnets and individual addresses.
+     - Filter the dashboard and search results by applying tag filters.
+     - **API Endpoints**:
+       - `GET /api/ipam/tags` — List all tags
+       - `POST /api/ipam/tags` — Create a tag
+       - `DELETE /api/ipam/tags/{tag_id}` — Delete a tag (cascades to associations)
+       - `GET /api/ipam/tags/search?q=` — Search tags by name/description
+       - `GET /api/ipam/subnets/{subnet_id}/tags` — Get tags for a subnet
+       - `POST /api/ipam/subnets/{subnet_id}/tags/{tag_id}` — Add tag to subnet
+       - `DELETE /api/ipam/subnets/{subnet_id}/tags/{tag_id}` — Remove tag from subnet
+       - `GET /api/ipam/addresses/{address_id}/tags` — Get tags for an address
+       - `POST /api/ipam/addresses/{address_id}/tags/{tag_id}` — Add tag to address
+       - `DELETE /api/ipam/addresses/{address_id}/tags/{tag_id}` — Remove tag from address
+       - `GET /api/ipam/tags/{tag_id}/subnets` — Find subnets by tag
+       - `GET /api/ipam/tags/{tag_id}/addresses` — Find addresses by tag
 
 ### Troubleshoot
 Multi-vendor network device diagnostic and lookup suite.
@@ -474,6 +491,30 @@ These endpoints are not role-gated on the backend — tool visibility is filtere
 | `name` | TEXT | NULL | Optional human-readable name |
 | `description` | TEXT | NULL | Optional description |
 | `updated_at` | TEXT | NOT NULL | Last-modified timestamp |
+
+#### `ipam_tags`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Tag ID |
+| `name` | TEXT | NOT NULL UNIQUE | Tag name (2-50 chars, alphanumeric/hyphens/underscores) |
+| `description` | TEXT | NULL | Optional tag description (max 200 chars) |
+| `color` | TEXT | NOT NULL DEFAULT '#6366f1' | Hex color for the tag badge |
+| `created_at` | TEXT | NOT NULL | Creation timestamp |
+| `updated_at` | TEXT | NOT NULL | Last-modified timestamp |
+
+#### `ipam_tag_subnets`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `tag_id` | INTEGER | FK -> `ipam_tags.id` ON DELETE CASCADE | Tag ID |
+| `subnet_id` | INTEGER | FK -> `ipam_subnets.id` ON DELETE CASCADE | Subnet ID |
+| **PRIMARY KEY** | `(tag_id, subnet_id)` | | Composite key |
+
+#### `ipam_tag_addresses`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `tag_id` | INTEGER | FK -> `ipam_tags.id` ON DELETE CASCADE | Tag ID |
+| `address_id` | INTEGER | FK -> `ipam_addresses.id` ON DELETE CASCADE | Address ID |
+| **PRIMARY KEY** | `(tag_id, address_id)` | | Composite key |
 
 ---
 

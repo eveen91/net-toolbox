@@ -585,3 +585,236 @@ tr.ip-row-highlighted {
   background: rgba(255, 200, 64, 0.25);
   border-color: var(--warn);
 }
+
+/* ---------------------------------------------------------------------------
+   Custom Tags
+   --------------------------------------------------------------------------- */
+
+.ip-tag-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.ip-tag-badge-sm {
+  padding: 1px 6px;
+  font-size: 10px;
+}
+
+.ip-tag-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ip-tag-badge-sm .ip-tag-badge-dot {
+  width: 5px;
+  height: 5px;
+}
+
+.ip-tag-badge-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ip-tag-badge-remove {
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ip-tag-badge-remove:hover {
+  opacity: 1;
+}
+
+.ip-tag-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ip-tag-filter-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.ip-tag-filter-bar-clear {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+/* Tag Selector */
+.ip-tag-selector {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.ip-tag-selector-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  width: 100%;
+}
+
+.ip-tag-selector-toggle {
+  font-size: 11px;
+  color: var(--muted);
+  background: none;
+  border: 1px dashed var(--border-soft);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.ip-tag-selector-toggle:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.ip-tag-selector-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 240px;
+  max-width: 320px;
+  margin-top: 4px;
+  padding: 8px;
+}
+
+.ip-tag-selector-search {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 6px;
+}
+
+.ip-tag-selector-hint {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.ip-tag-selector-empty {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 0;
+}
+
+.ip-tag-selector-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  border-radius: 4px;
+}
+
+.ip-tag-selector-option:hover {
+  background: var(--bg-hover);
+}
+
+.ip-tag-selector-option-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ip-tag-selector-option-name {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.ip-tag-selector-option-desc {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.ip-tag-selector-new {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  margin-top: 4px;
+}
+
+.ip-tag-selector-new-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ip-tag-selector-color {
+  width: 32px;
+  height: 24px;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.ip-tag-selector-create-error {
+  font-size: 10px;
+  color: var(--danger);
+}
+
+.ip-tag-selector-add-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+/* Tag count badge in dashboard */
+.ip-tag-count-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--accent-2);
+  color: var(--bg);
+  margin-left: 6px;
+}

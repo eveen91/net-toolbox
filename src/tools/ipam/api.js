@@ -306,3 +306,89 @@ export async function moveDhcpPool(subnetId, poolId, targetSubnetId) {
   );
   return handle(res);
 }
+
+// ---------------------------------------------------------------------------
+// Custom Tags
+// ---------------------------------------------------------------------------
+
+export async function fetchTags() {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/tags`);
+  const data = await handle(res);
+  return data.tags;
+}
+
+export async function createTag(tagData) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/tags`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(tagData),
+  });
+  return handle(res);
+}
+
+export async function deleteTag(tagId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/tags/${tagId}`, {
+    method: "DELETE",
+  });
+  return handle(res);
+}
+
+export async function searchTags(query) {
+  if (!query || !query.trim()) return [];
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/tags/search?q=${encodeURIComponent(query.trim())}`
+  );
+  return handle(res);
+}
+
+export async function fetchSubnetTags(subnetId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/tags`);
+  return handle(res);
+}
+
+export async function addSubnetTag(subnetId, tagId) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/subnets/${subnetId}/tags/${tagId}`,
+    { method: "POST" }
+  );
+  return handle(res);
+}
+
+export async function removeSubnetTag(subnetId, tagId) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/subnets/${subnetId}/tags/${tagId}`,
+    { method: "DELETE" }
+  );
+  return handle(res);
+}
+
+export async function fetchAddressTags(addressId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/addresses/${addressId}/tags`);
+  return handle(res);
+}
+
+export async function addAddressTag(addressId, tagId) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/addresses/${addressId}/tags/${tagId}`,
+    { method: "POST" }
+  );
+  return handle(res);
+}
+
+export async function removeAddressTag(addressId, tagId) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/addresses/${addressId}/tags/${tagId}`,
+    { method: "DELETE" }
+  );
+  return handle(res);
+}
+
+export async function fetchSubnetsByTag(tagId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/tags/${tagId}/subnets`);
+  return handle(res);
+}
+
+export async function fetchAddressesByTag(tagId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/tags/${tagId}/addresses`);
+  return handle(res);
+}

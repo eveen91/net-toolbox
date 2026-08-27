@@ -21,6 +21,7 @@ import logging
 import os
 import re
 import secrets
+import sqlite3
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -1775,6 +1776,65 @@ class MoveAddressResponse(BaseModel):
     toSubnet: SubnetDetail
 
 
+# ---------------------------------------------------------------------------
+# Custom Tags
+# ---------------------------------------------------------------------------
+
+class TagCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    color: Optional[str] = "#6366f1"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v):
+        v = v.strip()
+        import re
+        if not v or len(v) > 50:
+            raise ValueError("Tag name must be 2-50 characters")
+        if not re.match(r'^[a-zA-Z0-9_-]{2,50}$', v):
+            raise ValueError("Tag name must be alphanumeric, hyphens, and underscores only")
+        return v
+
+    @field_validator("color")
+    @classmethod
+    def validate_color(cls, v):
+        if v is None:
+            return "#6366f1"
+        v = v.strip()
+        if not re.match(r'^#[0-9a-fA-F]{6}$', v):
+            raise ValueError("Color must be a hex value (e.g. #6366f1)")
+        return v
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, v):
+        if v is not None and len(v) > 200:
+            raise ValueError("Description must be at most 200 characters")
+        return v
+
+
+class TagResponse(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    color: str
+    createdAt: str
+    updatedAt: str
+
+
+class TagListResponse(BaseModel):
+    tags: List[TagResponse]
+    count: int
+
+
+class TagSummary(BaseModel):
+    id: int
+    name: str
+    description: Optional[str] = None
+    color: str
+
+
 @app.get("/api/ipam/dashboard", response_model=List[DashboardEntry], dependencies=[Depends(require_feature("ipam"))])
 def get_ipam_dashboard():
     subnets = db.list_subnets()
@@ -2379,3 +2439,103 @@ def get_subnet_scans(subnet_id: int):
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
     return db.list_scans(subnet_id)
+
+
+# ---------------------------------------------------------------------------
+# Custom Tags API Endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/ipam/tags", response_model=TagListResponse, dependencies=[Depends(require_feature("ipam"))])
+def get_tags():
+    tags = db.get_tags()
+    return TagListResponse(tags=tags, count=len(tags))
+
+
+@app.post("/api/ipam/tags", response_model=TagResponse, dependencies=[Depends(require_feature("ipam"))])
+def create_tag(req: TagCreateRequest):
+    try:
+        return db.create_tag(req.name, req.description, req.color)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail=f'Tag "{req.name}" already exists')
+
+
+@app.delete("/api/ipam/tags/{tag_id}", dependencies=[Depends(require_feature("ipam"))])
+def delete_tag(tag_id: int):
+    deleted = db.delete_tag(tag_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    return {"deleted": tag_id}
+
+
+@app.get("/api/ipam/tags/search", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+def search_tags(q: str = ""):
+    if not q or not q.strip():
+        return []
+    return db.search_tags(q.strip())
+
+
+@app.get("/api/ipam/subnets/{subnet_id}/tags", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+def get_subnet_tags(subnet_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return db.get_subnet_tags(subnet_id)
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+def add_subnet_tag(subnet_id: int, tag_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    try:
+        db.add_subnet_tag(subnet_id, tag_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return db.get_subnet_tags(subnet_id)
+
+
+@app.delete("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+def remove_subnet_tag(subnet_id: int, tag_id: int):
+    data = db.get_subnet(subnet_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    db.remove_subnet_tag(subnet_id, tag_id)
+    return db.get_subnet_tags(subnet_id)
+
+
+@app.get("/api/ipam/addresses/{address_id}/tags", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+def get_address_tags(address_id: int):
+    return db.get_address_tags(address_id)
+
+
+@app.post("/api/ipam/addresses/{address_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+def add_address_tag(address_id: int, tag_id: int):
+    try:
+        db.add_address_tag(address_id, tag_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return db.get_address_tags(address_id)
+
+
+@app.delete("/api/ipam/addresses/{address_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+def remove_address_tag(address_id: int, tag_id: int):
+    db.remove_address_tag(address_id, tag_id)
+    return db.get_address_tags(address_id)
+
+
+@app.get("/api/ipam/tags/{tag_id}/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_feature("ipam"))])
+def get_subnets_by_tag(tag_id: int):
+    try:
+        return db.get_subnets_by_tag(tag_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/ipam/tags/{tag_id}/addresses", response_model=List[SearchAddressEntry], dependencies=[Depends(require_feature("ipam"))])
+def get_addresses_by_tag(tag_id: int):
+    try:
+        return db.get_addresses_by_tag(tag_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

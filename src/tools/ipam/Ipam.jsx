@@ -6,6 +6,9 @@ import IpamDashboard from "./IpamDashboard.jsx";
 import ResubnetReview from "./ResubnetReview.jsx";
 import DhcpPoolManager from "./DhcpPoolManager.jsx";
 import SubnetHeatmap from "./SubnetHeatmap.jsx";
+import TagSelector from "./TagSelector.jsx";
+import TagFilterBar from "./TagFilterBar.jsx";
+import TagBadge from "./TagBadge.jsx";
 import {
   formatVlan,
   formatTimestamp,
@@ -37,6 +40,15 @@ import {
   getIpamSettings,
   updateIpamSettings,
   getNextAvailableIp,
+  fetchTags,
+  createTag,
+  deleteTag,
+  fetchSubnetTags,
+  addSubnetTag,
+  removeSubnetTag,
+  fetchAddressTags,
+  addAddressTag,
+  removeAddressTag,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -63,13 +75,14 @@ function UtilizationBar({ subnet }) {
 const MACHINE_TYPE_LABELS = { physical: "Physical", vm: "VM" };
 const ENVIRONMENT_LABELS = { prod: "Prod", test: "Test", dev: "Dev" };
 
-function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onUpdated, onError }) {
+function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onUpdated, onError, tags, addressTagIds = {}, onAddressTagChange }) {
   const rowRef = useRef(null);
   useEffect(() => {
     if (highlighted && rowRef.current) {
       rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [highlighted]);
+  const currentTags = addressTagIds[addr.id] || [];
   const [modalOpen, setModalOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -180,6 +193,23 @@ function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onU
         <td>{addr.locked ? "🔒" : "—"}</td>
         <td className="ip-actions-cell">
           <div className="ip-actions-inner">
+            {currentTags.map((tag) => (
+              <TagBadge
+                key={tag.id}
+                tag={tag}
+                size="sm"
+                removable
+                onRemove={() => onAddressTagChange(addr.id, currentTags.filter((t) => t.id !== tag.id).map((t) => t.id))}
+              />
+            ))}
+            {tags && (
+              <TagSelector
+                value={currentTags.map((t) => t.id)}
+                onChange={(newIds) => onAddressTagChange(addr.id, newIds)}
+                allTags={tags}
+                placeholder="+ Tag"
+              />
+            )}
             {confirmingDelete ? (
               <>
                 <button className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger" onClick={remove} disabled={saving}>
@@ -932,7 +962,7 @@ function ScanExcludeManager({ subnetId }) {
   );
 }
 
-function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, onSelectSubnet, highlightedAddressId }) {
+function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, onSelectSubnet, highlightedAddressId, tags, subnetTagIds = [], onTagChange, addressTagIds = {}, onAddressTagChange }) {
   const [editingHeader, setEditingHeader] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [headerDraft, setHeaderDraft] = useState({
@@ -1329,6 +1359,28 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
       <h3 className="ip-section-sub-title">DHCP Pools</h3>
       <DhcpPoolManager subnetId={subnet.id} subnets={subnets} />
 
+      <h3 className="ip-section-sub-title">Tags</h3>
+      <TagSelector
+        value={subnetTagIds.map((t) => t.id)}
+        onChange={(newIds) => onTagChange(newIds)}
+        allTags={tags}
+        placeholder="Add tags to this subnet"
+      />
+      {subnetTagIds.length > 0 && (
+        <div className="ip-tag-filter-bar" style={{ marginTop: 8 }}>
+          <span className="ip-tag-filter-bar-label">Applied:</span>
+          {subnetTagIds.map((tag) => (
+            <TagBadge
+              key={tag.id}
+              tag={tag}
+              size="sm"
+              removable
+              onRemove={() => onTagChange(subnetTagIds.filter((t) => t.id !== tag.id).map((t) => t.id))}
+            />
+          ))}
+        </div>
+      )}
+
       <h3 className="ip-section-sub-title">Addresses</h3>
       {rowError && <div className="tool-error">{rowError}</div>}
       <AddAddressForm subnetId={subnet.id} onAdded={onDetailUpdated} onError={setRowError} />
@@ -1388,6 +1440,9 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
                   onToggleSelect={toggleSelect}
                   onUpdated={onDetailUpdated}
                   onError={setRowError}
+                  tags={tags}
+                  addressTagIds={addressTagIds}
+                  onAddressTagChange={onAddressTagChange}
                 />
               ))}
             </tbody>
@@ -1499,6 +1554,13 @@ export default function Ipam() {
   const [settingsError, setSettingsError] = useState(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
+  const [allTags, setAllTags] = useState([]);
+  const [tagLoading, setTagLoading] = useState(true);
+  const [tagError, setTagError] = useState(null);
+  const [selectedTagIds, setSelectedTagIds] = useState([]);
+  const [subnetTagIds, setSubnetTagIds] = useState({});
+  const [addressTagIds, setAddressTagIds] = useState({});
+
   const refreshList = async () => {
     setListLoading(true);
     setListError(null);
@@ -1515,6 +1577,67 @@ export default function Ipam() {
   useEffect(() => {
     refreshList();
   }, []);
+
+  useEffect(() => {
+    setTagLoading(true);
+    setTagError(null);
+    fetchTags()
+      .then((tags) => setAllTags(tags))
+      .catch((e) => setTagError(e.message))
+      .finally(() => setTagLoading(false));
+  }, []);
+
+  const loadSubnetTags = async (subnetId) => {
+    try {
+      const tags = await fetchSubnetTags(subnetId);
+      setSubnetTagIds((prev) => ({ ...prev, [subnetId]: tags }));
+    } catch {
+      // best-effort
+    }
+  };
+
+  const loadAddressTags = async (addressId) => {
+    try {
+      const tags = await fetchAddressTags(addressId);
+      setAddressTagIds((prev) => ({ ...prev, [addressId]: tags }));
+    } catch {
+      // best-effort
+    }
+  };
+
+  const handleTagChange = async (subnetId, newTagIds) => {
+    const current = subnetTagIds[subnetId] || [];
+    const currentIds = current.map((t) => t.id);
+    const toAdd = newTagIds.filter((id) => !currentIds.includes(id));
+    const toRemove = currentIds.filter((id) => !newTagIds.includes(id));
+
+    for (const tagId of toAdd) {
+      try { await addSubnetTag(subnetId, tagId); } catch { /* ignore */ }
+    }
+    for (const tagId of toRemove) {
+      try { await removeSubnetTag(subnetId, tagId); } catch { /* ignore */ }
+    }
+    await loadSubnetTags(subnetId);
+  };
+
+  const handleAddressTagChange = async (addressId, newTagIds) => {
+    const current = addressTagIds[addressId] || [];
+    const currentIds = current.map((t) => t.id);
+    const toAdd = newTagIds.filter((id) => !currentIds.includes(id));
+    const toRemove = currentIds.filter((id) => !newTagIds.includes(id));
+
+    for (const tagId of toAdd) {
+      try { await addAddressTag(addressId, tagId); } catch { /* ignore */ }
+    }
+    for (const tagId of toRemove) {
+      try { await removeAddressTag(addressId, tagId); } catch { /* ignore */ }
+    }
+    await loadAddressTags(addressId);
+  };
+
+  const handleFilterTagRemove = (tagId) => {
+    setSelectedTagIds((prev) => prev.filter((id) => id !== tagId));
+  };
 
   const loadSettings = async () => {
     setSettingsError(null);
@@ -1596,6 +1719,9 @@ export default function Ipam() {
           <SubnetSearch
             subnets={subnets}
             selectedId={selectedId}
+            tags={allTags}
+            selectedTagIds={selectedTagIds}
+            onTagFilterChange={setSelectedTagIds}
             onSelect={(id, addressId) => {
               setViewMode("search");
               selectSubnet(id, addressId);
@@ -1672,6 +1798,13 @@ export default function Ipam() {
           </div>
         </div>
 
+        {selectedTagIds.length > 0 && (
+          <TagFilterBar
+            tags={allTags.filter((t) => selectedTagIds.includes(t.id))}
+            onRemove={handleFilterTagRemove}
+          />
+        )}
+
         {viewMode === "search" && (
           <>
             {listError && <div className="tool-error">{listError}</div>}
@@ -1696,6 +1829,11 @@ export default function Ipam() {
               <SubnetDetail
                 subnet={selectedDetail}
                 subnets={subnets}
+                tags={allTags}
+                subnetTagIds={subnetTagIds[selectedId] || []}
+                onTagChange={(newIds) => handleTagChange(selectedId, newIds)}
+                addressTagIds={addressTagIds}
+                onAddressTagChange={handleAddressTagChange}
                 deleting={deleting}
                 onDelete={handleDelete}
                 onDetailUpdated={handleDetailUpdated}
@@ -1712,6 +1850,7 @@ export default function Ipam() {
               setViewMode("search");
               selectSubnet(id);
             }}
+            tags={allTags}
           />
         )}
 
