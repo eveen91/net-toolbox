@@ -495,7 +495,16 @@ tr.ip-row-highlighted {
 .ip-heatmap-container {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+  /* Column count is computed in JS (ResizeObserver on container width) and
+     applied via the --ip-heatmap-cols custom property, rather than using
+     grid-template-columns: repeat(auto-fill, ...). auto-fill's resolved
+     column count isn't readable from JS without measuring rendered DOM
+     nodes after paint, which was the source of a class of bugs where the
+     DHCP-pool/child-subnet overlays (positioned in JS from address offsets)
+     drifted out of sync with where the grid actually put each cell. With
+     the column count coming from the same JS value in both places, cells
+     and overlays can never disagree about the grid's shape. */
+  grid-template-columns: repeat(var(--ip-heatmap-cols, 32), minmax(14px, 1fr));
   gap: 3px;
   margin: 15px 0;
 }
@@ -559,63 +568,92 @@ tr.ip-row-highlighted {
   color: var(--muted);
 }
 
-/* Wrapper for the child-subnet and DHCP-pool overlays. The grid uses
-   auto-fill columns, so the column count (and therefore each block's pixel
-   position) isn't knowable until layout — these wrappers are positioned
-   absolutely as a percentage of the container, computed in JSX from each
-   block's offset/size relative to totalAddresses, and simply center their
-   label inside that area. */
+/* Child-subnet and DHCP-pool overlays. These are real grid items — not
+   absolutely positioned — placed via grid-column/grid-row (set inline via
+   style={rangeToBox(...)} in JSX, using the same --ip-heatmap-cols column
+   count the container uses) so they occupy exactly the cell(s) their
+   address range covers, laid out by the grid itself rather than by
+   JS-measured pixel math. z-index lifts them above the invisible
+   placeholder cells occupying the same grid area underneath.
+
+   The fill/border live here, on the full span — not on the inner label —
+   so the whole address range the pool/child-subnet covers is visibly
+   painted, with the label just captioning it. (Previously only the small
+   inner label had a background/border, so only the label was visible and
+   the rest of the correctly-sized span looked like empty space — a pool
+   spanning many cells still only *looked* like a single small badge.)
+
+   min-width/min-height: 0 override the grid default of min-width: auto on
+   grid items, which otherwise lets the label's unwrapped text (nowrap, see
+   below) force its grid tracks wider than the span actually assigned —
+   the block would visually grow or shrink to fit a short/long pool name
+   instead of staying exactly as wide as the address range it represents. */
 .ip-heatmap-child-outline,
 .ip-heatmap-dhcp-block {
-  position: absolute;
+  position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 14px;
+  min-width: 0;
+  min-height: 0;
   border-radius: 2px;
   overflow: hidden;
   pointer-events: none;
+  box-sizing: border-box;
 }
 .ip-heatmap-child-outline > *,
 .ip-heatmap-dhcp-block > * {
   pointer-events: auto;
+  min-width: 0;
 }
 
-/* Heatmap child subnet labels */
-.ip-heatmap-child-label {
+.ip-heatmap-child-outline {
   background: rgba(96, 160, 255, 0.15);
   border: 1px solid rgba(96, 160, 255, 0.4);
-  color: var(--text);
-  font-size: 10px;
-  padding: 2px 4px;
-  text-align: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
 }
-.ip-heatmap-child-label:hover {
+.ip-heatmap-child-outline:hover {
   background: rgba(96, 160, 255, 0.25);
   border-color: var(--accent);
 }
 
-/* Heatmap DHCP pool labels */
-.ip-heatmap-dhcp-label {
+.ip-heatmap-dhcp-block {
   background: rgba(255, 200, 64, 0.15);
   border: 1px solid rgba(255, 200, 64, 0.4);
+}
+.ip-heatmap-dhcp-block:hover {
+  background: rgba(255, 200, 64, 0.25);
+  border-color: var(--warn);
+}
+
+/* Heatmap child subnet labels — plain caption text inside the colored
+   span above; the span itself (not this label) carries the fill/border. */
+.ip-heatmap-child-label {
   color: var(--text);
   font-size: 10px;
-  padding: 2px 4px;
+  padding: 0 4px;
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   cursor: pointer;
+  max-width: 100%;
+  box-sizing: border-box;
 }
-.ip-heatmap-dhcp-label:hover {
-  background: rgba(255, 200, 64, 0.25);
-  border-color: var(--warn);
+
+/* Heatmap DHCP pool labels — plain caption text inside the colored span
+   above; the span itself (not this label) carries the fill/border. */
+.ip-heatmap-dhcp-label {
+  color: var(--text);
+  font-size: 10px;
+  padding: 0 4px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* ---------------------------------------------------------------------------
@@ -849,4 +887,57 @@ tr.ip-row-highlighted {
   background: var(--accent-2);
   color: var(--bg);
   margin-left: 6px;
+}
+
+.ip-subnet-allocator {
+  padding: 16px;
+}
+
+.ip-subnet-allocator h3 {
+  margin: 0 0 8px;
+}
+
+.ip-subnet-allocator p {
+  margin: 0 0 16px;
+}
+
+.ip-prefix-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ip-prefix-buttons .tool-btn {
+  flex: 1;
+}
+
+.ip-prefix-buttons .tool-btn.active {
+  background: var(--accent-1);
+  border-color: var(--accent-1);
+  color: var(--text-inverted);
+}
+
+.ip-allocation-results {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-surface);
+  border-radius: 4px;
+}
+
+.ip-allocation-results h4 {
+  margin: 0 0 12px;
+}
+
+.allocation-card {
+  padding: 12px;
+  background: var(--bg-default);
+  border-radius: 4px;
+}
+
+.allocation-card p {
+  margin: 0 0 8px;
+}
+
+.allocation-card p:last-child {
+  margin-bottom: 0;
 }

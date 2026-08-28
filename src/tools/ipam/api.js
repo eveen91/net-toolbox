@@ -392,3 +392,10 @@ export async function fetchAddressesByTag(tagId) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/tags/${tagId}/addresses`);
   return handle(res);
 }
+
+export async function fetchSubnetAllocation(parentCidr, prefix) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/subnet-allocation?parent=${encodeURIComponent(parentCidr)}&prefix=${prefix}`,
+  );
+  return handle(res);
+}

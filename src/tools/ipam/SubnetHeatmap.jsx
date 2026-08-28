@@ -14,18 +14,25 @@ function ipToOffset(ip, subnetCidr) {
 export default function SubnetHeatmap({ subnet, subnets = [], onCellClick }) {
   const [hoveredCell, setHoveredCell] = useState(null);
   const containerRef = useRef(null);
-  const [columns, setColumns] = useState(1);
+  const [columns, setColumns] = useState(32);
 
-  // The grid uses auto-fill columns (CSS decides the count from container
-  // width), so mirror that here to know how many columns per row for
-  // placing the child-subnet/DHCP-pool overlays at the right offset.
+  // Column count is computed from container width and applied to the grid
+  // via the --ip-heatmap-cols CSS custom property (see ipam.css) instead of
+  // letting CSS grid-template-columns: repeat(auto-fill, ...) decide it.
+  // That way JS and CSS always agree on the same column count, so the
+  // DHCP-pool/child-subnet overlays — placed with grid-column/grid-row
+  // spans computed from this same value — land on exactly the cells their
+  // address range covers, with no separate DOM measurement step that could
+  // fall out of sync with what the grid actually rendered.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
     const measure = () => {
       const width = el.clientWidth;
+      if (!width) return;
       const cols = Math.max(1, Math.floor((width + CELL_GAP_PX) / (CELL_MIN_PX + CELL_GAP_PX)));
       setColumns(cols);
+      el.style.setProperty("--ip-heatmap-cols", cols);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -133,22 +140,24 @@ export default function SubnetHeatmap({ subnet, subnets = [], onCellClick }) {
     );
   }
 
-  // Convert an [startOffset, endOffset] address range into a CSS bounding
-  // box (as percentages of the container) covering every grid row the
-  // range touches, so multi-row child subnets / DHCP pools get one
-  // continuous overlay instead of only the first row.
-  const rowCount = Math.max(1, Math.ceil(totalAddresses / columns));
+  // Convert an [startOffset, endOffset] address range into CSS grid
+  // placement covering every row the range touches, so multi-row child
+  // subnets / DHCP pools get one continuous overlay instead of only the
+  // first row. Grid lines are 1-indexed, and a range spanning multiple full
+  // rows (wider than one row) uses the full row width on every row it
+  // touches except possibly trimming the first/last — for the common case
+  // (a DHCP pool a handful of IPs wide) this is a single row, single span.
   const rangeToBox = (startOffset, endOffset) => {
     const startRow = Math.floor(startOffset / columns);
     const endRow = Math.floor(endOffset / columns);
     const spansFullRows = endRow > startRow;
-    const left = spansFullRows ? 0 : (startOffset % columns) / columns;
-    const right = spansFullRows ? columns : (endOffset % columns) + 1;
+    const startCol = spansFullRows ? 0 : startOffset % columns;
+    const endCol = spansFullRows ? columns - 1 : endOffset % columns;
     return {
-      top: `${(startRow / rowCount) * 100}%`,
-      height: `${((endRow - startRow + 1) / rowCount) * 100}%`,
-      left: `${left * 100}%`,
-      width: `${((right / columns) - left) * 100}%`,
+      gridRowStart: startRow + 1,
+      gridRowEnd: endRow + 2,
+      gridColumnStart: startCol + 1,
+      gridColumnEnd: endCol + 2,
     };
   };
 
@@ -185,11 +194,11 @@ export default function SubnetHeatmap({ subnet, subnets = [], onCellClick }) {
       })}
 
       {/* Individual IP cells. Cells covered by a child subnet or DHCP pool
-          still render (as an invisible placeholder) so the grid's implicit
-          auto-flow keeps every remaining cell in its correct row/column —
-          otherwise removing them from the flow would shift later cells left
-          and desync them from the overlays' percentage-based positions
-          above. */}
+          still render (as an invisible placeholder occupying that grid
+          cell) rather than being omitted, so the grid's auto-placement
+          continues to lay out every remaining cell in its correct
+          row/column — the overlay above sits on top of the same slot via
+          z-index, explicit grid placement, and pointer-events: none. */}
       {cells.map((cell) =>
         cell.isChildSubnet || cell.isDhcpPool ? (
           <div key={cell.key} className="ip-heatmap-cell ip-heatmap-placeholder" aria-hidden="true" />

@@ -2311,3 +2311,219 @@ def search_tags(query: str) -> List[Dict]:
         ]
     finally:
         conn.close()
+
+
+def find_next_contiguous_subnet(parent_cidr: str, required_prefix: int) -> Optional[Dict]:
+    """
+    Find the next available contiguous subnet within a parent CIDR block.
+    
+    Args:
+        parent_cidr: Parent subnet CIDR (e.g., "10.100.0.0/16")
+        required_prefix: Required prefix length (e.g., 28)
+    
+    Returns:
+        Dict with recommendation details or None if no space available
+    """
+    import ipaddress
+    
+    try:
+        parent_net = ipaddress.ip_network(parent_cidr, strict=False)
+    except ValueError as e:
+        raise ValueError(f"Invalid parent CIDR: {parent_cidr}")
+    
+    # Validate required prefix
+    if required_prefix < parent_net.prefixlen:
+        raise ValueError(f"Requested prefix {required_prefix} is larger than parent prefix {parent_net.prefixlen}")
+    
+    if required_prefix > 32:
+        raise ValueError(f"Invalid prefix length: {required_prefix}")
+    
+    conn = get_connection()
+    try:
+        # Get all existing subnets that overlap with the parent
+        rows = conn.execute("SELECT cidr FROM ipam_subnets").fetchall()
+        existing_nets = []
+        for r in rows:
+            try:
+                net = ipaddress.ip_network(r["cidr"])
+                # Skip the parent itself and check overlap
+                if net == parent_net:
+                    continue
+                if parent_net.overlaps(net):
+                    existing_nets.append(net)
+            except ValueError:
+                # Skip invalid CIDRs
+                continue
+        
+        # Get all addresses from subnets that overlap with the parent
+        # We need to find the subnet IDs first
+        subnet_ids = []
+        for net in existing_nets:
+            # Find subnet ID for this network
+            id_row = conn.execute(
+                "SELECT id FROM ipam_subnets WHERE cidr = ?",
+                (str(net),)
+            ).fetchone()
+            if id_row:
+                subnet_ids.append(id_row["id"])
+        
+        # Also check the parent subnet itself for addresses
+        parent_id_row = conn.execute(
+            "SELECT id FROM ipam_subnets WHERE cidr = ?",
+            (str(parent_net),)
+        ).fetchone()
+        if parent_id_row:
+            subnet_ids.append(parent_id_row["id"])
+        
+        # Get all addresses in these subnets
+        occupied_ranges = []
+        if subnet_ids:
+            placeholders = ",".join("?" * len(subnet_ids))
+            addr_rows = conn.execute(
+                f"SELECT address FROM ipam_addresses WHERE subnet_id IN ({placeholders})",
+                subnet_ids
+            ).fetchall()
+            
+            for addr_row in addr_rows:
+                try:
+                    addr = ipaddress.ip_address(addr_row["address"])
+                    if parent_net.network_address <= addr <= parent_net.broadcast_address:
+                        # This address is within our parent, treat as occupied
+                        occupied_ranges.append((int(addr), int(addr)))
+                except ValueError:
+                    continue
+        
+        # Merge overlapping occupied ranges
+        occupied_ranges.sort()
+        merged_occupied = []
+        for start, end in occupied_ranges:
+            if merged_occupied and start <= merged_occupied[-1][1] + 1:
+                # Overlapping or adjacent, merge
+                merged_occupied[-1] = (merged_occupied[-1][0], max(merged_occupied[-1][1], end))
+            else:
+                merged_occupied.append((start, end))
+        
+        # Combine existing subnets and occupied addresses into a unified list of blocks to skip
+        blocked_ranges = []
+        
+        # Add existing subnets as blocked ranges
+        for net in existing_nets:
+            blocked_ranges.append((int(net.network_address), int(net.broadcast_address)))
+        
+        # Add occupied addresses as blocked ranges
+        for start, end in merged_occupied:
+            # Only add if not already covered by an existing subnet
+            covered = False
+            for bs, be in blocked_ranges:
+                if bs <= start and be >= end:
+                    covered = True
+                    break
+            if not covered:
+                blocked_ranges.append((start, end))
+        
+        # Sort all blocked ranges
+        blocked_ranges.sort()
+        
+        # Find gaps
+        current = int(parent_net.network_address)
+        required_size = 2 ** (32 - required_prefix)
+        prefix_bits = 32 - required_prefix
+        
+        for block_start, block_end in blocked_ranges:
+            # Skip blocks that are at or after our parent
+            if block_start > int(parent_net.broadcast_address):
+                break
+            
+            # Consider the gap before this block
+            if block_start > current:
+                gap_size = block_start - current
+                
+                if gap_size >= required_size:
+                    # Try to find an aligned subnet in this gap
+                    aligned_start = current
+                    offset = current & ((1 << prefix_bits) - 1)
+                    if offset != 0:
+                        aligned_start = current + (required_size - offset)
+                    
+                    # Check if aligned subnet fits in the gap
+                    if aligned_start + required_size <= block_start:
+                        # Verify no occupied addresses fall within this subnet
+                        subnet_start = aligned_start
+                        subnet_end = aligned_start + required_size - 1
+                        
+                        # Check if any occupied range overlaps with this subnet
+                        has_occupation = False
+                        for occ_start, occ_end in merged_occupied:
+                            if occ_start <= subnet_end and occ_end >= subnet_start:
+                                has_occupation = True
+                                break
+                        
+                        if not has_occupation:
+                            recommended_net = ipaddress.ip_network(
+                                f"{ipaddress.ip_address(aligned_start)}/{required_prefix}",
+                                strict=False
+                            )
+                            
+                            return {
+                                "parent": str(parent_net),
+                                "requestedPrefix": required_prefix,
+                                "recommendation": str(recommended_net),
+                                "availableFrom": str(recommended_net.network_address),
+                                "availableTo": str(recommended_net.broadcast_address),
+                                "totalAddresses": recommended_net.num_addresses,
+                                "nextAvailableAfter": datetime.utcnow().isoformat() + "Z"
+                            }
+            
+            # Move current past this block
+            current = max(current, block_end + 1)
+        
+        # Check remaining space after last block
+        remaining_size = int(parent_net.broadcast_address) - current + 1
+        
+        if remaining_size >= required_size:
+            # Align to prefix boundary
+            aligned_start = current
+            offset = current & ((1 << prefix_bits) - 1)
+            if offset != 0:
+                aligned_start = current + (required_size - offset)
+            
+            if aligned_start + required_size <= int(parent_net.broadcast_address) + 1:
+                # Verify no occupied addresses
+                subnet_start = aligned_start
+                subnet_end = aligned_start + required_size - 1
+                
+                has_occupation = False
+                for occ_start, occ_end in merged_occupied:
+                    if occ_start <= subnet_end and occ_end >= subnet_start:
+                        has_occupation = True
+                        break
+                
+                if not has_occupation:
+                    recommended_net = ipaddress.ip_network(
+                        f"{ipaddress.ip_address(aligned_start)}/{required_prefix}",
+                        strict=False
+                    )
+                    
+                    return {
+                        "parent": str(parent_net),
+                        "requestedPrefix": required_prefix,
+                        "recommendation": str(recommended_net),
+                        "availableFrom": str(recommended_net.network_address),
+                        "availableTo": str(recommended_net.broadcast_address),
+                        "totalAddresses": recommended_net.num_addresses,
+                        "nextAvailableAfter": datetime.utcnow().isoformat() + "Z"
+                    }
+        
+        # No space available
+        return {
+            "parent": str(parent_net),
+            "requestedPrefix": required_prefix,
+            "recommendation": None,
+            "availableFrom": None,
+            "availableTo": None,
+            "totalAddresses": 0,
+            "nextAvailableAfter": None
+        }
+    
+    finally:
+        conn.close()

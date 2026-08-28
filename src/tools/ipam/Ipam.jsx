@@ -4,6 +4,7 @@ import SubnetSearch from "./SubnetSearch.jsx";
 import AddSubnetForm from "./AddSubnetForm.jsx";
 import IpamDashboard from "./IpamDashboard.jsx";
 import ResubnetReview from "./ResubnetReview.jsx";
+import SubnetAllocator from "./SubnetAllocator.jsx";
 import DhcpPoolManager from "./DhcpPoolManager.jsx";
 import SubnetHeatmap from "./SubnetHeatmap.jsx";
 import TagSelector from "./TagSelector.jsx";
@@ -50,6 +51,7 @@ import {
   addAddressTag,
   removeAddressTag,
   getDhcpPools,
+  fetchSubnetAllocation,
 } from "./api.js";
 
 const STATUS_PILL_CLASS = {
@@ -1748,6 +1750,12 @@ export default function Ipam() {
           >
             {viewMode === "resubnet" ? "Back to search" : "Resubnet"}
           </button>
+          <button
+            className="tool-btn tool-btn-ghost ip-row-btn"
+            onClick={() => setViewMode(viewMode === "allocator" ? "search" : "allocator")}
+          >
+            {viewMode === "allocator" ? "Back to search" : "Allocator"}
+          </button>
           <div className="ip-settings-wrap">
             <button
               className="tool-btn tool-btn-ghost ip-row-btn"
@@ -1859,6 +1867,17 @@ export default function Ipam() {
 
         {viewMode === "resubnet" && (
           <ResubnetReview onMoved={refreshList} />
+        )}
+
+        {viewMode === "allocator" && (
+          <SubnetAllocator
+            subnets={subnets}
+            onCreate={(created) => {
+              refreshList();
+              setViewMode("search");
+              setTimeout(() => selectSubnet(created.id), 50);
+            }}
+          />
         )}
       </div>
     </div>

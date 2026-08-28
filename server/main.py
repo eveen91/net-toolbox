@@ -2539,3 +2539,26 @@ def get_addresses_by_tag(tag_id: int):
         return db.get_addresses_by_tag(tag_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Subnet Allocation Assistant
+# ---------------------------------------------------------------------------
+
+class SubnetAllocationResponse(BaseModel):
+    parent: str
+    requestedPrefix: int
+    recommendation: Optional[str] = None
+    availableFrom: Optional[str] = None
+    availableTo: Optional[str] = None
+    totalAddresses: int = 0
+    nextAvailableAfter: Optional[str] = None
+
+
+@app.get("/api/ipam/subnet-allocation", response_model=SubnetAllocationResponse, dependencies=[Depends(require_feature("ipam"))])
+def get_subnet_allocation(parent: str, prefix: int):
+    try:
+        result = db.find_next_contiguous_subnet(parent, prefix)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
