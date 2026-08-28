@@ -2616,29 +2616,22 @@ def export_audit_log(
         end_time=end_time,
         limit=limit,
     )
-    # Convert snake_case to camelCase for API response
     result = []
-    conn = db.get_connection()
-    try:
-        for r in rows:
-            entry = AuditLogEntry(
-                id=r["id"],
-                addressId=r["address_id"],
-                userId=r["user_id"],
-                changeType=r["change_type"],
-                oldValue=json.loads(r["old_value"]) if r["old_value"] else None,
-                newValue=json.loads(r["new_value"]) if r["new_value"] else None,
-                description=r["description"],
-                ipAddress=r["ip_address"],
-                subnetCidr=r["subnet_cidr"],
-                createdAt=r["created_at"],
-            )
-            if r["user_id"]:
-                user = conn.execute(
-                    "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
-                ).fetchone()
-                entry.username = user["username"] if user else None
-            result.append(entry)
-        return result
-    finally:
-        conn.close()
+    for r in rows:
+        entry = AuditLogEntry(
+            id=r["id"],
+            addressId=r["address_id"],
+            userId=r["user_id"],
+            changeType=r["change_type"],
+            oldValue=json.loads(r["old_value"]) if r["old_value"] else None,
+            newValue=json.loads(r["new_value"]) if r["new_value"] else None,
+            description=r["description"],
+            ipAddress=r["ip_address"],
+            subnetCidr=r["subnet_cidr"],
+            createdAt=r["created_at"],
+        )
+        if r["user_id"]:
+            user = auth_db.get_user_by_id(r["user_id"])
+            entry.username = user["username"] if user else None
+        result.append(entry)
+    return result

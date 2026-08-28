@@ -23,6 +23,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import auth_db
+
 DB_PATH = Path(__file__).parent / "toolbox.db"
 
 DIRECTLY_CONNECTED = "directly connected"
@@ -2783,11 +2785,8 @@ def get_address_audit_log(
                 "subnetCidr": r["subnet_cidr"],
                 "createdAt": r["created_at"],
             }
-            # Get username if available
             if r["user_id"]:
-                user = conn.execute(
-                    "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
-                ).fetchone()
+                user = auth_db.get_user_by_id(r["user_id"])
                 entry["username"] = user["username"] if user else None
             result.append(entry)
         return result
@@ -2801,27 +2800,45 @@ def get_subnet_audit_log(
     end_time: Optional[str] = None,
     limit: int = 50,
 ) -> List[Dict]:
-    """Get changes within a subnet and optional time range."""
+    """Get changes within a subnet and optional time range.
+
+    Matches entries whose address currently belongs to this subnet (the
+    normal case) *or* whose saved `subnet_cidr` snapshot equals the
+    subnet's current CIDR (covers addresses that have since been
+    deleted, including their delete event, which drops them out of
+    ipam_addresses). Matching only by live address_id would silently
+    lose deleted-address history; matching only by subnet_cidr would
+    silently lose history after the subnet is resized to a new CIDR
+    (update_subnet allows this). Combining both keeps entries visible
+    across either kind of change.
+    """
     conn = get_connection()
     try:
-        # Get all addresses in this subnet
+        subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)
+        ).fetchone()
+        if subnet_row is None:
+            return []
+
         addr_rows = conn.execute(
             "SELECT id FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
         ).fetchall()
         addr_ids = [r["id"] for r in addr_rows]
-        
-        if not addr_ids:
-            return []
-        
-        placeholders = ",".join("?" * len(addr_ids))
+        addr_placeholders = ",".join("?" * len(addr_ids)) if addr_ids else None
+
+        match_clause = "subnet_cidr = ?"
+        params: List = [subnet_row["cidr"]]
+        if addr_placeholders:
+            match_clause += f" OR address_id IN ({addr_placeholders})"
+            params.extend(addr_ids)
+
         query = f"""
             SELECT id, address_id, user_id, change_type, old_value, new_value,
                    description, ip_address, subnet_cidr, created_at
             FROM ipam_audit_log
-            WHERE address_id IN ({placeholders})
+            WHERE ({match_clause})
         """
-        params = list(addr_ids)
-        
+
         if start_time:
             query += " AND created_at >= ?"
             params.append(start_time)
@@ -2849,9 +2866,7 @@ def get_subnet_audit_log(
                 "createdAt": r["created_at"],
             }
             if r["user_id"]:
-                user = conn.execute(
-                    "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
-                ).fetchone()
+                user = auth_db.get_user_by_id(r["user_id"])
                 entry["username"] = user["username"] if user else None
             result.append(entry)
         return result
@@ -2902,9 +2917,7 @@ def get_audit_log_by_user(
                 "subnetCidr": r["subnet_cidr"],
                 "createdAt": r["created_at"],
             }
-            user = conn.execute(
-                "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
-            ).fetchone()
+            user = auth_db.get_user_by_id(r["user_id"])
             entry["username"] = user["username"] if user else None
             result.append(entry)
         return result
@@ -2918,33 +2931,45 @@ def export_audit_log_csv(
     end_time: Optional[str] = None,
     limit: int = 1000,
 ) -> List[Dict]:
-    """Export audit log entries as CSV-compatible dict list."""
+    """Export audit log entries as CSV-compatible dict list.
+
+    When filtering to a subnet, matches entries whose address currently
+    belongs to it *or* whose saved `subnet_cidr` snapshot equals its
+    current CIDR — see get_subnet_audit_log for why both are needed
+    (deleted addresses drop out of ipam_addresses; resized subnets
+    change their stored CIDR).
+    """
     conn = get_connection()
     try:
+        query = """
+            SELECT id, address_id, user_id, change_type, old_value, new_value,
+                   description, ip_address, subnet_cidr, created_at
+            FROM ipam_audit_log
+            WHERE 1=1
+        """
+        params: List = []
+
         if subnet_id:
+            subnet_row = conn.execute(
+                "SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)
+            ).fetchone()
+            if subnet_row is None:
+                return []
             addr_rows = conn.execute(
                 "SELECT id FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
             ).fetchall()
             addr_ids = [r["id"] for r in addr_rows]
+
+            match_clause = "subnet_cidr = ?"
+            match_params: List = [subnet_row["cidr"]]
             if addr_ids:
-                placeholders = ",".join("?" * len(addr_ids))
-                query = f"""
-                    SELECT id, address_id, user_id, change_type, old_value, new_value,
-                           description, ip_address, subnet_cidr, created_at
-                    FROM ipam_audit_log
-                    WHERE address_id IN ({placeholders})
-                """
-                params = list(addr_ids)
-            else:
-                return []
-        else:
-            query = """
-                SELECT id, address_id, user_id, change_type, old_value, new_value,
-                       description, ip_address, subnet_cidr, created_at
-                FROM ipam_audit_log
-            """
-            params = []
-        
+                addr_placeholders = ",".join("?" * len(addr_ids))
+                match_clause += f" OR address_id IN ({addr_placeholders})"
+                match_params.extend(addr_ids)
+
+            query += f" AND ({match_clause})"
+            params.extend(match_params)
+
         if start_time:
             query += " AND created_at >= ?"
             params.append(start_time)
