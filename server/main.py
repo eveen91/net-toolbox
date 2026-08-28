@@ -1935,9 +1935,10 @@ def update_ipam_settings(req: UpdateIpamSettingsRequest):
 
 
 @app.post("/api/ipam/subnets", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
-def create_subnet(req: SubnetRequest):
+def create_subnet(req: SubnetRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
-        return db.create_subnet(req.cidr, req.vlan, req.description)
+        user_id = user["id"] if user else None
+        return db.create_subnet(req.cidr, req.vlan, req.description, user_id=user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -1959,8 +1960,9 @@ def update_subnet(subnet_id: int, req: SubnetRequest):
 
 
 @app.delete("/api/ipam/subnets/{subnet_id}", dependencies=[Depends(require_feature("ipam"))])
-def delete_subnet(subnet_id: int):
-    deleted = db.delete_subnet(subnet_id)
+def delete_subnet(subnet_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
+    user_id = user["id"] if user else None
+    deleted = db.delete_subnet(subnet_id, user_id=user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Subnet not found")
     return {"deleted": subnet_id}
@@ -2576,7 +2578,8 @@ def get_subnet_allocation(parent: str, prefix: int):
 
 class AuditLogEntry(BaseModel):
     id: int
-    addressId: int
+    addressId: Optional[int] = None
+    subnetId: Optional[int] = None
     userId: Optional[int] = None
     username: Optional[str] = None
     changeType: str
@@ -2621,6 +2624,7 @@ def export_audit_log(
         entry = AuditLogEntry(
             id=r["id"],
             addressId=r["address_id"],
+            subnetId=r["subnet_id"],
             userId=r["user_id"],
             changeType=r["change_type"],
             oldValue=json.loads(r["old_value"]) if r["old_value"] else None,

@@ -6,8 +6,10 @@ import {
 
 const CHANGE_TYPE_STYLES = {
   create: { color: "#22c55e", bg: "#052e16", label: "Created" },
+  subnet_create: { color: "#22c55e", bg: "#052e16", label: "Subnet Created" },
   update: { color: "#3b82f6", bg: "#1e3a8a", label: "Updated" },
   delete: { color: "#ef4444", bg: "#450a0a", label: "Deleted" },
+  subnet_delete: { color: "#ef4444", bg: "#450a0a", label: "Subnet Deleted" },
   reassign: { color: "#a855f7", bg: "#3b0764", label: "Reassigned" },
   status: { color: "#eab308", bg: "#422006", label: "Status Change" },
   hostname: { color: "#06b6d4", bg: "#083344", label: "Hostname Change" },
@@ -89,6 +91,7 @@ export default function AuditLogPanel() {
         result = raw.map((r) => ({
           id: r.id,
           addressId: r.addressId,
+          subnetId: r.subnetId,
           userId: r.userId,
           username: r.username,
           changeType: r.changeType,
