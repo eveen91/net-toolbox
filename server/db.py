@@ -339,6 +339,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 address_id INTEGER,
                 subnet_id INTEGER,
+                dhcp_pool_id INTEGER,
                 user_id INTEGER,
                 change_type TEXT NOT NULL,
                 old_value TEXT,
@@ -388,6 +389,8 @@ def init_db() -> None:
             audit_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_audit_log)").fetchall()}
         if "subnet_id" not in audit_cols:
             conn.execute("ALTER TABLE ipam_audit_log ADD COLUMN subnet_id INTEGER")
+        if "dhcp_pool_id" not in audit_cols:
+            conn.execute("ALTER TABLE ipam_audit_log ADD COLUMN dhcp_pool_id INTEGER")
         if "description" not in audit_cols:
             conn.execute("ALTER TABLE ipam_audit_log ADD COLUMN description TEXT")
         if "ip_address" not in audit_cols:
@@ -714,7 +717,10 @@ def _address_sort_key(row: Dict) -> tuple:
     return (ipaddress.ip_address(row["address"]).version, ipaddress.ip_address(row["address"]))
 
 
-def recompute_subnet_hierarchy(conn: sqlite3.Connection) -> None:
+def recompute_subnet_hierarchy(
+    conn: sqlite3.Connection,
+    user_id: Optional[int] = None,
+) -> None:
     """Derive parent_id for every subnet purely from its CIDR.
 
     CIDR blocks are always either disjoint or one is fully nested inside the
@@ -1968,7 +1974,7 @@ def add_dhcp_pool(
         pool_id = cur.lastrowid
         # Re-check hierarchy now that the pool exists — if a more-specific
         # subnet fully contains this range, auto-relocate into it.
-        auto_relocate_dhcp_pools(conn)
+    auto_relocate_dhcp_pools(conn, user_id=user_id)
         conn.commit()
 
         row = conn.execute(
