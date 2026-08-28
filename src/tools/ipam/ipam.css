@@ -941,3 +941,141 @@ tr.ip-row-highlighted {
 .allocation-card p:last-child {
   margin-bottom: 0;
 }
+
+/* Audit Log Styles */
+.ip-audit-log {
+  padding: 16px;
+}
+
+.audit-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.audit-header h3 {
+  margin: 0;
+}
+
+.audit-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.audit-entry {
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.audit-entry-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  background: var(--bg-surface);
+  transition: background 0.15s;
+}
+
+.audit-entry-header:hover {
+  background: var(--bg-elevated);
+}
+
+.audit-type-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+.audit-ip {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--accent-1);
+  flex-shrink: 0;
+}
+
+.audit-desc {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-user {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.audit-time {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.audit-expand {
+  font-size: 10px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.audit-entry-body {
+  padding: 12px;
+  background: var(--bg-default);
+  border-top: 1px solid var(--border-soft);
+}
+
+.audit-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.audit-diff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.audit-diff th,
+.audit-diff td {
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.audit-diff th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.audit-diff td:first-child {
+  font-family: var(--mono);
+  color: var(--accent-2);
+}
+
+.audit-old {
+  color: var(--danger);
+  opacity: 0.8;
+}
+
+.audit-new {
+  color: var(--success);
+  font-weight: 500;
+}
+
+.audit-diff tr:last-child td {
+  border-bottom: none;
+}

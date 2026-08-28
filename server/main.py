@@ -1967,33 +1967,38 @@ def delete_subnet(subnet_id: int):
 
 
 @app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
-def create_address(subnet_id: int, req: AddressRequest):
+def create_address(subnet_id: int, req: AddressRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         if db.check_ip_in_dhcp_pool(req.address, subnet_id):
             raise HTTPException(status_code=400, detail="IP is within DHCP pool range")
+        user_id = user["id"] if user else None
         return db.add_address(
             subnet_id, req.address, req.status, req.hostname, req.description,
             req.team, req.machineType, req.vmCluster, req.environment, req.locked,
+            user_id=user_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
-def edit_address(subnet_id: int, address_id: int, req: AddressRequest):
+def edit_address(subnet_id: int, address_id: int, req: AddressRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
+        user_id = user["id"] if user else None
         return db.update_address(
             subnet_id, address_id, req.address, req.status, req.hostname, req.description,
             req.team, req.machineType, req.vmCluster, req.environment, req.locked,
+            user_id=user_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
-def remove_address(subnet_id: int, address_id: int):
+def remove_address(subnet_id: int, address_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
-        return db.delete_address(subnet_id, address_id)
+        user_id = user["id"] if user else None
+        return db.delete_address(subnet_id, address_id, user_id=user_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
@@ -2036,11 +2041,12 @@ def bulk_delete_addresses(subnet_id: int, req: BulkAddressDeleteRequest):
     response_model=BulkMoveAddressesResponse,
     dependencies=[Depends(require_feature("ipam"))],
 )
-def bulk_move_addresses(subnet_id: int, req: BulkMoveAddressesRequest):
+def bulk_move_addresses(subnet_id: int, req: BulkMoveAddressesRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     if not req.addressIds:
         raise HTTPException(status_code=400, detail="No addresses selected")
+    user_id = user["id"] if user else None
     try:
-        return db.bulk_move_addresses(subnet_id, req.addressIds, req.targetSubnetId)
+        return db.bulk_move_addresses(subnet_id, req.addressIds, req.targetSubnetId, user_id=user_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -2562,3 +2568,77 @@ def get_subnet_allocation(parent: str, prefix: int):
         return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Audit Log
+# ---------------------------------------------------------------------------
+
+class AuditLogEntry(BaseModel):
+    id: int
+    addressId: int
+    userId: Optional[int] = None
+    username: Optional[str] = None
+    changeType: str
+    oldValue: Optional[Dict] = None
+    newValue: Optional[Dict] = None
+    description: Optional[str] = None
+    ipAddress: Optional[str] = None
+    subnetCidr: Optional[str] = None
+    createdAt: str
+
+
+@app.get("/api/ipam/audit/address/{address_id}", response_model=List[AuditLogEntry], dependencies=[Depends(require_feature("ipam"))])
+def get_address_audit_log(address_id: int, limit: int = 100, offset: int = 0):
+    return db.get_address_audit_log(address_id, limit=limit, offset=offset)
+
+
+@app.get("/api/ipam/audit/subnet/{subnet_id}", response_model=List[AuditLogEntry], dependencies=[Depends(require_feature("ipam"))])
+def get_subnet_audit_log(
+    subnet_id: int,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    limit: int = 50,
+):
+    return db.get_subnet_audit_log(subnet_id, start_time=start_time, end_time=end_time, limit=limit)
+
+
+@app.get("/api/ipam/audit/export", response_model=List[AuditLogEntry], dependencies=[Depends(require_feature("ipam"))])
+def export_audit_log(
+    subnet_id: Optional[int] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    limit: int = 1000,
+):
+    rows = db.export_audit_log_csv(
+        subnet_id=subnet_id,
+        start_time=start_time,
+        end_time=end_time,
+        limit=limit,
+    )
+    # Convert snake_case to camelCase for API response
+    result = []
+    conn = db.get_connection()
+    try:
+        for r in rows:
+            entry = AuditLogEntry(
+                id=r["id"],
+                addressId=r["address_id"],
+                userId=r["user_id"],
+                changeType=r["change_type"],
+                oldValue=json.loads(r["old_value"]) if r["old_value"] else None,
+                newValue=json.loads(r["new_value"]) if r["new_value"] else None,
+                description=r["description"],
+                ipAddress=r["ip_address"],
+                subnetCidr=r["subnet_cidr"],
+                createdAt=r["created_at"],
+            )
+            if r["user_id"]:
+                user = conn.execute(
+                    "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
+                ).fetchone()
+                entry.username = user["username"] if user else None
+            result.append(entry)
+        return result
+    finally:
+        conn.close()

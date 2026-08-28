@@ -2,12 +2,14 @@ import React, { useState } from "react";
 import UsersPanel from "./UsersPanel.jsx";
 import RolesPanel from "./RolesPanel.jsx";
 import ActiveDirectoryPanel from "./ActiveDirectoryPanel.jsx";
+import AuditLogPanel from "./AuditLogPanel.jsx";
 import "./admin.css";
 
 const SUBTABS = [
   { id: "users", label: "Users", Component: UsersPanel },
   { id: "roles", label: "Roles", Component: RolesPanel },
   { id: "ad", label: "Active Directory", Component: ActiveDirectoryPanel },
+  { id: "audit", label: "Audit Log", Component: AuditLogPanel },
 ];
 
 export default function AdminPanel() {

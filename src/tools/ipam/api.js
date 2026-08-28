@@ -399,3 +399,17 @@ export async function fetchSubnetAllocation(parentCidr, prefix) {
   );
   return handle(res);
 }
+
+export async function getAuditLogForAddress(addressId, limit = 100) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/audit/address/${addressId}?limit=${limit}`,
+  );
+  return handle(res);
+}
+
+export async function getAuditLogForSubnet(subnetId, limit = 50) {
+  const res = await apiFetch(
+    `${BASE_URL}/api/ipam/audit/subnet/${subnetId}?limit=${limit}`,
+  );
+  return handle(res);
+}

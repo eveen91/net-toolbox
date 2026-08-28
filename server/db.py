@@ -330,6 +330,32 @@ def init_db() -> None:
             """
         )
 
+        # Audit Log Table
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                address_id INTEGER NOT NULL REFERENCES ipam_addresses(id) ON DELETE CASCADE,
+                user_id INTEGER,
+                change_type TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                description TEXT,
+                ip_address TEXT,
+                subnet_cidr TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        # Migration: databases created before audit log existed won't have this table
+        audit_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_audit_log)").fetchall()}
+        if "description" not in audit_cols:
+            conn.execute("ALTER TABLE ipam_audit_log ADD COLUMN description TEXT")
+        if "ip_address" not in audit_cols:
+            conn.execute("ALTER TABLE ipam_audit_log ADD COLUMN ip_address TEXT")
+        if "subnet_cidr" not in audit_cols:
+            conn.execute("ALTER TABLE ipam_audit_log ADD COLUMN subnet_cidr TEXT")
+
         conn.commit()
     finally:
         conn.close()
@@ -1116,6 +1142,7 @@ def add_address(
     vm_cluster: Optional[str] = None,
     environment: Optional[str] = None,
     locked: bool = False,
+    user_id: Optional[int] = None,
 ) -> Dict:
     conn = get_connection()
     try:
@@ -1141,6 +1168,37 @@ def add_address(
         except sqlite3.IntegrityError:
             raise ValueError(f'"{address}" is already recorded in this subnet')
         conn.commit()
+        
+        # Get the new address ID for audit logging
+        new_addr_row = conn.execute(
+            "SELECT id FROM ipam_addresses WHERE subnet_id = ? AND address = ?",
+            (subnet_id, address),
+        ).fetchone()
+        new_address_id = new_addr_row["id"] if new_addr_row else None
+        
+        # Log the create event
+        _log_address_change(
+            conn,
+            address_id=new_address_id,
+            user_id=user_id,
+            change_type="create",
+            old_value=None,
+            new_value=json.dumps({
+                "address": address,
+                "status": status,
+                "hostname": hostname,
+                "description": description,
+                "team": team,
+                "machineType": machine_type,
+                "vmCluster": vm_cluster,
+                "environment": environment,
+                "locked": locked,
+            }),
+            description=f"Address created: {address}",
+            ip_address=address,
+            subnet_cidr=subnet_row["cidr"],
+        )
+        conn.commit()
     finally:
         conn.close()
     return get_subnet(subnet_id)
@@ -1158,6 +1216,7 @@ def update_address(
     vm_cluster: Optional[str] = None,
     environment: Optional[str] = None,
     locked: bool = False,
+    user_id: Optional[int] = None,
 ) -> Dict:
     conn = get_connection()
     try:
@@ -1165,7 +1224,7 @@ def update_address(
         if subnet_row is None:
             raise ValueError("Subnet not found")
         existing = conn.execute(
-            "SELECT id FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id)
+            "SELECT * FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id)
         ).fetchone()
         if existing is None:
             raise ValueError("Address not found")
@@ -1176,6 +1235,20 @@ def update_address(
         if machine_type != "vm":
             vm_cluster = None
         address = str(ipaddress.ip_address(address.strip()))
+        
+        # Capture old values for audit
+        old_state = {
+            "address": existing["address"],
+            "status": existing["status"],
+            "hostname": existing["hostname"],
+            "description": existing["description"],
+            "team": existing["team"],
+            "machineType": existing["machine_type"],
+            "vmCluster": existing["vm_cluster"],
+            "environment": existing["environment"],
+            "locked": existing["locked"],
+        }
+        
         try:
             conn.execute(
                 """
@@ -1193,17 +1266,99 @@ def update_address(
         except sqlite3.IntegrityError:
             raise ValueError(f'"{address}" is already recorded in this subnet')
         conn.commit()
+        
+        # Determine change type and log
+        new_state = {
+            "address": address,
+            "status": status,
+            "hostname": hostname,
+            "description": description,
+            "team": team,
+            "machineType": machine_type,
+            "vmCluster": vm_cluster,
+            "environment": environment,
+            "locked": locked,
+        }
+        
+        changes = []
+        if old_state["status"] != new_state["status"]:
+            changes.append("status")
+        if old_state["hostname"] != new_state["hostname"]:
+            changes.append("hostname")
+        if old_state["description"] != new_state["description"]:
+            changes.append("description")
+        if old_state["team"] != new_state["team"]:
+            changes.append("team")
+        if old_state["machineType"] != new_state["machineType"]:
+            changes.append("machineType")
+        if old_state["vmCluster"] != new_state["vmCluster"]:
+            changes.append("vmCluster")
+        if old_state["environment"] != new_state["environment"]:
+            changes.append("environment")
+        if old_state["locked"] != new_state["locked"]:
+            changes.append("locked")
+        
+        if changes:
+            change_type = "update"
+            description = f"Address updated: {address} ({', '.join(changes)})"
+        else:
+            change_type = None
+            description = None
+        
+        if change_type:
+            _log_address_change(
+                conn,
+                address_id=address_id,
+                user_id=user_id,
+                change_type=change_type,
+                old_value=json.dumps(old_state),
+                new_value=json.dumps(new_state),
+                description=description,
+                ip_address=address,
+                subnet_cidr=subnet_row["cidr"],
+            )
+            conn.commit()
     finally:
         conn.close()
     return get_subnet(subnet_id)
 
 
-def delete_address(subnet_id: int, address_id: int) -> Dict:
+def delete_address(subnet_id: int, address_id: int, user_id: Optional[int] = None) -> Dict:
     conn = get_connection()
     try:
-        subnet_row = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        subnet_row = conn.execute("SELECT id, cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         if subnet_row is None:
             raise ValueError("Subnet not found")
+        
+        # Get address details before deletion for audit
+        addr_row = conn.execute(
+            "SELECT * FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id)
+        ).fetchone()
+        
+        # Log the delete event BEFORE deleting the address
+        if addr_row:
+            _log_address_change(
+                conn,
+                address_id=address_id,
+                user_id=user_id,
+                change_type="delete",
+                old_value=json.dumps({
+                    "address": addr_row["address"],
+                    "status": addr_row["status"],
+                    "hostname": addr_row["hostname"],
+                    "description": addr_row["description"],
+                    "team": addr_row["team"],
+                    "machineType": addr_row["machine_type"],
+                    "vmCluster": addr_row["vm_cluster"],
+                    "environment": addr_row["environment"],
+                    "locked": addr_row["locked"],
+                }),
+                new_value=None,
+                description=f"Address deleted: {addr_row['address']}",
+                ip_address=addr_row["address"],
+                subnet_cidr=subnet_row["cidr"],
+            )
+        
         conn.execute("DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id))
         conn.commit()
     finally:
@@ -1296,7 +1451,7 @@ def bulk_delete_addresses(subnet_id: int, address_ids: List[int]) -> Dict:
     return get_subnet(subnet_id)
 
 
-def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_id: int) -> Dict:
+def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_id: int, user_id: Optional[int] = None) -> Dict:
     """
     Move many addresses from one subnet to another in a single transaction.
 
@@ -1310,7 +1465,7 @@ def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_i
     conn = get_connection()
     try:
         from_subnet_row = conn.execute(
-            "SELECT id FROM ipam_subnets WHERE id = ?", (from_subnet_id,)
+            "SELECT id, cidr FROM ipam_subnets WHERE id = ?", (from_subnet_id,)
         ).fetchone()
         if from_subnet_row is None:
             raise ValueError("Source subnet not found")
@@ -1352,6 +1507,32 @@ def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_i
                 })
                 continue
 
+            # Log reassign event BEFORE deleting (address still exists)
+            _log_address_change(
+                conn,
+                address_id=address_id,
+                user_id=user_id,
+                change_type="reassign",
+                old_value=json.dumps({
+                    "address": row["address"],
+                    "subnetId": from_subnet_id,
+                    "subnetCidr": from_subnet_row["cidr"] if from_subnet_row else None,
+                    "status": row["status"],
+                    "hostname": row["hostname"],
+                }),
+                new_value=json.dumps({
+                    "address": row["address"],
+                    "subnetId": to_subnet_id,
+                    "subnetCidr": to_subnet_row["cidr"] if to_subnet_row else None,
+                    "status": row["status"],
+                    "hostname": row["hostname"],
+                }),
+                description=f"Address reassigned: {row['address']} from {from_subnet_row['cidr'] if from_subnet_row else 'unknown'} to {to_subnet_row['cidr'] if to_subnet_row else 'unknown'}",
+                ip_address=row["address"],
+                subnet_cidr=to_subnet_row["cidr"] if to_subnet_row else None,
+            )
+            conn.commit()
+            
             conn.execute(
                 "DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
                 (address_id, from_subnet_id),
@@ -2525,5 +2706,271 @@ def find_next_contiguous_subnet(parent_cidr: str, required_prefix: int) -> Optio
             "nextAvailableAfter": None
         }
     
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Audit Log Functions
+# ---------------------------------------------------------------------------
+
+def _log_address_change(
+    conn,
+    address_id: Optional[int],
+    user_id: Optional[int],
+    change_type: str,
+    old_value: Optional[str],
+    new_value: Optional[str],
+    description: Optional[str],
+    ip_address: Optional[str],
+    subnet_cidr: Optional[str],
+) -> None:
+    """Insert a single audit log entry."""
+    # Disable foreign keys temporarily to allow logging even if address was deleted
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute(
+        """
+        INSERT INTO ipam_audit_log
+            (address_id, user_id, change_type, old_value, new_value, description, ip_address, subnet_cidr, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            address_id,
+            user_id,
+            change_type,
+            old_value,
+            new_value,
+            description,
+            ip_address,
+            subnet_cidr,
+            _now(),
+        ),
+    )
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+def get_address_audit_log(
+    address_id: int,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[Dict]:
+    """Get change history for a specific address."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT id, address_id, user_id, change_type, old_value, new_value,
+                   description, ip_address, subnet_cidr, created_at
+            FROM ipam_audit_log
+            WHERE address_id = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+            """,
+            (address_id, limit, offset),
+        ).fetchall()
+        
+        result = []
+        for r in rows:
+            entry = {
+                "id": r["id"],
+                "addressId": r["address_id"],
+                "userId": r["user_id"],
+                "changeType": r["change_type"],
+                "oldValue": json.loads(r["old_value"]) if r["old_value"] else None,
+                "newValue": json.loads(r["new_value"]) if r["new_value"] else None,
+                "description": r["description"],
+                "ipAddress": r["ip_address"],
+                "subnetCidr": r["subnet_cidr"],
+                "createdAt": r["created_at"],
+            }
+            # Get username if available
+            if r["user_id"]:
+                user = conn.execute(
+                    "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
+                ).fetchone()
+                entry["username"] = user["username"] if user else None
+            result.append(entry)
+        return result
+    finally:
+        conn.close()
+
+
+def get_subnet_audit_log(
+    subnet_id: int,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict]:
+    """Get changes within a subnet and optional time range."""
+    conn = get_connection()
+    try:
+        # Get all addresses in this subnet
+        addr_rows = conn.execute(
+            "SELECT id FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
+        ).fetchall()
+        addr_ids = [r["id"] for r in addr_rows]
+        
+        if not addr_ids:
+            return []
+        
+        placeholders = ",".join("?" * len(addr_ids))
+        query = f"""
+            SELECT id, address_id, user_id, change_type, old_value, new_value,
+                   description, ip_address, subnet_cidr, created_at
+            FROM ipam_audit_log
+            WHERE address_id IN ({placeholders})
+        """
+        params = list(addr_ids)
+        
+        if start_time:
+            query += " AND created_at >= ?"
+            params.append(start_time)
+        if end_time:
+            query += " AND created_at <= ?"
+            params.append(end_time)
+        
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        
+        rows = conn.execute(query, params).fetchall()
+        
+        result = []
+        for r in rows:
+            entry = {
+                "id": r["id"],
+                "addressId": r["address_id"],
+                "userId": r["user_id"],
+                "changeType": r["change_type"],
+                "oldValue": json.loads(r["old_value"]) if r["old_value"] else None,
+                "newValue": json.loads(r["new_value"]) if r["new_value"] else None,
+                "description": r["description"],
+                "ipAddress": r["ip_address"],
+                "subnetCidr": r["subnet_cidr"],
+                "createdAt": r["created_at"],
+            }
+            if r["user_id"]:
+                user = conn.execute(
+                    "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
+                ).fetchone()
+                entry["username"] = user["username"] if user else None
+            result.append(entry)
+        return result
+    finally:
+        conn.close()
+
+
+def get_audit_log_by_user(
+    user_id: int,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    limit: int = 50,
+) -> List[Dict]:
+    """Get all changes by a specific user."""
+    conn = get_connection()
+    try:
+        query = """
+            SELECT id, address_id, user_id, change_type, old_value, new_value,
+                   description, ip_address, subnet_cidr, created_at
+            FROM ipam_audit_log
+            WHERE user_id = ?
+        """
+        params = [user_id]
+        
+        if start_time:
+            query += " AND created_at >= ?"
+            params.append(start_time)
+        if end_time:
+            query += " AND created_at <= ?"
+            params.append(end_time)
+        
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        
+        rows = conn.execute(query, params).fetchall()
+        
+        result = []
+        for r in rows:
+            entry = {
+                "id": r["id"],
+                "addressId": r["address_id"],
+                "userId": r["user_id"],
+                "changeType": r["change_type"],
+                "oldValue": json.loads(r["old_value"]) if r["old_value"] else None,
+                "newValue": json.loads(r["new_value"]) if r["new_value"] else None,
+                "description": r["description"],
+                "ipAddress": r["ip_address"],
+                "subnetCidr": r["subnet_cidr"],
+                "createdAt": r["created_at"],
+            }
+            user = conn.execute(
+                "SELECT username FROM auth_users WHERE id = ?", (r["user_id"],)
+            ).fetchone()
+            entry["username"] = user["username"] if user else None
+            result.append(entry)
+        return result
+    finally:
+        conn.close()
+
+
+def export_audit_log_csv(
+    subnet_id: Optional[int] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    limit: int = 1000,
+) -> List[Dict]:
+    """Export audit log entries as CSV-compatible dict list."""
+    conn = get_connection()
+    try:
+        if subnet_id:
+            addr_rows = conn.execute(
+                "SELECT id FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
+            ).fetchall()
+            addr_ids = [r["id"] for r in addr_rows]
+            if addr_ids:
+                placeholders = ",".join("?" * len(addr_ids))
+                query = f"""
+                    SELECT id, address_id, user_id, change_type, old_value, new_value,
+                           description, ip_address, subnet_cidr, created_at
+                    FROM ipam_audit_log
+                    WHERE address_id IN ({placeholders})
+                """
+                params = list(addr_ids)
+            else:
+                return []
+        else:
+            query = """
+                SELECT id, address_id, user_id, change_type, old_value, new_value,
+                       description, ip_address, subnet_cidr, created_at
+                FROM ipam_audit_log
+            """
+            params = []
+        
+        if start_time:
+            query += " AND created_at >= ?"
+            params.append(start_time)
+        if end_time:
+            query += " AND created_at <= ?"
+            params.append(end_time)
+        
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        
+        rows = conn.execute(query, params).fetchall()
+        
+        result = []
+        for r in rows:
+            result.append({
+                "id": r["id"],
+                "address_id": r["address_id"],
+                "user_id": r["user_id"],
+                "change_type": r["change_type"],
+                "old_value": r["old_value"],
+                "new_value": r["new_value"],
+                "description": r["description"],
+                "ip_address": r["ip_address"],
+                "subnet_cidr": r["subnet_cidr"],
+                "created_at": r["created_at"],
+            })
+        return result
     finally:
         conn.close()
