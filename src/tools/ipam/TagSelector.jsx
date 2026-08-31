@@ -13,8 +13,10 @@ import TagBadge from "./TagBadge.jsx";
  *   onChange   – (ids) => void
  *   allTags    – optional pre-loaded tag list; if absent, loads on open
  *   placeholder – string (default "Search or create tag…")
+ *   disabled   – prevents changes while a parent operation is pending
+ *   onTagCreated – receives a newly created tag so parent caches stay current
  */
-export default function TagSelector({ value = [], onChange, allTags: propAllTags, placeholder }) {
+export default function TagSelector({ value = [], onChange, allTags: propAllTags, placeholder, disabled = false, onTagCreated }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState([]);
@@ -63,23 +65,27 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  const toggleTag = (tagId) => {
+  const toggleTag = async (tagId) => {
+    if (disabled) return;
     const next = selectedIds.has(tagId)
       ? value.filter((id) => id !== tagId)
       : [...value, tagId];
-    onChange(next);
+    await onChange(next);
   };
 
-  const removeTag = (tagId) => {
-    onChange(value.filter((id) => id !== tagId));
+  const removeTag = async (tagId) => {
+    if (disabled) return;
+    await onChange(value.filter((id) => id !== tagId));
   };
 
   const createAndAdd = async () => {
+    if (disabled) return;
     const name = newTagName.trim();
     if (!name) return;
     try {
       const created = await createTag({ name, color: newTagColor });
-      onChange([...value, created.id]);
+      onTagCreated?.(created);
+      await onChange([...value, created.id]);
       setNewTagMode(false);
       setNewTagName("");
       setNewTagColor("#6366f1");
@@ -104,7 +110,7 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
               key={tagId}
               tag={tag}
               size="sm"
-              removable
+              removable={!disabled}
               onRemove={removeTag}
             />
           );
@@ -117,8 +123,9 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
               placeholder="Tag name"
               value={newTagName}
               onChange={(e) => setNewTagName(e.target.value)}
+              disabled={disabled}
               onKeyDown={(e) => {
-                if (e.key === "Enter") createAndAdd();
+                if (e.key === "Enter") void createAndAdd();
                 if (e.key === "Escape") { setNewTagMode(false); setNewTagName(""); }
               }}
               autoFocus
@@ -128,11 +135,12 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
               className="ip-tag-selector-color"
               value={newTagColor}
               onChange={(e) => setNewTagColor(e.target.value)}
+              disabled={disabled}
             />
-            <button type="button" className="tool-btn tool-btn-sm" onClick={createAndAdd}>
+            <button type="button" className="tool-btn tool-btn-sm" onClick={createAndAdd} disabled={disabled}>
               Create
             </button>
-            <button type="button" className="tool-btn tool-btn-ghost tool-btn-sm" onClick={() => { setNewTagMode(false); setNewTagName(""); }}>
+            <button type="button" className="tool-btn tool-btn-ghost tool-btn-sm" onClick={() => { setNewTagMode(false); setNewTagName(""); }} disabled={disabled}>
               Cancel
             </button>
             {createError && <span className="tool-error ip-tag-selector-create-error">{createError}</span>}
@@ -142,6 +150,7 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
             type="button"
             className="tool-btn tool-btn-ghost ip-tag-selector-add-btn"
             onClick={() => setNewTagMode(true)}
+            disabled={disabled}
           >
             + New tag
           </button>
@@ -150,8 +159,9 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
 
       <button
         type="button"
-        className="ip-tag-selector-toggle"
-        onClick={() => setOpen((o) => !o)}
+          className="ip-tag-selector-toggle"
+          onClick={() => setOpen((o) => !o)}
+          disabled={disabled}
       >
         {open ? "▾" : "▸"} {placeholder || "Tags"}
       </button>
@@ -163,6 +173,7 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
             placeholder="Search tags…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            disabled={disabled}
             autoFocus
           />
 
@@ -185,8 +196,9 @@ export default function TagSelector({ value = [], onChange, allTags: propAllTags
               className="ip-tag-selector-option"
               onMouseDown={(e) => {
                 e.preventDefault();
-                toggleTag(tag.id);
+                void toggleTag(tag.id);
               }}
+              disabled={disabled}
             >
               <span className="ip-tag-selector-option-dot" style={{ backgroundColor: tag.color }} />
               <span className="ip-tag-selector-option-name">{tag.name}</span>

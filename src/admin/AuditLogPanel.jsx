@@ -171,8 +171,13 @@ export default function AuditLogPanel() {
   return (
     <div className="nt-admin-panel">
       <div className="audit-header">
-        <h3>IPAM Audit Log</h3>
+        <div>
+          <div className="audit-eyebrow">Change register</div>
+          <h3>IPAM Audit Log</h3>
+          <p>Track address, subnet, and discovery changes across the inventory.</p>
+        </div>
         <button
+          type="button"
           className="tool-btn tool-btn-ghost"
           onClick={handleExport}
           disabled={exporting}
@@ -181,42 +186,56 @@ export default function AuditLogPanel() {
         </button>
       </div>
 
-      <div className="audit-filters">
-        <label className="tool-hint">Scope:</label>
-        <select
-          className="tool-input"
-          value={scope}
-          onChange={(e) => setScope(e.target.value)}
-        >
-          <option value="all">All changes</option>
-          <option value="subnet">By subnet ID</option>
-          <option value="address">By address ID</option>
-        </select>
-        {scope === "subnet" && (
-          <input
+      <div className="audit-filter-bar">
+        <label className="audit-filter-field">
+          <span>Show</span>
+          <select
             className="tool-input"
-            type="number"
-            placeholder="Subnet ID"
-            value={subnetId}
-            onChange={(e) => setSubnetId(e.target.value)}
-          />
+            value={scope}
+            onChange={(e) => setScope(e.target.value)}
+          >
+            <option value="all">All changes</option>
+            <option value="subnet">A subnet</option>
+            <option value="address">An address</option>
+          </select>
+        </label>
+        {scope === "subnet" && (
+          <label className="audit-filter-field audit-filter-id">
+            <span>Subnet ID</span>
+            <input
+              className="tool-input"
+              type="number"
+              placeholder="e.g. 42"
+              value={subnetId}
+              onChange={(e) => setSubnetId(e.target.value)}
+            />
+          </label>
         )}
         {scope === "address" && (
-          <input
-            className="tool-input"
-            type="number"
-            placeholder="Address ID"
-            value={addressId}
-            onChange={(e) => setAddressId(e.target.value)}
-          />
+          <label className="audit-filter-field audit-filter-id">
+            <span>Address ID</span>
+            <input
+              className="tool-input"
+              type="number"
+              placeholder="e.g. 128"
+              value={addressId}
+              onChange={(e) => setAddressId(e.target.value)}
+            />
+          </label>
         )}
         <button
-          className="tool-btn"
+          type="button"
+          className="tool-btn tool-btn-ghost audit-refresh"
           onClick={loadAuditLog}
           disabled={loading}
         >
-          Refresh
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
+        {!loading && !error && (
+          <span className="audit-entry-count">
+            {entries.length} {entries.length === 1 ? "entry" : "entries"}
+          </span>
+        )}
       </div>
 
       {loading && <div className="tool-empty">Loading audit log…</div>}
@@ -237,9 +256,11 @@ export default function AuditLogPanel() {
 
             return (
               <div key={entry.id} className="audit-entry">
-                <div
+                <button
+                  type="button"
                   className="audit-entry-header"
                   onClick={() => toggleExpand(entry.id)}
+                  aria-expanded={isExpanded}
                 >
                   <span
                     className="audit-type-badge"
@@ -247,18 +268,23 @@ export default function AuditLogPanel() {
                   >
                     {style.label}
                   </span>
-                  <span className="audit-ip">{entry.ipAddress || "—"}</span>
-                  <span className="audit-desc">{entry.description || "—"}</span>
+                  <span className="audit-target">
+                    <span className="audit-ip">{entry.ipAddress || entry.subnetCidr || "—"}</span>
+                    {entry.subnetCidr && entry.ipAddress && (
+                      <span className="audit-subnet">{entry.subnetCidr}</span>
+                    )}
+                  </span>
+                  <span className="audit-desc">{entry.description || "No description"}</span>
                   <span className="audit-user">
                     {entry.username || "system"}
                   </span>
                   <span className="audit-time">
                     {formatTimestamp(entry.createdAt)}
                   </span>
-                  <span className="audit-expand">
-                    {isExpanded ? "▼" : "▶"}
+                  <span className="audit-expand" aria-hidden="true">
+                    {isExpanded ? "−" : "+"}
                   </span>
-                </div>
+                </button>
                 {isExpanded && (
                   <div className="audit-entry-body">
                     {entry.subnetCidr && (

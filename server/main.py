@@ -589,13 +589,25 @@ def require_admin_user(
 
 def require_logged_in_user(
     session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
-) -> Dict:
+) -> Optional[Dict]:
     user = None
     if session_token:
         user = auth_db.get_user_by_session_token(session_token)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    return user
+    if user is not None:
+        return user
+    if not auth_db.is_login_required():
+        return None
+    raise HTTPException(status_code=401, detail="Not authenticated")
+
+
+def require_authenticated_user(
+    session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+) -> Dict:
+    if session_token:
+        user = auth_db.get_user_by_session_token(session_token)
+        if user is not None:
+            return user
+    raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 def user_permissions(user: Dict) -> List[str]:
@@ -735,7 +747,7 @@ def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=S
 
 
 @app.post("/api/auth/change-password")
-def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require_logged_in_user)):
+def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require_authenticated_user)):
     if not auth.verify_password(req.currentPassword, user["passwordHash"]):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     new_hash = auth.hash_password(req.newPassword)

@@ -129,39 +129,6 @@ select.ip-row-btn {
   min-width: 110px;
 }
 
-/* Bulk-selection actions bar: a slim row of buttons (Edit / Move / Delete /
-   Clear) plus the "Edit" trigger's popover form, which follows the same
-   trigger-button + popover-panel convention as .ip-add-subnet-popover. */
-.ip-bulk-actions {
-  margin-bottom: 14px;
-}
-.ip-bulk-actions-bar {
-  margin-bottom: 0;
-  align-items: center;
-}
-.ip-bulk-actions-bar .tool-input {
-  flex: 0 1 220px;
-  min-width: 160px;
-}
-.ip-bulk-edit-popover {
-  margin-top: 10px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-.ip-bulk-edit-popover .tool-field {
-  flex: 1 1 160px;
-  min-width: 160px;
-  margin-bottom: 0;
-}
-.ip-bulk-edit-popover .tool-actions {
-  flex-basis: 100%;
-  display: flex;
-  gap: 8px;
-}
-
-/* "Add address" trigger button — no longer needs special popover styles since it now uses a modal. */
-
 td.ip-actions-cell {
   white-space: nowrap;
   text-align: right;
@@ -492,6 +459,10 @@ tr.ip-row-highlighted {
 }
 
 /* Heatmap / Grid View for IPAM Subnets */
+.ip-heatmap-stage {
+  position: relative;
+}
+
 .ip-heatmap-container {
   position: relative;
   display: grid;
@@ -508,14 +479,53 @@ tr.ip-row-highlighted {
   gap: 3px;
   margin: 15px 0;
 }
+.ip-heatmap-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 18px;
+  padding: 9px 10px;
+  background: var(--panel-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+}
+.ip-heatmap-page-range,
+.ip-heatmap-page-count {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.ip-heatmap-page-range {
+  color: var(--accent-2);
+}
+.ip-heatmap-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 520px) {
+  .ip-heatmap-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .ip-heatmap-page-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
 .ip-heatmap-cell {
   aspect-ratio: 1;
+  border: 0;
   border-radius: 2px;
+  padding: 0;
+  font: inherit;
   cursor: pointer;
   background-color: var(--panel-muted);
   transition: filter 0.1s;
 }
-.ip-heatmap-cell:hover {
+.ip-heatmap-cell:hover,
+.ip-heatmap-cell:focus-visible {
   filter: brightness(1.3);
   outline: 1px solid var(--accent);
 }
@@ -542,6 +552,7 @@ tr.ip-row-highlighted {
 }
 .ip-heatmap-tooltip {
   position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
   background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
@@ -568,29 +579,13 @@ tr.ip-row-highlighted {
   color: var(--muted);
 }
 
-/* Child-subnet and DHCP-pool overlays. These are real grid items — not
-   absolutely positioned — placed via grid-column/grid-row (set inline via
-   style={rangeToBox(...)} in JSX, using the same --ip-heatmap-cols column
-   count the container uses) so they occupy exactly the cell(s) their
-   address range covers, laid out by the grid itself rather than by
-   JS-measured pixel math. z-index lifts them above the invisible
-   placeholder cells occupying the same grid area underneath.
-
-   The fill/border live here, on the full span — not on the inner label —
-   so the whole address range the pool/child-subnet covers is visibly
-   painted, with the label just captioning it. (Previously only the small
-   inner label had a background/border, so only the label was visible and
-   the rest of the correctly-sized span looked like empty space — a pool
-   spanning many cells still only *looked* like a single small badge.)
-
-   min-width/min-height: 0 override the grid default of min-width: auto on
-   grid items, which otherwise lets the label's unwrapped text (nowrap, see
-   below) force its grid tracks wider than the span actually assigned —
-   the block would visually grow or shrink to fit a short/long pool name
-   instead of staying exactly as wide as the address range it represents. */
+/* Overlay grid placement defines the containing block for absolutely
+   positioned children. They paint over their cells but never participate in
+   grid auto-placement, so a DHCP pool or child subnet cannot shift IPs. */
 .ip-heatmap-child-outline,
 .ip-heatmap-dhcp-block {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
   display: flex;
   align-items: center;
@@ -636,7 +631,8 @@ tr.ip-row-highlighted {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
+  pointer-events: none;
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -651,9 +647,147 @@ tr.ip-row-highlighted {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  cursor: pointer;
+  cursor: default;
+  pointer-events: none;
   max-width: 100%;
   box-sizing: border-box;
+}
+
+.ip-address-popover {
+  position: absolute;
+  z-index: 200;
+  width: min(380px, calc(100% - 16px));
+  max-width: 380px;
+}
+.ip-address-popover-below {
+  transform: translate(-50%, 10px);
+}
+.ip-address-popover-above {
+  transform: translate(-50%, calc(-100% - 10px));
+}
+.ip-address-popover::before,
+.ip-address-popover::after {
+  content: "";
+  position: absolute;
+  left: calc(50% + var(--ip-popover-arrow-offset, 0px));
+  width: 0;
+  height: 0;
+  transform: translateX(-50%);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+}
+.ip-address-popover-below::before {
+  top: -9px;
+  border-bottom: 8px solid var(--border);
+}
+.ip-address-popover-below::after {
+  top: -7px;
+  border-bottom: 8px solid var(--panel);
+}
+.ip-address-popover-above::before {
+  bottom: -9px;
+  border-top: 8px solid var(--border);
+}
+.ip-address-popover-above::after {
+  bottom: -7px;
+  border-top: 8px solid var(--panel);
+}
+.ip-address-popover-scroll {
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.52);
+  padding: 14px;
+  box-sizing: border-box;
+}
+.ip-address-popover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.ip-address-popover-title {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.ip-address-popover-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 4px;
+}
+.ip-address-popover-close:hover,
+.ip-address-popover-close:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+.ip-address-popover-status {
+  display: inline-flex;
+}
+.ip-address-popover-details {
+  display: grid;
+  grid-template-columns: minmax(100px, auto) 1fr;
+  gap: 7px 12px;
+  margin-bottom: 12px;
+}
+.ip-address-popover-detail-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.ip-address-popover-detail-value {
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ip-address-popover-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ip-address-popover-form .tool-field {
+  margin-bottom: 0;
+}
+.ip-address-popover-locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ip-address-popover-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.ip-address-popover-tags {
+  margin-top: 12px;
+}
+.ip-address-popover-tags.pending {
+  opacity: 0.7;
+  pointer-events: none;
+}
+.ip-address-popover-confirm {
+  margin-top: 12px;
+  color: var(--text);
+}
+
+@media (max-width: 520px) {
+  .ip-address-popover-details {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -773,7 +907,7 @@ tr.ip-row-highlighted {
   top: 100%;
   left: 0;
   z-index: 100;
-  background: var(--bg-elevated);
+  background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: 6px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -843,7 +977,7 @@ tr.ip-row-highlighted {
   gap: 4px;
   width: 100%;
   padding: 8px;
-  background: var(--bg-elevated);
+  background: var(--panel);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
   margin-top: 4px;
@@ -942,117 +1076,192 @@ tr.ip-row-highlighted {
   margin-bottom: 0;
 }
 
-/* Audit Log Styles */
-.ip-audit-log {
-  padding: 16px;
-}
-
+/* IPAM audit log: a compact operations ledger rather than a generic list. */
 .audit-header {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+  align-items: flex-start;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border-soft);
 }
-
 .audit-header h3 {
-  margin: 0;
+  margin: 3px 0 5px;
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--text);
 }
-
+.audit-header p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.audit-eyebrow {
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.audit-filter-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0 18px;
+  padding: 12px;
+  background: var(--panel-muted);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+.audit-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.audit-filter-field .tool-input {
+  min-width: 170px;
+}
+.audit-filter-id .tool-input {
+  min-width: 130px;
+}
+.audit-refresh {
+  margin-left: auto;
+}
+.audit-entry-count {
+  align-self: center;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
 .audit-timeline {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
-
 .audit-entry {
   border: 1px solid var(--border-soft);
-  border-radius: 4px;
+  border-radius: 7px;
   overflow: hidden;
+  background: var(--panel);
 }
-
-.audit-entry-header {
+button.audit-entry-header {
+  width: 100%;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: 14px;
+  padding: 11px 13px;
   cursor: pointer;
-  background: var(--bg-surface);
-  transition: background 0.15s;
+  background: var(--panel);
+  transition: background 0.15s, border-color 0.15s;
 }
-
-.audit-entry-header:hover {
-  background: var(--bg-elevated);
+button.audit-entry-header:hover,
+button.audit-entry-header:focus-visible {
+  background: var(--bg-hover);
+  outline: none;
 }
-
 .audit-type-badge {
+  min-width: 92px;
+  box-sizing: border-box;
+  text-align: center;
   font-size: 10px;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
+  padding: 4px 7px;
+  border-radius: 4px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   flex-shrink: 0;
 }
-
+.audit-target {
+  display: flex;
+  flex: 0 1 210px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+}
 .audit-ip {
   font-family: var(--mono);
   font-size: 12px;
-  color: var(--accent-1);
-  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text);
 }
-
+.audit-subnet {
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 10px;
+}
 .audit-desc {
   flex: 1;
   font-size: 13px;
-  color: var(--text-primary);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .audit-user {
+  min-width: 74px;
   font-size: 11px;
   color: var(--muted);
   flex-shrink: 0;
 }
-
 .audit-time {
+  min-width: 142px;
   font-size: 11px;
   color: var(--muted);
+  font-family: var(--mono);
   flex-shrink: 0;
 }
-
 .audit-expand {
-  font-size: 10px;
-  color: var(--muted);
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-soft);
+  border-radius: 50%;
+  color: var(--accent-2);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1;
   flex-shrink: 0;
 }
-
 .audit-entry-body {
-  padding: 12px;
-  background: var(--bg-default);
+  padding: 14px;
+  background: var(--bg-surface);
   border-top: 1px solid var(--border-soft);
 }
-
 .audit-meta {
   font-size: 12px;
   color: var(--muted);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
-
 .audit-diff {
+  overflow-x: auto;
   width: 100%;
-  border-collapse: collapse;
   font-size: 12px;
 }
-
+.audit-diff table {
+  width: 100%;
+  min-width: 500px;
+  border-collapse: collapse;
+}
 .audit-diff th,
 .audit-diff td {
-  padding: 6px 10px;
+  padding: 8px 10px;
   text-align: left;
   border-bottom: 1px solid var(--border-soft);
 }
-
 .audit-diff th {
   font-weight: 600;
   color: var(--muted);
@@ -1060,12 +1269,11 @@ tr.ip-row-highlighted {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-
 .audit-diff td:first-child {
+  width: 22%;
   font-family: var(--mono);
   color: var(--accent-2);
 }
-
 .audit-old {
   color: var(--danger);
   opacity: 0.8;
@@ -1078,4 +1286,47 @@ tr.ip-row-highlighted {
 
 .audit-diff tr:last-child td {
   border-bottom: none;
+}
+
+@media (max-width: 760px) {
+  .audit-header {
+    flex-direction: column;
+  }
+  .audit-refresh {
+    margin-left: 0;
+  }
+  .audit-entry-count {
+    display: none;
+  }
+  button.audit-entry-header {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 8px 10px;
+  }
+  .audit-type-badge {
+    min-width: 0;
+  }
+  .audit-target {
+    flex: initial;
+    min-width: 0;
+  }
+  .audit-desc {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .audit-user,
+  .audit-time {
+    min-width: 0;
+  }
+  .audit-time {
+    grid-column: 1 / span 2;
+  }
+  .audit-user {
+    grid-column: 3;
+    text-align: right;
+  }
+  .audit-expand {
+    grid-column: 3;
+    grid-row: 1;
+  }
 }

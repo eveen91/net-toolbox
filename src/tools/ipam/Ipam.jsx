@@ -7,14 +7,13 @@ import ResubnetReview from "./ResubnetReview.jsx";
 import SubnetAllocator from "./SubnetAllocator.jsx";
 import DhcpPoolManager from "./DhcpPoolManager.jsx";
 import SubnetHeatmap from "./SubnetHeatmap.jsx";
+import AddressPopover from "./AddressPopover.jsx";
 import TagSelector from "./TagSelector.jsx";
 import TagFilterBar from "./TagFilterBar.jsx";
-import TagBadge from "./TagBadge.jsx";
 import {
   formatVlan,
   formatTimestamp,
   utilizationPercent,
-  STATUS_LABELS,
   ancestorChain,
   addressesToCsv,
 } from "./logic.js";
@@ -23,14 +22,6 @@ import {
   getSubnet,
   updateSubnet,
   deleteSubnet,
-  addAddress,
-  updateAddress,
-  deleteAddress,
-  bulkUpdateAddresses,
-  bulkDeleteAddresses,
-  bulkMoveAddresses,
-  rescanAddress,
-  autodiscoverSubnet,
   startAutodiscoverJob,
   autodiscoverStreamUrl,
   getActiveAutodiscoverJob,
@@ -40,25 +31,15 @@ import {
   removeScanExclude,
   getIpamSettings,
   updateIpamSettings,
-  getNextAvailableIp,
   fetchTags,
-  createTag,
-  deleteTag,
   fetchSubnetTags,
   addSubnetTag,
   removeSubnetTag,
   fetchAddressTags,
   addAddressTag,
   removeAddressTag,
-  getDhcpPools,
   fetchSubnetAllocation,
 } from "./api.js";
-
-const STATUS_PILL_CLASS = {
-  used: "tool-pill-muted",
-  free: "tool-pill-ok",
-  reserved: "tool-pill-warn",
-};
 
 function UtilizationBar({ subnet }) {
   const total = subnet.totalAddresses || 1;
@@ -70,806 +51,6 @@ function UtilizationBar({ subnet }) {
       <div className="ip-util-seg ip-util-used" style={{ width: `${usedPct}%` }} />
       <div className="ip-util-seg ip-util-reserved" style={{ width: `${reservedPct}%` }} />
       <div className="ip-util-seg ip-util-free" style={{ width: `${freePct}%` }} />
-    </div>
-  );
-}
-
-/** Row for one recorded address: view mode + an inline edit mode, plus a delete confirm step. */
-const MACHINE_TYPE_LABELS = { physical: "Physical", vm: "VM" };
-const ENVIRONMENT_LABELS = { prod: "Prod", test: "Test", dev: "Dev" };
-
-function AddressRow({ subnetId, addr, selected, highlighted, onToggleSelect, onUpdated, onError, tags, addressTagIds = {}, onAddressTagChange }) {
-  const rowRef = useRef(null);
-  useEffect(() => {
-    if (highlighted && rowRef.current) {
-      rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [highlighted]);
-  const currentTags = addressTagIds[addr.id] || [];
-  const [modalOpen, setModalOpen] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [rescanning, setRescanning] = useState(false);
-  const [draft, setDraft] = useState({
-    address: addr.address,
-    status: addr.status,
-    hostname: addr.hostname || "",
-    description: addr.description || "",
-    team: addr.team || "",
-    machineType: addr.machineType || "",
-    vmCluster: addr.vmCluster || "",
-    environment: addr.environment || "",
-    locked: addr.locked || false,
-  });
-  const [formError, setFormError] = useState(null);
-
-  const startEdit = () => {
-    setDraft({
-      address: addr.address,
-      status: addr.status,
-      hostname: addr.hostname || "",
-      description: addr.description || "",
-      team: addr.team || "",
-      machineType: addr.machineType || "",
-      vmCluster: addr.vmCluster || "",
-      environment: addr.environment || "",
-      locked: addr.locked || false,
-    });
-    setModalOpen(true);
-    setFormError(null);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setFormError(null);
-  };
-
-  const save = async () => {
-    setFormError(null);
-    setSaving(true);
-    try {
-      const updated = await updateAddress(
-        subnetId,
-        addr.id,
-        draft.address.trim(),
-        draft.status,
-        draft.hostname.trim() || null,
-        draft.description.trim() || null,
-        draft.team.trim() || null,
-        draft.machineType || null,
-        draft.machineType === "vm" ? draft.vmCluster.trim() || null : null,
-        draft.environment || null,
-        draft.locked
-      );
-      onUpdated(updated);
-      closeModal();
-    } catch (e) {
-      setFormError(e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    setSaving(true);
-    try {
-      const updated = await deleteAddress(subnetId, addr.id);
-      onUpdated(updated);
-    } catch (e) {
-      setFormError(e.message);
-      setSaving(false);
-    }
-  };
-
-  const rescan = async () => {
-    setRescanning(true);
-    try {
-      const updated = await rescanAddress(subnetId, addr.id);
-      onUpdated(updated);
-    } catch (e) {
-      setFormError(e.message);
-    } finally {
-      setRescanning(false);
-    }
-  };
-
-  return (
-    <>
-      <tr ref={rowRef} className={highlighted ? "ip-row-highlighted" : ""}>
-        <td>
-          <input
-            type="checkbox"
-            checked={selected}
-            onChange={() => onToggleSelect(addr.id)}
-          />
-        </td>
-        <td className="ip-mono">{addr.address}</td>
-        <td>
-          <span className={`tool-pill ${STATUS_PILL_CLASS[addr.status]}`}>{STATUS_LABELS[addr.status]}</span>
-        </td>
-        <td>{addr.hostname || "—"}</td>
-        <td>{addr.description || "—"}</td>
-        <td>{addr.team || "—"}</td>
-        <td>{addr.machineType ? MACHINE_TYPE_LABELS[addr.machineType] : "—"}</td>
-        <td>{addr.machineType === "vm" ? addr.vmCluster || "—" : "—"}</td>
-        <td>{addr.environment ? ENVIRONMENT_LABELS[addr.environment] : "—"}</td>
-        <td>{addr.locked ? "🔒" : "—"}</td>
-        <td className="ip-actions-cell">
-          <div className="ip-actions-inner">
-            {tags && (
-              <TagSelector
-                value={currentTags.map((t) => t.id)}
-                onChange={(newIds) => onAddressTagChange(addr.id, newIds)}
-                allTags={tags}
-                placeholder="+ Tag"
-              />
-            )}
-            {confirmingDelete ? (
-              <>
-                <button className="tool-btn tool-btn-ghost ip-row-btn ip-row-btn-danger" onClick={remove} disabled={saving}>
-                  {saving ? "…" : "Confirm"}
-                </button>
-                <button
-                  className="tool-btn tool-btn-ghost ip-row-btn"
-                  onClick={() => setConfirmingDelete(false)}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-              </>
-            ) : (
-              <>
-                {addr.status !== "reserved" && (
-                  <button
-                    className="tool-btn tool-btn-ghost ip-row-btn"
-                    onClick={rescan}
-                    disabled={rescanning}
-                  >
-                    {rescanning ? "…" : "Rescan"}
-                  </button>
-                )}
-                <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={startEdit}>
-                  Edit
-                </button>
-                <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setConfirmingDelete(true)}>
-                  Delete
-                </button>
-              </>
-            )}
-          </div>
-        </td>
-      </tr>
-
-      {modalOpen && (
-        <div className="tool-modal-overlay" onClick={closeModal}>
-          <div className="tool-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="tool-modal-header">
-              <h3>Edit Address</h3>
-              <button type="button" className="tool-modal-close" onClick={closeModal}>
-                ×
-              </button>
-            </div>
-            <form onSubmit={save}>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Address</span>
-                </div>
-                <input
-                  autoFocus
-                  className="tool-input"
-                  value={draft.address}
-                  onChange={(e) => setDraft({ ...draft, address: e.target.value })}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Status</span>
-                </div>
-                <select
-                  className="tool-input"
-                  value={draft.status}
-                  onChange={(e) => setDraft({ ...draft, status: e.target.value })}
-                >
-                  {Object.entries(STATUS_LABELS).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>
-                    Hostname <span className="tool-hint">optional</span>
-                  </span>
-                </div>
-                <input
-                  className="tool-input"
-                  value={draft.hostname}
-                  onChange={(e) => setDraft({ ...draft, hostname: e.target.value })}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>
-                    Description <span className="tool-hint">optional</span>
-                  </span>
-                </div>
-                <input
-                  className="tool-input"
-                  value={draft.description}
-                  onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>
-                    Team <span className="tool-hint">optional</span>
-                  </span>
-                </div>
-                <input
-                  className="tool-input"
-                  value={draft.team}
-                  onChange={(e) => setDraft({ ...draft, team: e.target.value })}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Machine type</span>
-                </div>
-                <select
-                  className="tool-input"
-                  value={draft.machineType}
-                  onChange={(e) => setDraft({ ...draft, machineType: e.target.value, vmCluster: "" })}
-                >
-                  <option value="">—</option>
-                  {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>VM cluster</span>
-                </div>
-                <input
-                  className="tool-input"
-                  value={draft.vmCluster}
-                  onChange={(e) => setDraft({ ...draft, vmCluster: e.target.value })}
-                  disabled={draft.machineType !== "vm"}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Environment</span>
-                </div>
-                <select
-                  className="tool-input"
-                  value={draft.environment}
-                  onChange={(e) => setDraft({ ...draft, environment: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="tool-field">
-                <label className="tool-hint">
-                  <input
-                    type="checkbox"
-                    checked={draft.locked}
-                    onChange={(e) => setDraft({ ...draft, locked: e.target.checked })}
-                  />
-                  Locked
-                </label>
-              </div>
-              <div className="tool-actions">
-                <button
-                  className="tool-btn tool-btn-primary"
-                  type="submit"
-                  disabled={saving || !draft.address.trim()}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-                <button
-                  type="button"
-                  className="tool-btn tool-btn-ghost"
-                  onClick={closeModal}
-                  disabled={saving}
-                >
-                  Cancel
-                </button>
-              </div>
-              {formError && <div className="tool-error">{formError}</div>}
-            </form>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function AddAddressForm({ subnetId, onAdded, onError }) {
-  const [modalOpen, setModalOpen] = useState(false);
-  const [address, setAddress] = useState("");
-  const [status, setStatus] = useState("used");
-  const [hostname, setHostname] = useState("");
-  const [description, setDescription] = useState("");
-  const [team, setTeam] = useState("");
-  const [machineType, setMachineType] = useState("");
-  const [vmCluster, setVmCluster] = useState("");
-  const [environment, setEnvironment] = useState("");
-  const [locked, setLocked] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [findingNext, setFindingNext] = useState(false);
-  const [formError, setFormError] = useState(null);
-
-  const reset = () => {
-    setAddress("");
-    setHostname("");
-    setDescription("");
-    setStatus("used");
-    setTeam("");
-    setMachineType("");
-    setVmCluster("");
-    setEnvironment("");
-    setLocked(false);
-  };
-
-  const closeModal = () => {
-    setModalOpen(false);
-    setFormError(null);
-    reset();
-  };
-
-  const handleFindNextIp = async () => {
-    setFormError(null);
-    setFindingNext(true);
-    try {
-      const res = await getNextAvailableIp(subnetId);
-      if (res.nextAvailableIp) {
-        setAddress(res.nextAvailableIp);
-      } else {
-        setFormError("No available IP addresses remaining in this subnet.");
-      }
-    } catch (err) {
-      setFormError(err.message);
-    } finally {
-      setFindingNext(false);
-    }
-  };
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!address.trim()) return;
-    setFormError(null);
-    setAdding(true);
-    try {
-      const updated = await addAddress(
-        subnetId,
-        address.trim(),
-        status,
-        hostname.trim() || null,
-        description.trim() || null,
-        team.trim() || null,
-        machineType || null,
-        machineType === "vm" ? vmCluster.trim() || null : null,
-        environment || null,
-        locked
-      );
-      onAdded(updated);
-      reset();
-      setModalOpen(false);
-    } catch (e2) {
-      setFormError(e2.message);
-    } finally {
-      setAdding(false);
-    }
-  };
-
-  return (
-    <>
-      <button type="button" className="tool-btn tool-btn-primary" onClick={() => setModalOpen(true)}>
-        + Add address
-      </button>
-
-      {modalOpen && (
-        <div className="tool-modal-overlay" onClick={closeModal}>
-          <div className="tool-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="tool-modal-header">
-              <h3>Add Address</h3>
-              <button type="button" className="tool-modal-close" onClick={closeModal}>
-                ×
-              </button>
-            </div>
-            <form onSubmit={submit}>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Address</span>
-                  <button
-                    type="button"
-                    className="tool-btn tool-btn-ghost ip-row-btn"
-                    onClick={handleFindNextIp}
-                    disabled={findingNext}
-                    style={{ fontSize: "11px", padding: "2px 6px", textTransform: "none" }}
-                  >
-                    {findingNext ? "Finding…" : "⚡ Next Available IP"}
-                  </button>
-                </div>
-                <input
-                  autoFocus
-                  className="tool-input"
-                  placeholder="10.0.1.10"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  required
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Status</span>
-                </div>
-                <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
-                  {Object.entries(STATUS_LABELS).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>
-                    Hostname <span className="tool-hint">optional</span>
-                  </span>
-                </div>
-                <input
-                  className="tool-input"
-                  placeholder="hostname (optional)"
-                  value={hostname}
-                  onChange={(e) => setHostname(e.target.value)}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>
-                    Description <span className="tool-hint">optional</span>
-                  </span>
-                </div>
-                <input
-                  className="tool-input"
-                  placeholder="description (optional)"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>
-                    Team <span className="tool-hint">optional</span>
-                  </span>
-                </div>
-                <input
-                  className="tool-input"
-                  placeholder="team (optional)"
-                  value={team}
-                  onChange={(e) => setTeam(e.target.value)}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Machine type</span>
-                </div>
-                <select
-                  className="tool-input"
-                  value={machineType}
-                  onChange={(e) => {
-                    setMachineType(e.target.value);
-                    setVmCluster("");
-                  }}
-                >
-                  <option value="">Type…</option>
-                  {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>VM cluster</span>
-                </div>
-                <input
-                  className="tool-input"
-                  placeholder="vm cluster"
-                  value={vmCluster}
-                  onChange={(e) => setVmCluster(e.target.value)}
-                  disabled={machineType !== "vm"}
-                />
-              </div>
-              <div className="tool-field">
-                <div className="tool-label">
-                  <span>Environment</span>
-                </div>
-                <select className="tool-input" value={environment} onChange={(e) => setEnvironment(e.target.value)}>
-                  <option value="">Env…</option>
-                  {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="tool-field">
-                <label className="tool-hint">
-                  <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
-                  Locked
-                </label>
-              </div>
-               <div className="tool-actions">
-                <button className="tool-btn tool-btn-primary" type="submit" disabled={adding || !address.trim()}>
-                  {adding ? "Adding…" : "Add address"}
-                </button>
-                <button type="button" className="tool-btn tool-btn-ghost" onClick={closeModal} disabled={adding}>
-                  Cancel
-                </button>
-              </div>
-              {formError && <div className="tool-error">{formError}</div>}
-            </form>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function BulkEditBar({ subnetId, subnets, selectedIds, onApplied, onMoved, onClear, onError }) {
-  const [editOpen, setEditOpen] = useState(false);
-  const [status, setStatus] = useState("");
-  const [team, setTeam] = useState("");
-  const [machineType, setMachineType] = useState("");
-  const [vmCluster, setVmCluster] = useState("");
-  const [environment, setEnvironment] = useState("");
-  const [locked, setLocked] = useState("");
-  const [applying, setApplying] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [targetSubnetId, setTargetSubnetId] = useState("");
-  const [moving, setMoving] = useState(false);
-
-  const moveTargets = subnets.filter((s) => s.id !== subnetId);
-
-  const resetFields = () => {
-    setStatus("");
-    setTeam("");
-    setMachineType("");
-    setVmCluster("");
-    setEnvironment("");
-    setLocked("");
-  };
-
-  const closeEdit = () => {
-    setEditOpen(false);
-    resetFields();
-  };
-
-  const submit = async (e) => {
-    e.preventDefault();
-    onError(null);
-
-    const fields = {};
-    if (status !== "") fields.status = status;
-    if (team !== "") fields.team = team;
-    if (machineType !== "") fields.machineType = machineType;
-    if (vmCluster !== "") fields.vmCluster = vmCluster;
-    if (environment !== "") fields.environment = environment;
-    if (locked === "lock") fields.locked = true;
-    else if (locked === "unlock") fields.locked = false;
-
-    if (Object.keys(fields).length === 0) {
-      onError("Set at least one field to apply.");
-      return;
-    }
-
-    setApplying(true);
-    try {
-      const result = await bulkUpdateAddresses(subnetId, Array.from(selectedIds), fields);
-      onApplied(result);
-      closeEdit();
-    } catch (e) {
-      onError(e.message);
-    } finally {
-      setApplying(false);
-    }
-  };
-
-  const handleBulkDelete = async () => {
-    onError(null);
-    const count = selectedIds.size;
-    if (
-      !window.confirm(
-        `Delete ${count} selected address${count === 1 ? "" : "es"}? This cannot be undone.`
-      )
-    ) {
-      return;
-    }
-    setDeleting(true);
-    try {
-      const result = await bulkDeleteAddresses(subnetId, Array.from(selectedIds));
-      onApplied(result);
-    } catch (e) {
-      onError(e.message);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const handleBulkMove = async () => {
-    onError(null);
-    if (!targetSubnetId) {
-      onError("Choose a destination subnet to move to.");
-      return;
-    }
-    setMoving(true);
-    try {
-      const result = await bulkMoveAddresses(subnetId, Array.from(selectedIds), Number(targetSubnetId));
-      onMoved(result);
-      setTargetSubnetId("");
-      if (result.skipped.length > 0) {
-        const names = result.skipped.map((s) => `${s.address || s.addressId}: ${s.reason}`).join("; ");
-        onError(
-          `Moved ${result.movedCount} of ${result.movedCount + result.skipped.length}. Not moved — ${names}`
-        );
-      }
-    } catch (e) {
-      onError(e.message);
-    } finally {
-      setMoving(false);
-    }
-  };
-
-  return (
-    <div className="ip-bulk-actions">
-      <div className="ip-add-row ip-bulk-actions-bar">
-        <span className="tool-hint">{selectedIds.size} selected</span>
-        <button
-          type="button"
-          className="tool-btn tool-btn-ghost"
-          onClick={() => (editOpen ? closeEdit() : setEditOpen(true))}
-          disabled={deleting || moving}
-        >
-          Edit
-        </button>
-        <select
-          className="tool-input"
-          value={targetSubnetId}
-          onChange={(e) => setTargetSubnetId(e.target.value)}
-        >
-          <option value="">Move to subnet…</option>
-          {moveTargets.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.cidr}
-              {s.vlan ? ` (VLAN ${s.vlan})` : ""}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="tool-btn tool-btn-ghost"
-          onClick={handleBulkMove}
-          disabled={applying || deleting || moving || !targetSubnetId}
-        >
-          {moving ? "Moving…" : `Move ${selectedIds.size}`}
-        </button>
-        <button
-          type="button"
-          className="tool-btn tool-btn-ghost ip-row-btn-danger"
-          onClick={handleBulkDelete}
-          disabled={applying || deleting || moving}
-        >
-          {deleting ? "Deleting…" : `Delete ${selectedIds.size}`}
-        </button>
-        <button type="button" className="tool-btn tool-btn-ghost" onClick={onClear}>
-          Clear selection
-        </button>
-      </div>
-
-      {editOpen && (
-        <form className="tool-popover ip-bulk-edit-popover" onSubmit={submit}>
-          <div className="tool-field">
-            <div className="tool-label">
-              <span>Status</span>
-            </div>
-            <select className="tool-input" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="">Don't change</option>
-              {Object.entries(STATUS_LABELS).map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="tool-field">
-            <div className="tool-label">
-              <span>Team</span>
-            </div>
-            <input
-              className="tool-input"
-              placeholder="team"
-              value={team}
-              onChange={(e) => setTeam(e.target.value)}
-            />
-          </div>
-          <div className="tool-field">
-            <div className="tool-label">
-              <span>Machine type</span>
-            </div>
-            <select
-              className="tool-input"
-              value={machineType}
-              onChange={(e) => setMachineType(e.target.value)}
-            >
-              <option value="">Don't change</option>
-              {Object.entries(MACHINE_TYPE_LABELS).map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="tool-field">
-            <div className="tool-label">
-              <span>VM cluster</span>
-            </div>
-            <input
-              className="tool-input"
-              placeholder="vm cluster"
-              value={vmCluster}
-              onChange={(e) => setVmCluster(e.target.value)}
-            />
-          </div>
-          <div className="tool-field">
-            <div className="tool-label">
-              <span>Environment</span>
-            </div>
-            <select
-              className="tool-input"
-              value={environment}
-              onChange={(e) => setEnvironment(e.target.value)}
-            >
-              <option value="">Don't change</option>
-              {Object.entries(ENVIRONMENT_LABELS).map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="tool-field">
-            <div className="tool-label">
-              <span>Locked</span>
-            </div>
-            <select className="tool-input" value={locked} onChange={(e) => setLocked(e.target.value)}>
-              <option value="">Don't change</option>
-              <option value="lock">Lock</option>
-              <option value="unlock">Unlock</option>
-            </select>
-          </div>
-          <div className="tool-actions">
-            <button className="tool-btn tool-btn-primary" type="submit" disabled={applying}>
-              {applying ? "Applying…" : `Apply to ${selectedIds.size}`}
-            </button>
-            <button type="button" className="tool-btn tool-btn-ghost" onClick={closeEdit} disabled={applying}>
-              Cancel
-            </button>
-          </div>
-        </form>
-      )}
     </div>
   );
 }
@@ -956,7 +137,7 @@ function ScanExcludeManager({ subnetId }) {
   );
 }
 
-function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, onSelectSubnet, highlightedAddressId, tags, subnetTagIds = [], onTagChange, addressTagIds = {}, onAddressTagChange }) {
+function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, onSelectSubnet, onAddressSelected, highlightedAddressId, tags, subnetTagIds = [], onTagChange, onTagCreated, addressTagIds = {}, onAddressTagChange }) {
   const [editingHeader, setEditingHeader] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [headerDraft, setHeaderDraft] = useState({
@@ -966,32 +147,21 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   });
   const [headerError, setHeaderError] = useState(null);
   const [headerSaving, setHeaderSaving] = useState(false);
-  const [rowError, setRowError] = useState(null);
   const [confirmingScan, setConfirmingScan] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
   const [scanResult, setScanResult] = useState(null);
   const [lastScan, setLastScan] = useState(null);
   const [scanProgress, setScanProgress] = useState(null);
-  const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [dhcpPools, setDhcpPools] = useState([]);
   const eventSourceRef = useRef(null);
+  const heatmapStageRef = useRef(null);
+  const popoverOriginRef = useRef(null);
+  const [popoverIp, setPopoverIp] = useState(null);
+  const [popoverCoords, setPopoverCoords] = useState(null);
+  const [popoverPlacement, setPopoverPlacement] = useState("below");
+  const [heatmapPage, setHeatmapPage] = useState(0);
 
-  const toggleSelect = (id) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-  const toggleSelectAll = () => {
-    setSelectedIds((prev) =>
-      prev.size === subnet.addresses.length
-        ? new Set()
-        : new Set(subnet.addresses.map((a) => a.id))
-    );
-  };
 
   useEffect(() => {
     if (eventSourceRef.current !== null) {
@@ -1001,27 +171,15 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     setConfirmingDelete(false);
     setEditingHeader(false);
     setHeaderError(null);
-    setRowError(null);
     setConfirmingScan(false);
     setScanning(false);
     setScanError(null);
     setScanResult(null);
     setLastScan(null);
     setScanProgress(null);
-    setSelectedIds(new Set());
+    setHeatmapPage(0);
 
-    const loadDhcpPools = async () => {
-      try {
-        const pools = await getDhcpPools(subnet.id);
-        setDhcpPools(pools);
-      } catch {
-        // DHCP pools are supplementary to the heatmap — if they fail to
-        // load, leave the heatmap showing plain address cells rather than
-        // surfacing another error on this screen.
-        setDhcpPools([]);
-      }
-    };
-    loadDhcpPools();
+    setDhcpPools([]);
 
     (async () => {
       try {
@@ -1131,6 +289,76 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const unallocated = subnet.totalAddresses - subnet.recordedCount;
   const ancestors = ancestorChain(subnets, subnet.id);
   const children = subnets.filter((s) => s.parentId === subnet.id);
+  const heatmapSubnet = React.useMemo(
+    () => ({ ...subnet, dhcpPools }),
+    [subnet, dhcpPools]
+  );
+  const popoverAddress =
+    subnet.addresses.find((item) => item.address === popoverIp) || null;
+
+  const closePopover = (expectedIp) => {
+    if (expectedIp && popoverIp !== expectedIp) return;
+    const origin = popoverOriginRef.current;
+    setPopoverIp(null);
+    setPopoverCoords(null);
+    requestAnimationFrame(() => origin?.focus());
+  };
+
+  const handleHeatmapCellClick = (ip, cellElement) => {
+    const stage = heatmapStageRef.current;
+    if (!stage || !cellElement) return;
+
+    const cellRect = cellElement.getBoundingClientRect();
+    const stageRect = stage.getBoundingClientRect();
+    const rawX = cellRect.left - stageRect.left + cellRect.width / 2;
+    const popoverWidth = Math.min(380, stageRect.width - 16);
+    const halfWidth = popoverWidth / 2;
+    const x = Math.max(halfWidth + 8, Math.min(rawX, stageRect.width - halfWidth - 8));
+    const estimatedHeight = Math.min(560, window.innerHeight * 0.7);
+    const openAbove =
+      cellRect.bottom + estimatedHeight > window.innerHeight &&
+      cellRect.top > window.innerHeight / 2;
+
+    setPopoverIp(ip);
+    popoverOriginRef.current = cellElement;
+    const address = subnet.addresses.find((item) => item.address === ip);
+    if (address) onAddressSelected?.(address.id);
+    setPopoverPlacement(openAbove ? "above" : "below");
+    setPopoverCoords({
+      x,
+      y: openAbove ? cellRect.top - stageRect.top : cellRect.bottom - stageRect.top,
+      arrowOffset: rawX - x,
+    });
+  };
+
+  useEffect(() => {
+    closePopover();
+  }, [subnet.id]);
+
+  useEffect(() => {
+    const handleResize = () => closePopover();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (!highlightedAddressId) return undefined;
+
+    const frameId = requestAnimationFrame(() => {
+      const stage = heatmapStageRef.current;
+      const cellElement = stage?.querySelector(`[data-address-id="${highlightedAddressId}"]`);
+      if (!cellElement) return;
+      cellElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      cellElement.focus({ preventScroll: true });
+      const ip = cellElement.dataset.ip;
+      if (ip) {
+        onAddressSelected?.(highlightedAddressId);
+        handleHeatmapCellClick(ip, cellElement);
+      }
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [heatmapPage, highlightedAddressId, subnet.id]);
 
   return (
     <>
@@ -1354,15 +582,31 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
         </>
       )}
 
-      <SubnetHeatmap subnet={{ ...subnet, dhcpPools }} subnets={subnets} onCellClick={(ip) => {
-        // Find the address in the list and scroll to it
-        const addrIndex = subnet.addresses.findIndex((a) => a.address === ip);
-        if (addrIndex >= 0) {
-          // Highlight and scroll to the address row
-          setRowError(null);
-          // This will be handled by the highlightedAddressId prop flow
-        }
-      }} />
+      <div className="ip-heatmap-stage" ref={heatmapStageRef}>
+        <SubnetHeatmap
+          subnet={heatmapSubnet}
+          subnets={subnets}
+          onCellClick={handleHeatmapCellClick}
+          page={heatmapPage}
+          onPageChange={setHeatmapPage}
+          focusedAddressId={highlightedAddressId}
+        />
+        {popoverIp && popoverCoords && (
+          <AddressPopover
+            ip={popoverIp}
+            address={popoverAddress}
+            subnetId={subnet.id}
+            coords={popoverCoords}
+            placement={popoverPlacement}
+            onClose={closePopover}
+            onUpdated={onDetailUpdated}
+            tags={tags}
+            addressTags={popoverAddress ? addressTagIds[popoverAddress.id] || [] : []}
+            onAddressTagChange={onAddressTagChange}
+            onTagCreated={onTagCreated}
+          />
+        )}
+      </div>
 
       <h3 className="ip-section-sub-title">DHCP Pools</h3>
       <DhcpPoolManager
@@ -1377,76 +621,8 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
         onChange={(newIds) => onTagChange(newIds)}
         allTags={tags}
         placeholder="Add tags to this subnet"
+        onTagCreated={onTagCreated}
       />
-
-      <h3 className="ip-section-sub-title">Addresses</h3>
-      {rowError && <div className="tool-error">{rowError}</div>}
-      <AddAddressForm subnetId={subnet.id} onAdded={onDetailUpdated} onError={setRowError} />
-
-      {selectedIds.size > 0 && (
-        <BulkEditBar
-          subnetId={subnet.id}
-          subnets={subnets}
-          selectedIds={selectedIds}
-          onApplied={(updated) => {
-            onDetailUpdated(updated);
-            setSelectedIds(new Set());
-          }}
-          onMoved={(result) => {
-            onDetailUpdated(result.fromSubnet);
-            setSelectedIds(new Set());
-          }}
-          onClear={() => setSelectedIds(new Set())}
-          onError={setRowError}
-        />
-      )}
-
-      {subnet.addresses.length === 0 ? (
-        <div className="tool-empty">No addresses recorded yet — add one above.</div>
-      ) : (
-        <div className="tool-table-wrap ip-table-wrap-full">
-          <table className="tool-table">
-            <thead>
-              <tr>
-                <th>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size > 0 && selectedIds.size === subnet.addresses.length}
-                    onChange={toggleSelectAll}
-                  />
-                </th>
-                <th>Address</th>
-                <th>Status</th>
-                <th>Hostname</th>
-                <th>Description</th>
-                <th>Team</th>
-                <th>Type</th>
-                <th>VM Cluster</th>
-                <th>Env</th>
-                <th>Locked</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {subnet.addresses.map((addr) => (
-                <AddressRow
-                  key={addr.id}
-                  subnetId={subnet.id}
-                  addr={addr}
-                  selected={selectedIds.has(addr.id)}
-                  highlighted={highlightedAddressId === addr.id}
-                  onToggleSelect={toggleSelect}
-                  onUpdated={onDetailUpdated}
-                  onError={setRowError}
-                  tags={tags}
-                  addressTagIds={addressTagIds}
-                  onAddressTagChange={onAddressTagChange}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       <ScanExcludeManager subnetId={subnet.id} />
     </>
@@ -1553,11 +729,13 @@ export default function Ipam() {
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   const [allTags, setAllTags] = useState([]);
-  const [tagLoading, setTagLoading] = useState(true);
   const [tagError, setTagError] = useState(null);
   const [selectedTagIds, setSelectedTagIds] = useState([]);
   const [subnetTagIds, setSubnetTagIds] = useState({});
   const [addressTagIds, setAddressTagIds] = useState({});
+  const addressTagCacheRef = useRef(new Set());
+  const addressTagRequestsRef = useRef(new Map());
+  const selectionGenerationRef = useRef(0);
 
   const refreshList = async () => {
     setListLoading(true);
@@ -1577,12 +755,10 @@ export default function Ipam() {
   }, []);
 
   useEffect(() => {
-    setTagLoading(true);
     setTagError(null);
     fetchTags()
       .then((tags) => setAllTags(tags))
       .catch((e) => setTagError(e.message))
-      .finally(() => setTagLoading(false));
   }, []);
 
   const loadSubnetTags = async (subnetId) => {
@@ -1595,12 +771,24 @@ export default function Ipam() {
   };
 
   const loadAddressTags = async (addressId) => {
-    try {
-      const tags = await fetchAddressTags(addressId);
-      setAddressTagIds((prev) => ({ ...prev, [addressId]: tags }));
-    } catch {
-      // best-effort
+    if (addressTagCacheRef.current.has(addressId)) {
+      return addressTagIds[addressId] || [];
     }
+    if (addressTagRequestsRef.current.has(addressId)) {
+      return addressTagRequestsRef.current.get(addressId);
+    }
+
+    const request = fetchAddressTags(addressId)
+      .then((tags) => {
+        addressTagCacheRef.current.add(addressId);
+        setAddressTagIds((prev) => ({ ...prev, [addressId]: tags }));
+        return tags;
+      })
+      .catch(() => [])
+      .finally(() => addressTagRequestsRef.current.delete(addressId));
+    addressTagRequestsRef.current.set(addressId, request);
+
+    return request;
   };
 
   const handleTagChange = async (subnetId, newTagIds) => {
@@ -1630,11 +818,23 @@ export default function Ipam() {
     for (const tagId of toRemove) {
       await removeAddressTag(addressId, tagId);
     }
+    addressTagCacheRef.current.delete(addressId);
+    setAddressTagIds((prev) => {
+      const next = { ...prev };
+      delete next[addressId];
+      return next;
+    });
     await loadAddressTags(addressId);
   };
 
   const handleFilterTagRemove = (tagId) => {
     setSelectedTagIds((prev) => prev.filter((id) => id !== tagId));
+  };
+
+  const handleTagCreated = (tag) => {
+    setAllTags((previous) =>
+      previous.some((item) => item.id === tag.id) ? previous : [...previous, tag]
+    );
   };
 
   const loadSettings = async () => {
@@ -1667,6 +867,8 @@ export default function Ipam() {
   };
 
   const selectSubnet = async (id, targetAddressId = null) => {
+    const generation = selectionGenerationRef.current + 1;
+    selectionGenerationRef.current = generation;
     setSelectedId(id);
     setSelectedDetail(null);
     setDetailError(null);
@@ -1674,18 +876,17 @@ export default function Ipam() {
     setHighlightedAddressId(targetAddressId || null);
     try {
       const detail = await getSubnet(id);
+      if (selectionGenerationRef.current !== generation) return;
       setSelectedDetail(detail);
-      // Load tags for this subnet and all its addresses
-      await loadSubnetTags(id);
-      if (detail && detail.addresses) {
-        for (const addr of detail.addresses) {
-          await loadAddressTags(addr.id);
-        }
-      }
+      setDetailLoading(false);
+      // Tags are independent from the detail payload. Address tags load only
+      // when a recorded address is opened in the heatmap.
+      void loadSubnetTags(id);
     } catch (e) {
+      if (selectionGenerationRef.current !== generation) return;
       setDetailError(e.message);
     } finally {
-      setDetailLoading(false);
+      if (selectionGenerationRef.current === generation) setDetailLoading(false);
     }
   };
 
@@ -1819,6 +1020,7 @@ export default function Ipam() {
         {viewMode === "search" && (
           <>
             {listError && <div className="tool-error">{listError}</div>}
+            {tagError && <div className="tool-error">Unable to load tags: {tagError}</div>}
 
             <div className="ip-divider" />
 
@@ -1843,12 +1045,14 @@ export default function Ipam() {
                 tags={allTags}
                 subnetTagIds={subnetTagIds[selectedId] || []}
                 onTagChange={(newIds) => handleTagChange(selectedId, newIds)}
+                onTagCreated={handleTagCreated}
                 addressTagIds={addressTagIds}
                 onAddressTagChange={handleAddressTagChange}
                 deleting={deleting}
                 onDelete={handleDelete}
                 onDetailUpdated={handleDetailUpdated}
                 onSelectSubnet={selectSubnet}
+                onAddressSelected={loadAddressTags}
                 highlightedAddressId={highlightedAddressId}
               />
             )}

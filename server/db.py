@@ -1974,7 +1974,7 @@ def add_dhcp_pool(
         pool_id = cur.lastrowid
         # Re-check hierarchy now that the pool exists — if a more-specific
         # subnet fully contains this range, auto-relocate into it.
-    auto_relocate_dhcp_pools(conn, user_id=user_id)
+        auto_relocate_dhcp_pools(conn)
         conn.commit()
 
         row = conn.execute(
