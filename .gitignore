@@ -13,3 +13,6 @@ opencode.json
 .plans
 dist
 dist/*
+/.opencode/
+/AGENTS.md
+/graphify-out/
