@@ -57,7 +57,7 @@ export default function AddSubnetForm({ onCreated }) {
             <form onSubmit={handleSubmit}>
               <div className="tool-field">
                 <div className="tool-label">
-                  <span>CIDR</span>
+                  <span>CIDR <span className="tool-hint">IPv4 only</span></span>
                 </div>
                 <input
                   autoFocus

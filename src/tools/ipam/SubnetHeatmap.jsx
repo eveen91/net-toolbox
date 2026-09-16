@@ -103,7 +103,6 @@ export default function SubnetHeatmap({
     const existingAddresses = new Map(
       (subnet.addresses || []).map((address) => [address.address, address])
     );
-    const coverage = new Uint8Array(totalAddresses);
     const childRanges = [];
     const poolRanges = [];
 
@@ -119,7 +118,6 @@ export default function SubnetHeatmap({
       const startOffset = Math.max(0, rawStart);
       const endOffset = Math.min(totalAddresses - 1, rawEnd);
       childRanges.push({ ...child, startOffset, endOffset });
-      coverage.fill(COVERAGE_CHILD, startOffset, endOffset + 1);
     }
 
     for (const pool of subnet.dhcpPools || []) {
@@ -130,29 +128,28 @@ export default function SubnetHeatmap({
       const startOffset = Math.max(0, rawStart);
       const endOffset = Math.min(totalAddresses - 1, rawEnd);
       poolRanges.push({ ...pool, startOffset, endOffset });
-      for (let offset = startOffset; offset <= endOffset; offset += 1) {
-        if (coverage[offset] === COVERAGE_FREE) coverage[offset] = COVERAGE_DHCP;
-      }
     }
 
-    const cells = new Array(totalAddresses);
-    for (let offset = 0; offset < totalAddresses; offset += 1) {
+    const cells = [];
+    for (let offset = pageStart; offset < pageEnd; offset += 1) {
       const ip = numberToIpv4(subnetStart + offset);
       const address = existingAddresses.get(ip) || null;
-      const coverageType = coverage[offset];
+      const isChild = childRanges.some((range) => offset >= range.startOffset && offset <= range.endOffset);
+      const isDhcp = !isChild && poolRanges.some((range) => offset >= range.startOffset && offset <= range.endOffset);
       const status = address?.status || "available";
-      cells[offset] = {
+      cells.push({
         ip,
+        offset,
         addressId: address?.id || null,
         status,
         hostname: address?.hostname || null,
         description: address?.description || null,
-        isPlaceholder: coverageType !== COVERAGE_FREE,
-      };
+        isPlaceholder: isChild || isDhcp,
+      });
     }
 
     return { cells, childRanges, poolRanges };
-  }, [subnet, subnets, totalAddresses]);
+  }, [subnet, subnets, totalAddresses, pageStart, pageEnd]);
 
   useEffect(() => {
     if (page !== currentPage) onPageChange(currentPage);
@@ -160,11 +157,12 @@ export default function SubnetHeatmap({
 
   useEffect(() => {
     if (!focusedAddressId) return;
-    const addressOffset = prepared.cells.findIndex(
-      (cell) => cell.addressId === focusedAddressId
-    );
-    if (addressOffset >= 0) onPageChange(Math.floor(addressOffset / addressesPerPage));
-  }, [addressesPerPage, focusedAddressId, onPageChange, prepared.cells]);
+    const address = (subnet.addresses || []).find((entry) => entry.id === focusedAddressId);
+    if (address) {
+      const subnetStart = ipv4ToNumber(subnet.cidr.split("/")[0]);
+      onPageChange(Math.floor((ipv4ToNumber(address.address) - subnetStart) / addressesPerPage));
+    }
+  }, [addressesPerPage, focusedAddressId, onPageChange, subnet]);
 
   useEffect(() => {
     hoveredIndexRef.current = null;
@@ -173,18 +171,16 @@ export default function SubnetHeatmap({
   }, [columns, currentPage, prepared.cells, subnet.id]);
 
   useEffect(() => {
-    const firstFocusable = prepared.cells.findIndex(
-      (cell, index) => index >= pageStart && index < pageEnd && !cell.isPlaceholder
-    );
-    if (activeIndex < pageStart || activeIndex >= pageEnd || prepared.cells[activeIndex]?.isPlaceholder) {
-      setActiveIndex(firstFocusable >= 0 ? firstFocusable : pageStart);
+    const firstFocusable = prepared.cells.find((cell) => !cell.isPlaceholder);
+    if (activeIndex < pageStart || activeIndex >= pageEnd || prepared.cells.find((cell) => cell.offset === activeIndex)?.isPlaceholder) {
+      setActiveIndex(firstFocusable ? firstFocusable.offset : pageStart);
     }
   }, [activeIndex, pageEnd, pageStart, prepared.cells]);
 
   const cellElements = useMemo(
     () =>
-      prepared.cells.slice(pageStart, pageEnd).map((cell, pageIndex) => {
-        const index = pageStart + pageIndex;
+      prepared.cells.map((cell) => {
+        const index = cell.offset;
         return (
         cell.isPlaceholder ? (
           <div
@@ -262,7 +258,7 @@ export default function SubnetHeatmap({
     const cellElement = event.target.closest(".ip-heatmap-cell[data-cell-index]");
     if (!cellElement || !event.currentTarget.contains(cellElement)) return null;
     const index = Number(cellElement.dataset.cellIndex);
-    const cell = prepared.cells[index];
+    const cell = prepared.cells.find((entry) => entry.offset === index);
     return cell && !cell.isPlaceholder ? { cell, cellElement, index } : null;
   }, [prepared.cells]);
 
@@ -313,11 +309,11 @@ export default function SubnetHeatmap({
     while (
       nextIndex >= pageStart &&
       nextIndex < pageEnd &&
-      prepared.cells[nextIndex]?.isPlaceholder
+      prepared.cells.find((cell) => cell.offset === nextIndex)?.isPlaceholder
     ) {
       nextIndex += delta;
     }
-    if (nextIndex < pageStart || nextIndex >= pageEnd || !prepared.cells[nextIndex]) return;
+    if (nextIndex < pageStart || nextIndex >= pageEnd || !prepared.cells.some((cell) => cell.offset === nextIndex)) return;
     setActiveIndex(nextIndex);
     containerRef.current
       ?.querySelector(`[data-cell-index="${nextIndex}"]`)
@@ -332,7 +328,7 @@ export default function SubnetHeatmap({
     );
   }
 
-  const tooltipCell = hoveredIndex === null ? null : prepared.cells[hoveredIndex];
+  const tooltipCell = hoveredIndex === null ? null : prepared.cells.find((cell) => cell.offset === hoveredIndex);
 
   return (
     <>
@@ -369,7 +365,7 @@ export default function SubnetHeatmap({
       {pageCount > 1 && (
         <div className="ip-heatmap-pagination">
           <span className="ip-heatmap-page-range">
-            {prepared.cells[pageStart]?.ip} - {prepared.cells[pageEnd - 1]?.ip}
+            {prepared.cells[0]?.ip} - {prepared.cells[prepared.cells.length - 1]?.ip}
           </span>
           <div className="ip-heatmap-page-actions">
             <button

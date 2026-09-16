@@ -31,9 +31,9 @@ DEFAULT_DNS_TIMEOUT = 1.0  # seconds
 
 def enumerate_scan_targets(cidr: str, excludes: Set[str]) -> List[str]:
     """
-    Return the host addresses in `cidr` worth pinging: every usable host
-    address (network/broadcast addresses excluded automatically by
-    ip_network.hosts()) minus anything in `excludes`.
+    Return usable IPv4 addresses in `cidr` worth pinging. Network and
+    broadcast addresses are excluded for prefixes /0 through /30; both
+    endpoints remain usable for point-to-point /31 and single-host /32.
 
     Raises ValueError if the subnet is larger than MAX_SCAN_ADDRESSES.
     """
@@ -44,7 +44,14 @@ def enumerate_scan_targets(cidr: str, excludes: Set[str]) -> List[str]:
             f"autodiscovery scan cap of {MAX_SCAN_ADDRESSES}. Break it into smaller "
             f"subnets to scan it."
         )
-    return [str(addr) for addr in network.hosts() if str(addr) not in excludes]
+    if network.prefixlen <= 30:
+        candidates = network.hosts()
+    else:
+        candidates = (network.network_address,) if network.prefixlen == 32 else (
+            network.network_address,
+            network.broadcast_address,
+        )
+    return [str(addr) for addr in candidates if str(addr) not in excludes]
 
 
 def ping_host(address: str, timeout: float = DEFAULT_PING_TIMEOUT, attempts: int = DEFAULT_PING_ATTEMPTS) -> bool:

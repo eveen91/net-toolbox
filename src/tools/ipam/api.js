@@ -174,6 +174,30 @@ export async function startAutodiscoverJob(subnetId) {
   return handle(res);
 }
 
+export async function listSubnetAddresses(subnetId, options = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options)) {
+    if (value !== undefined && value !== null && value !== "") params.set(key, String(value));
+  }
+  const suffix = params.size ? `?${params}` : "";
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses${suffix}`);
+  return handle(res);
+}
+
+export async function cancelAutodiscoverJob(subnetId, jobId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/jobs/${jobId}/cancel`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+
+export async function retryAutodiscoverJob(subnetId, jobId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/jobs/${jobId}/retry`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+
 export function autodiscoverStreamUrl(subnetId, jobId) {
   return `${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/stream/${jobId}`;
 }
@@ -219,6 +243,20 @@ export async function updateIpamSettings(scanConcurrencyLimit) {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ scanConcurrencyLimit }),
+  });
+  return handle(res);
+}
+
+export async function getScanSchedule(subnetId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-schedule`);
+  return handle(res);
+}
+
+export async function updateScanSchedule(subnetId, intervalMinutes, enabled) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scan-schedule`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ intervalMinutes, enabled }),
   });
   return handle(res);
 }

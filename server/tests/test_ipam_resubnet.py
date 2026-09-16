@@ -130,6 +130,27 @@ def test_move_address_400_when_address_outside_destination_cidr(client):
     assert move_resp.status_code == 400
 
 
+def test_move_address_rejects_destination_dhcp_pool(client):
+    broad_id = _create_subnet(client, "10.5.1.0/24")
+    narrow_id = _create_subnet(client, "10.5.1.0/28")
+    address_id = _add_address(client, broad_id, "10.5.1.5")
+    pool_response = client.post(
+        f"/api/ipam/subnets/{narrow_id}/dhcp-pools",
+        json={"start_ip": "10.5.1.2", "end_ip": "10.5.1.10"},
+    )
+    assert pool_response.status_code == 200
+
+    move_resp = client.post(
+        f"/api/ipam/subnets/{broad_id}/addresses/{address_id}/move",
+        json={"targetSubnetId": narrow_id},
+    )
+    assert move_resp.status_code == 400
+    assert "DHCP pool" in move_resp.json()["detail"]
+
+    source_addresses = client.get(f"/api/ipam/subnets/{broad_id}").json()["addresses"]
+    assert any(address["id"] == address_id for address in source_addresses)
+
+
 def test_move_address_preserves_metadata(client):
     broad_id = _create_subnet(client, "10.1.0.0/16")
     narrow_id = _create_subnet(client, "10.1.8.0/21")

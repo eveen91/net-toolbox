@@ -297,6 +297,44 @@ def test_bulk_move_moves_addresses_to_destination_subnet(client):
     assert moved_hostnames == {"host-one", "host-two"}
 
 
+def test_bulk_move_rolls_back_when_a_database_error_occurs(client, monkeypatch):
+    import db
+
+    from_resp = client.post("/api/ipam/subnets", json={"cidr": "10.1.12.0/24"})
+    from_id = from_resp.json()["id"]
+    to_resp = client.post("/api/ipam/subnets", json={"cidr": "10.1.12.0/28"})
+    to_id = to_resp.json()["id"]
+    first = client.post(f"/api/ipam/subnets/{from_id}/addresses", json={"address": "10.1.12.1"})
+    second = client.post(f"/api/ipam/subnets/{from_id}/addresses", json={"address": "10.1.12.2"})
+    address_ids = [
+        next(a["id"] for a in first.json()["addresses"] if a["address"] == "10.1.12.1"),
+        next(a["id"] for a in second.json()["addresses"] if a["address"] == "10.1.12.2"),
+    ]
+
+    original_log = db._log_address_change
+    calls = 0
+
+    def fail_on_second_log(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("simulated write failure")
+        return original_log(*args, **kwargs)
+
+    monkeypatch.setattr(db, "_log_address_change", fail_on_second_log)
+    try:
+        db.bulk_move_addresses(from_id, address_ids, to_id)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Expected simulated write failure")
+
+    source_addresses = client.get(f"/api/ipam/subnets/{from_id}").json()["addresses"]
+    destination_addresses = client.get(f"/api/ipam/subnets/{to_id}").json()["addresses"]
+    assert {a["address"] for a in source_addresses} == {"10.1.12.1", "10.1.12.2"}
+    assert destination_addresses == []
+
+
 def test_bulk_move_skips_address_outside_destination_cidr(client):
     from_resp = client.post("/api/ipam/subnets", json={"cidr": "10.1.2.0/28"})
     from_id = from_resp.json()["id"]
@@ -350,6 +388,31 @@ def test_bulk_move_skips_duplicate_in_destination(client):
 
     from_detail = client.get(f"/api/ipam/subnets/{from_id}").json()
     assert len(from_detail["addresses"]) == 1
+
+
+def test_bulk_move_skips_addresses_in_destination_dhcp_pool(client):
+    from_resp = client.post("/api/ipam/subnets", json={"cidr": "10.1.5.0/24"})
+    from_id = from_resp.json()["id"]
+    to_resp = client.post("/api/ipam/subnets", json={"cidr": "10.1.5.0/28"})
+    to_id = to_resp.json()["id"]
+    pool_response = client.post(
+        f"/api/ipam/subnets/{to_id}/dhcp-pools",
+        json={"start_ip": "10.1.5.1", "end_ip": "10.1.5.10"},
+    )
+    assert pool_response.status_code == 200
+    add_resp = client.post(
+        f"/api/ipam/subnets/{from_id}/addresses",
+        json={"address": "10.1.5.5", "status": "used"},
+    )
+    address_id = add_resp.json()["addresses"][0]["id"]
+
+    move_resp = client.post(
+        f"/api/ipam/subnets/{from_id}/addresses/bulk-move",
+        json={"addressIds": [address_id], "targetSubnetId": to_id},
+    )
+    assert move_resp.status_code == 200
+    assert move_resp.json()["movedCount"] == 0
+    assert "DHCP pool" in move_resp.json()["skipped"][0]["reason"]
 
 
 def test_bulk_move_partial_success_reports_moved_and_skipped(client):

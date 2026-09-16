@@ -1,5 +1,32 @@
 from unittest.mock import patch
 
+import db
+
+
+def test_dashboard_uses_aggregated_query_and_returns_latest_scan(client, monkeypatch):
+    first = client.post("/api/ipam/subnets", json={"cidr": "10.0.10.0/29"}).json()
+    second = client.post("/api/ipam/subnets", json={"cidr": "10.0.11.0/29"}).json()
+    client.post(f"/api/ipam/subnets/{first['id']}/addresses", json={"address": "10.0.10.1", "status": "used"})
+    client.post(f"/api/ipam/subnets/{first['id']}/addresses", json={"address": "10.0.10.2", "status": "reserved"})
+    client.post(f"/api/ipam/subnets/{second['id']}/addresses", json={"address": "10.0.11.1", "status": "free"})
+
+    db.record_scan(first["id"], "2026-01-01T00:00:00+00:00", "2026-01-01T00:01:00+00:00", 1, 1, 0, 0, {
+        "newlyUsed": [], "wentQuiet": [], "hostnameChanged": [],
+    })
+    latest_scan = db.record_scan(first["id"], "2026-01-02T00:00:00+00:00", "2026-01-02T00:01:00+00:00", 1, 1, 0, 0, {
+        "newlyUsed": ["10.0.10.1"], "wentQuiet": [], "hostnameChanged": [],
+    })
+
+    monkeypatch.setattr(db, "get_last_scan", lambda *_: (_ for _ in ()).throw(AssertionError("N+1 query used")))
+    response = client.get("/api/ipam/dashboard")
+    assert response.status_code == 200
+    first_entry = next(entry for entry in response.json() if entry["id"] == first["id"])
+    second_entry = next(entry for entry in response.json() if entry["id"] == second["id"])
+    assert (first_entry["usedCount"], first_entry["reservedCount"], first_entry["recordedCount"]) == (1, 1, 2)
+    assert first_entry["lastScannedAt"] == latest_scan["finishedAt"]
+    assert first_entry["lastScanNewlyUsed"] == 1
+    assert (second_entry["freeCount"], second_entry["recordedCount"]) == (1, 1)
+
 import ipam_scan
 
 

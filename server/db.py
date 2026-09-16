@@ -28,6 +28,9 @@ import auth_db
 DB_PATH = Path(__file__).parent / "toolbox.db"
 
 DIRECTLY_CONNECTED = "directly connected"
+IPAM_SCHEMA_VERSION = 5
+# A scan's database heartbeat must be refreshed before this duration expires.
+SCAN_JOB_TIMEOUT_SECONDS = 300
 
 
 def get_connection() -> sqlite3.Connection:
@@ -40,6 +43,14 @@ def get_connection() -> sqlite3.Connection:
 def init_db() -> None:
     conn = get_connection()
     try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_migrations (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS hosts (
@@ -82,53 +93,32 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS ipam_subnets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 cidr TEXT NOT NULL UNIQUE,
-                vlan INTEGER,
+                vlan INTEGER CHECK(vlan IS NULL OR vlan BETWEEN 1 AND 4094),
                 description TEXT,
                 parent_id INTEGER REFERENCES ipam_subnets(id),
                 updated_at TEXT NOT NULL
             )
             """
         )
-        # Migration: databases created before nesting existed won't have this
-        # column yet — add it in place rather than requiring a fresh DB.
-        subnet_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_subnets)").fetchall()}
-        if "parent_id" not in subnet_cols:
-            conn.execute("ALTER TABLE ipam_subnets ADD COLUMN parent_id INTEGER REFERENCES ipam_subnets(id)")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ipam_addresses (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
                 address TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'used',
+                status TEXT NOT NULL DEFAULT 'used' CHECK(status IN ('used', 'free', 'reserved')),
                 hostname TEXT,
                 description TEXT,
+                team TEXT,
+                machine_type TEXT CHECK(machine_type IS NULL OR machine_type IN ('physical', 'vm')),
+                vm_cluster TEXT,
+                environment TEXT CHECK(environment IS NULL OR environment IN ('prod', 'test', 'dev')),
+                locked INTEGER NOT NULL DEFAULT 0 CHECK(locked IN (0, 1)),
                 updated_at TEXT NOT NULL,
                 UNIQUE(subnet_id, address)
             )
             """
         )
-        # Migration: databases created before nested subnets existed won't
-        # have this column yet — add it in place, same as the "interface"
-        # migration above.
-        ipam_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_subnets)").fetchall()}
-        if "parent_id" not in ipam_cols:
-            conn.execute("ALTER TABLE ipam_subnets ADD COLUMN parent_id INTEGER REFERENCES ipam_subnets(id)")
-
-        # Migration: add the host metadata columns (team / machine type / vm
-        # cluster / environment) to databases created before they existed.
-        ipam_addr_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_addresses)").fetchall()}
-        if "team" not in ipam_addr_cols:
-            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN team TEXT")
-        if "machine_type" not in ipam_addr_cols:
-            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN machine_type TEXT")
-        if "vm_cluster" not in ipam_addr_cols:
-            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN vm_cluster TEXT")
-        if "environment" not in ipam_addr_cols:
-            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN environment TEXT")
-        if "locked" not in ipam_addr_cols:
-            conn.execute("ALTER TABLE ipam_addresses ADD COLUMN locked INTEGER DEFAULT 0")
-
         # DHCP Pools table
         conn.execute(
             """
@@ -140,18 +130,10 @@ def init_db() -> None:
                 name TEXT,
                 description TEXT,
                 updated_at TEXT NOT NULL,
-                manually_placed INTEGER NOT NULL DEFAULT 0
+                manually_placed INTEGER NOT NULL DEFAULT 0 CHECK(manually_placed IN (0, 1))
             )
             """
         )
-        # Migration: databases created before manual-move tracking existed
-        # won't have this column yet — add it in place, same pattern as
-        # above. Existing pools default to 0 (not manually placed), so
-        # auto-relocation keeps behaving for them exactly as before.
-        dhcp_pool_cols = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_dhcp_pools)").fetchall()}
-        if "manually_placed" not in dhcp_pool_cols:
-            conn.execute("ALTER TABLE ipam_dhcp_pools ADD COLUMN manually_placed INTEGER NOT NULL DEFAULT 0")
-
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS ipam_scan_excludes (
@@ -178,6 +160,36 @@ def init_db() -> None:
                 went_quiet_count INTEGER NOT NULL,
                 hostname_changed_count INTEGER NOT NULL,
                 diff_json TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_scan_jobs (
+                id TEXT PRIMARY KEY,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                status TEXT NOT NULL CHECK(status IN ('running', 'done', 'error', 'cancelled')),
+                completed INTEGER NOT NULL DEFAULT 0,
+                total INTEGER NOT NULL DEFAULT 0,
+                result_json TEXT,
+                error_message TEXT,
+                addresses_json TEXT NOT NULL DEFAULT '{}',
+                cancel_requested INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                finished_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_scan_schedules (
+                subnet_id INTEGER PRIMARY KEY REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                interval_minutes INTEGER NOT NULL CHECK(interval_minutes BETWEEN 1 AND 10080),
+                enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0, 1)),
+                last_started_at TEXT,
+                next_run_at TEXT,
+                updated_at TEXT NOT NULL
             )
             """
         )
@@ -357,6 +369,8 @@ def init_db() -> None:
             row["name"] == "address_id" and row["notnull"] for row in conn.execute("PRAGMA table_info(ipam_audit_log)")
         )
         if address_id_not_null or audit_foreign_keys:
+            legacy_subnet_id = "subnet_id" if "subnet_id" in audit_cols else "NULL"
+            legacy_dhcp_pool_id = "dhcp_pool_id" if "dhcp_pool_id" in audit_cols else "NULL"
             conn.execute("ALTER TABLE ipam_audit_log RENAME TO ipam_audit_log_legacy")
             conn.execute(
                 """
@@ -364,6 +378,7 @@ def init_db() -> None:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     address_id INTEGER,
                     subnet_id INTEGER,
+                    dhcp_pool_id INTEGER,
                     user_id INTEGER,
                     change_type TEXT NOT NULL,
                     old_value TEXT,
@@ -376,12 +391,12 @@ def init_db() -> None:
                 """
             )
             conn.execute(
-                """
+                f"""
                 INSERT INTO ipam_audit_log
-                    (id, address_id, user_id, change_type, old_value, new_value,
-                     description, ip_address, subnet_cidr, created_at)
-                SELECT id, address_id, user_id, change_type, old_value, new_value,
-                       description, ip_address, subnet_cidr, created_at
+                    (id, address_id, subnet_id, dhcp_pool_id, user_id, change_type,
+                     old_value, new_value, description, ip_address, subnet_cidr, created_at)
+                SELECT id, address_id, {legacy_subnet_id}, {legacy_dhcp_pool_id}, user_id, change_type,
+                       old_value, new_value, description, ip_address, subnet_cidr, created_at
                 FROM ipam_audit_log_legacy
                 """
             )
@@ -398,6 +413,8 @@ def init_db() -> None:
         if "subnet_cidr" not in audit_cols:
             conn.execute("ALTER TABLE ipam_audit_log ADD COLUMN subnet_cidr TEXT")
 
+        _apply_ipam_migrations(conn)
+
         conn.commit()
     finally:
         conn.close()
@@ -412,6 +429,8 @@ def init_db() -> None:
     finally:
         conn.close()
 
+    recover_interrupted_scan_jobs()
+
     # Hosts saved before interface inventory existed still have connected
     # routes with an interface name — materialize those into the interfaces table.
     backfill_interfaces_from_routes()
@@ -419,6 +438,78 @@ def init_db() -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _apply_ipam_migrations(conn: sqlite3.Connection) -> None:
+    """Apply idempotent IPAM migrations and record every applied version."""
+    applied = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations").fetchall()}
+
+    def add_column(table: str, column: str, definition: str) -> None:
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")
+
+    if 1 not in applied:
+        add_column("ipam_subnets", "parent_id", "parent_id INTEGER REFERENCES ipam_subnets(id)")
+        add_column("ipam_addresses", "team", "team TEXT")
+        add_column("ipam_addresses", "machine_type", "machine_type TEXT")
+        add_column("ipam_addresses", "vm_cluster", "vm_cluster TEXT")
+        add_column("ipam_addresses", "environment", "environment TEXT")
+        add_column("ipam_addresses", "locked", "locked INTEGER NOT NULL DEFAULT 0")
+        add_column("ipam_dhcp_pools", "manually_placed", "manually_placed INTEGER NOT NULL DEFAULT 0")
+
+    if 3 not in applied:
+        triggers = {
+            "ipam_subnets_vlan_insert": "BEFORE INSERT ON ipam_subnets WHEN NEW.vlan IS NOT NULL AND NEW.vlan NOT BETWEEN 1 AND 4094",
+            "ipam_subnets_vlan_update": "BEFORE UPDATE OF vlan ON ipam_subnets WHEN NEW.vlan IS NOT NULL AND NEW.vlan NOT BETWEEN 1 AND 4094",
+            "ipam_addresses_insert": "BEFORE INSERT ON ipam_addresses WHEN NEW.status NOT IN ('used', 'free', 'reserved') OR (NEW.machine_type IS NOT NULL AND NEW.machine_type NOT IN ('physical', 'vm')) OR (NEW.environment IS NOT NULL AND NEW.environment NOT IN ('prod', 'test', 'dev')) OR NEW.locked NOT IN (0, 1)",
+            "ipam_addresses_update": "BEFORE UPDATE OF status, machine_type, environment, locked ON ipam_addresses WHEN NEW.status NOT IN ('used', 'free', 'reserved') OR (NEW.machine_type IS NOT NULL AND NEW.machine_type NOT IN ('physical', 'vm')) OR (NEW.environment IS NOT NULL AND NEW.environment NOT IN ('prod', 'test', 'dev')) OR NEW.locked NOT IN (0, 1)",
+            "ipam_dhcp_pools_insert": "BEFORE INSERT ON ipam_dhcp_pools WHEN NEW.manually_placed NOT IN (0, 1)",
+            "ipam_dhcp_pools_update": "BEFORE UPDATE OF manually_placed ON ipam_dhcp_pools WHEN NEW.manually_placed NOT IN (0, 1)",
+        }
+        for name, trigger in triggers.items():
+            conn.execute(f"CREATE TRIGGER IF NOT EXISTS {name} {trigger} BEGIN SELECT RAISE(ABORT, 'Invalid IPAM domain value'); END")
+        for statement in (
+            "CREATE INDEX IF NOT EXISTS idx_ipam_addresses_subnet_address ON ipam_addresses(subnet_id, address)",
+            "CREATE INDEX IF NOT EXISTS idx_ipam_addresses_address ON ipam_addresses(address)",
+            "CREATE INDEX IF NOT EXISTS idx_ipam_addresses_hostname ON ipam_addresses(hostname)",
+            "CREATE INDEX IF NOT EXISTS idx_ipam_subnets_parent ON ipam_subnets(parent_id)",
+            "CREATE INDEX IF NOT EXISTS idx_ipam_dhcp_pools_subnet ON ipam_dhcp_pools(subnet_id)",
+            "CREATE INDEX IF NOT EXISTS idx_ipam_scans_subnet_finished ON ipam_scans(subnet_id, finished_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_ipam_audit_subnet_created ON ipam_audit_log(subnet_id, created_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_ipam_audit_address_created ON ipam_audit_log(address_id, created_at DESC)",
+        ):
+            conn.execute(statement)
+
+    if 4 not in applied:
+        add_column("ipam_scan_jobs", "cancel_requested", "cancel_requested INTEGER NOT NULL DEFAULT 0")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ipam_scan_jobs_one_running_per_subnet ON ipam_scan_jobs(subnet_id) WHERE status = 'running'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_scan_jobs_subnet_created ON ipam_scan_jobs(subnet_id, created_at DESC)")
+
+    for version in range(1, IPAM_SCHEMA_VERSION + 1):
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (version, _now()),
+        )
+
+
+def recover_interrupted_scan_jobs() -> None:
+    """Mark jobs left running by a process restart as failed."""
+    conn = get_connection()
+    try:
+        now = _now()
+        conn.execute(
+            """
+            UPDATE ipam_scan_jobs
+            SET status = 'error', error_message = 'Scan interrupted by server restart',
+                finished_at = ?, updated_at = ?
+            WHERE status = 'running'
+            """,
+            (now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def validate_route(network: str, next_hop: str) -> None:
@@ -669,9 +760,12 @@ BULK_ADDRESS_FIELD_COLUMNS = {
 def validate_cidr(cidr: str) -> str:
     """Validate a subnet CIDR and normalize it to its network address (e.g. '10.0.1.5/24' -> '10.0.1.0/24')."""
     try:
-        return str(ipaddress.ip_network(cidr.strip(), strict=False))
+        network = ipaddress.ip_network(cidr.strip(), strict=False)
     except ValueError:
         raise ValueError(f'"{cidr}" is not a valid network in CIDR notation')
+    if network.version != 4:
+        raise ValueError("IPAM currently supports IPv4 CIDR networks only")
+    return str(network)
 
 
 def validate_vlan(vlan: Optional[int]) -> None:
@@ -709,8 +803,13 @@ def validate_address_in_subnet(address: str, cidr: str) -> None:
         ip = ipaddress.ip_address(address.strip())
     except ValueError:
         raise ValueError(f'"{address}" is not a valid IP address')
-    if ip not in ipaddress.ip_network(cidr):
+    network = ipaddress.ip_network(cidr)
+    if ip.version != 4 or network.version != 4:
+        raise ValueError("IPAM currently supports IPv4 addresses only")
+    if ip not in network:
         raise ValueError(f'"{address}" is not inside subnet {cidr}')
+    if network.prefixlen <= 30 and ip in (network.network_address, network.broadcast_address):
+        raise ValueError(f'"{address}" is a network or broadcast address and cannot be assigned in {cidr}')
 
 
 def _address_sort_key(row: Dict) -> tuple:
@@ -800,6 +899,15 @@ def auto_relocate_dhcp_pools(conn: sqlite3.Connection) -> None:
                     overlap = True
                     break
             if not overlap:
+                try:
+                    validate_dhcp_pool_has_no_addresses(
+                        conn,
+                        best["id"],
+                        ipaddress.IPv4Address(p["start_ip"]),
+                        ipaddress.IPv4Address(p["end_ip"]),
+                    )
+                except ValueError:
+                    continue
                 conn.execute("UPDATE ipam_dhcp_pools SET subnet_id = ? WHERE id = ?", (best["id"], p["id"]))
 
 
@@ -959,12 +1067,12 @@ def move_address(from_subnet_id: int, address_id: int, to_subnet_id: int) -> Dic
     return {"fromSubnet": get_subnet(from_subnet_id), "toSubnet": get_subnet(to_subnet_id)}
 
 
-def _subnet_summary(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict:
-    counts = {"used": 0, "free": 0, "reserved": 0}
-    for r in conn.execute(
-        "SELECT status, COUNT(*) AS n FROM ipam_addresses WHERE subnet_id = ? GROUP BY status", (row["id"],)
-    ).fetchall():
-        counts[r["status"]] = r["n"]
+def _subnet_summary(row: sqlite3.Row) -> Dict:
+    counts = {
+        "used": row["used_count"] if "used_count" in row.keys() else 0,
+        "free": row["free_count"] if "free_count" in row.keys() else 0,
+        "reserved": row["reserved_count"] if "reserved_count" in row.keys() else 0,
+    }
     total = ipaddress.ip_network(row["cidr"]).num_addresses
     return {
         "id": row["id"],
@@ -984,11 +1092,69 @@ def _subnet_summary(conn: sqlite3.Connection, row: sqlite3.Row) -> Dict:
 def list_subnets() -> List[Dict]:
     conn = get_connection()
     try:
-        rows = conn.execute("SELECT * FROM ipam_subnets ORDER BY cidr COLLATE NOCASE").fetchall()
-        subnets = [_subnet_summary(conn, r) for r in rows]
+        rows = conn.execute(
+            """
+            SELECT s.*, COALESCE(SUM(a.status = 'used'), 0) AS used_count,
+                   COALESCE(SUM(a.status = 'free'), 0) AS free_count,
+                   COALESCE(SUM(a.status = 'reserved'), 0) AS reserved_count
+            FROM ipam_subnets s
+            LEFT JOIN ipam_addresses a ON a.subnet_id = s.id
+            GROUP BY s.id
+            ORDER BY s.cidr COLLATE NOCASE
+            """
+        ).fetchall()
+        subnets = [_subnet_summary(r) for r in rows]
         # Numeric-ish sort by network address rather than plain text CIDR sort.
         subnets.sort(key=lambda s: (ipaddress.ip_network(s["cidr"]).version, ipaddress.ip_network(s["cidr"])))
         return subnets
+    finally:
+        conn.close()
+
+
+def get_ipam_dashboard() -> List[Dict]:
+    """Fetch subnet utilization and its latest scan in one aggregate query."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            WITH address_counts AS (
+                SELECT subnet_id,
+                       SUM(status = 'used') AS used_count,
+                       SUM(status = 'free') AS free_count,
+                       SUM(status = 'reserved') AS reserved_count
+                FROM ipam_addresses
+                GROUP BY subnet_id
+            ), latest_scan AS (
+                SELECT subnet_id, MAX(id) AS scan_id
+                FROM ipam_scans
+                GROUP BY subnet_id
+            )
+            SELECT s.*, COALESCE(ac.used_count, 0) AS used_count,
+                   COALESCE(ac.free_count, 0) AS free_count,
+                   COALESCE(ac.reserved_count, 0) AS reserved_count,
+                   sc.finished_at AS last_scanned_at,
+                   sc.newly_used_count AS last_scan_newly_used,
+                   sc.went_quiet_count AS last_scan_went_quiet,
+                   sc.hostname_changed_count AS last_scan_hostname_changed
+            FROM ipam_subnets s
+            LEFT JOIN address_counts ac ON ac.subnet_id = s.id
+            LEFT JOIN latest_scan ls ON ls.subnet_id = s.id
+            LEFT JOIN ipam_scans sc ON sc.id = ls.scan_id
+            ORDER BY s.cidr COLLATE NOCASE
+            """
+        ).fetchall()
+        entries = []
+        for row in rows:
+            summary = _subnet_summary(row)
+            summary.update({
+                "lastScannedAt": row["last_scanned_at"],
+                "lastScanNewlyUsed": row["last_scan_newly_used"],
+                "lastScanWentQuiet": row["last_scan_went_quiet"],
+                "lastScanHostnameChanged": row["last_scan_hostname_changed"],
+            })
+            entries.append(summary)
+        entries.sort(key=lambda item: ipaddress.ip_network(item["cidr"]))
+        return entries
     finally:
         conn.close()
 
@@ -1016,6 +1182,49 @@ def get_addresses_by_subnet(subnet_id: int) -> List[Dict]:
             "SELECT * FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
         ).fetchall()
         return [_address_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def list_subnet_addresses(
+    subnet_id: int,
+    *,
+    limit: int = 100,
+    offset: int = 0,
+    status: Optional[str] = None,
+    query: Optional[str] = None,
+    sort: str = "address",
+    direction: str = "asc",
+) -> Dict:
+    """Return a bounded address page; never load a subnet's full address list."""
+    sort_columns = {
+        "address": "address",
+        "status": "status",
+        "hostname": "hostname",
+        "updatedAt": "updated_at",
+    }
+    if sort not in sort_columns:
+        raise ValueError("Invalid address sort field")
+    if direction not in ("asc", "desc"):
+        raise ValueError("Invalid address sort direction")
+
+    where, values = ["subnet_id = ?"], [subnet_id]
+    if status is not None:
+        where.append("status = ?")
+        values.append(status)
+    if query:
+        where.append("(address LIKE ? OR hostname LIKE ? OR description LIKE ?)")
+        like = f"%{query.strip()}%"
+        values.extend([like, like, like])
+    clause = " AND ".join(where)
+    conn = get_connection()
+    try:
+        total = conn.execute(f"SELECT COUNT(*) AS count FROM ipam_addresses WHERE {clause}", values).fetchone()["count"]
+        rows = conn.execute(
+            f"SELECT * FROM ipam_addresses WHERE {clause} ORDER BY {sort_columns[sort]} {direction.upper()}, id ASC LIMIT ? OFFSET ?",
+            [*values, limit, offset],
+        ).fetchall()
+        return {"addresses": [_address_dict(row) for row in rows], "total": total, "limit": limit, "offset": offset}
     finally:
         conn.close()
 
@@ -1062,10 +1271,21 @@ def search_addresses(query: str, limit: int = 50) -> List[Dict]:
 def get_subnet(subnet_id: int) -> Optional[Dict]:
     conn = get_connection()
     try:
-        row = conn.execute("SELECT * FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        row = conn.execute(
+            """
+            SELECT s.*, COALESCE(SUM(a.status = 'used'), 0) AS used_count,
+                   COALESCE(SUM(a.status = 'free'), 0) AS free_count,
+                   COALESCE(SUM(a.status = 'reserved'), 0) AS reserved_count
+            FROM ipam_subnets s
+            LEFT JOIN ipam_addresses a ON a.subnet_id = s.id
+            WHERE s.id = ?
+            GROUP BY s.id
+            """,
+            (subnet_id,),
+        ).fetchone()
         if row is None:
             return None
-        summary = _subnet_summary(conn, row)
+        summary = _subnet_summary(row)
         addr_rows = conn.execute(
             "SELECT * FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
         ).fetchall()
@@ -1340,8 +1560,6 @@ def update_address(
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'"{address}" is already recorded in this subnet')
-        conn.commit()
-        
         # Determine change type and log
         new_state = {
             "address": address,
@@ -1392,7 +1610,7 @@ def update_address(
                 ip_address=address,
                 subnet_cidr=subnet_row["cidr"],
             )
-            conn.commit()
+        conn.commit()
     finally:
         conn.close()
     return get_subnet(subnet_id)
@@ -1566,6 +1784,7 @@ def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_i
 
             try:
                 validate_address_in_subnet(row["address"], target_cidr)
+                validate_address_not_in_dhcp_pool(conn, row["address"], to_subnet_id)
             except ValueError as exc:
                 skipped.append({"addressId": address_id, "address": row["address"], "reason": str(exc)})
                 continue
@@ -1606,8 +1825,6 @@ def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_i
                 ip_address=row["address"],
                 subnet_cidr=to_subnet_row["cidr"] if to_subnet_row else None,
             )
-            conn.commit()
-            
             conn.execute(
                 "DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
                 (address_id, from_subnet_id),
@@ -1628,6 +1845,9 @@ def bulk_move_addresses(from_subnet_id: int, address_ids: List[int], to_subnet_i
             moved_count += 1
 
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -1843,6 +2063,226 @@ def record_scan(
         conn.close()
 
 
+def create_scan_job(job_id: str, subnet_id: int) -> bool:
+    conn = get_connection()
+    try:
+        now = _now()
+        try:
+            conn.execute(
+                """
+                INSERT INTO ipam_scan_jobs
+                    (id, subnet_id, status, created_at, updated_at)
+                VALUES (?, ?, 'running', ?, ?)
+                """,
+                (job_id, subnet_id, now, now),
+            )
+        except sqlite3.IntegrityError:
+            return False
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_scan_job(job_id: str) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM ipam_scan_jobs WHERE id = ?", (job_id,)).fetchone()
+        return _scan_job_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_active_scan_job(subnet_id: int) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM ipam_scan_jobs WHERE subnet_id = ? AND status = 'running'",
+            (subnet_id,),
+        ).fetchone()
+        return _scan_job_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def update_scan_job(job_id: str, *, completed: Optional[int] = None, total: Optional[int] = None,
+                    addresses: Optional[Dict] = None, status: Optional[str] = None,
+                    result: Optional[Dict] = None, error: Optional[str] = None,
+                    cancel_requested: Optional[bool] = None) -> None:
+    fields, values = [], []
+    if completed is not None:
+        fields.append("completed = ?")
+        values.append(completed)
+    if total is not None:
+        fields.append("total = ?")
+        values.append(total)
+    if addresses is not None:
+        fields.append("addresses_json = ?")
+        values.append(json.dumps(addresses))
+    if status is not None:
+        fields.append("status = ?")
+        values.append(status)
+        if status in ("done", "error", "cancelled"):
+            fields.append("finished_at = ?")
+            values.append(_now())
+    if result is not None:
+        fields.append("result_json = ?")
+        values.append(json.dumps(result))
+    if error is not None:
+        fields.append("error_message = ?")
+        values.append(error)
+    if cancel_requested is not None:
+        fields.append("cancel_requested = ?")
+        values.append(int(cancel_requested))
+    if not fields:
+        return
+    fields.append("updated_at = ?")
+    values.extend([_now(), job_id])
+    conn = get_connection()
+    try:
+        conn.execute(f"UPDATE ipam_scan_jobs SET {', '.join(fields)} WHERE id = ?", values)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def cleanup_scan_jobs(max_age_seconds: float) -> None:
+    cutoff = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() - max_age_seconds, timezone.utc).isoformat()
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM ipam_scan_jobs WHERE status IN ('done', 'error', 'cancelled') AND finished_at < ?",
+            (cutoff,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def request_scan_job_cancel(job_id: str, subnet_id: int) -> bool:
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE ipam_scan_jobs SET cancel_requested = 1, updated_at = ? WHERE id = ? AND subnet_id = ? AND status = 'running'",
+            (_now(), job_id, subnet_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def is_scan_job_cancel_requested(job_id: str) -> bool:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT cancel_requested FROM ipam_scan_jobs WHERE id = ?", (job_id,)).fetchone()
+        return bool(row and row["cancel_requested"])
+    finally:
+        conn.close()
+
+
+def expire_timed_out_scan_jobs(timeout_seconds: int = SCAN_JOB_TIMEOUT_SECONDS) -> None:
+    cutoff = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() - timeout_seconds, timezone.utc).isoformat()
+    conn = get_connection()
+    try:
+        now = _now()
+        conn.execute(
+            """
+            UPDATE ipam_scan_jobs
+            SET status = 'error', error_message = 'Scan timed out', finished_at = ?, updated_at = ?
+            WHERE status = 'running' AND updated_at < ?
+            """,
+            (now, now, cutoff),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_scan_schedule(subnet_id: int, interval_minutes: int, enabled: bool = True) -> Dict:
+    conn = get_connection()
+    try:
+        now = _now()
+        next_run = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + interval_minutes * 60,
+            timezone.utc,
+        ).isoformat() if enabled else None
+        conn.execute(
+            """
+            INSERT INTO ipam_scan_schedules (subnet_id, interval_minutes, enabled, next_run_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(subnet_id) DO UPDATE SET interval_minutes = excluded.interval_minutes,
+                enabled = excluded.enabled, next_run_at = excluded.next_run_at, updated_at = excluded.updated_at
+            """,
+            (subnet_id, interval_minutes, int(enabled), next_run, now),
+        )
+        conn.commit()
+        return get_scan_schedule(subnet_id)
+    finally:
+        conn.close()
+
+
+def get_scan_schedule(subnet_id: int) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM ipam_scan_schedules WHERE subnet_id = ?", (subnet_id,)).fetchone()
+        return _scan_schedule_dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def list_due_scan_schedules() -> List[Dict]:
+    now = _now()
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM ipam_scan_schedules WHERE enabled = 1 AND next_run_at <= ? ORDER BY next_run_at",
+            (now,),
+        ).fetchall()
+        return [_scan_schedule_dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def mark_scan_schedule_started(subnet_id: int) -> None:
+    schedule = get_scan_schedule(subnet_id)
+    if schedule is None:
+        return
+    conn = get_connection()
+    try:
+        now = _now()
+        next_run = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() + schedule["intervalMinutes"] * 60,
+            timezone.utc,
+        ).isoformat()
+        conn.execute(
+            "UPDATE ipam_scan_schedules SET last_started_at = ?, next_run_at = ?, updated_at = ? WHERE subnet_id = ?",
+            (now, next_run, now, subnet_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _scan_job_dict(row: sqlite3.Row) -> Dict:
+    return {
+        "id": row["id"], "subnet_id": row["subnet_id"], "status": row["status"],
+        "completed": row["completed"], "total": row["total"],
+        "result": json.loads(row["result_json"]) if row["result_json"] else None,
+        "error": row["error_message"],
+        "addresses": json.loads(row["addresses_json"]), "created_at": row["created_at"],
+        "cancelRequested": bool(row["cancel_requested"]),
+    }
+
+
+def _scan_schedule_dict(row: sqlite3.Row) -> Dict:
+    return {
+        "subnetId": row["subnet_id"], "intervalMinutes": row["interval_minutes"],
+        "enabled": bool(row["enabled"]), "lastStartedAt": row["last_started_at"],
+        "nextRunAt": row["next_run_at"], "updatedAt": row["updated_at"],
+    }
+
+
 def list_scans(subnet_id: int, limit: int = 20) -> List[Dict]:
     conn = get_connection()
     try:
@@ -1962,6 +2402,8 @@ def add_dhcp_pool(
                     f"DHCP pool range overlaps with existing pool {pool['start_ip']}-{pool['end_ip']}"
                 )
 
+        validate_dhcp_pool_has_no_addresses(conn, subnet_id, start_addr, end_addr)
+
         updated_at = datetime.now(timezone.utc).isoformat()
         cur = conn.execute(
             """
@@ -1997,10 +2439,13 @@ def get_dhcp_pools(subnet_id: int) -> List[Dict]:
         conn.close()
 
 
-def delete_dhcp_pool(pool_id: int) -> bool:
+def delete_dhcp_pool(subnet_id: int, pool_id: int) -> bool:
     conn = get_connection()
     try:
-        cur = conn.execute("DELETE FROM ipam_dhcp_pools WHERE id = ?", (pool_id,))
+        cur = conn.execute(
+            "DELETE FROM ipam_dhcp_pools WHERE id = ? AND subnet_id = ?",
+            (pool_id, subnet_id),
+        )
         conn.commit()
         return cur.rowcount > 0
     finally:
@@ -2008,6 +2453,7 @@ def delete_dhcp_pool(pool_id: int) -> bool:
 
 
 def update_dhcp_pool(
+    subnet_id: int,
     pool_id: int,
     start_ip: str,
     end_ip: str,
@@ -2026,7 +2472,8 @@ def update_dhcp_pool(
     conn = get_connection()
     try:
         pool_row = conn.execute(
-            "SELECT * FROM ipam_dhcp_pools WHERE id = ?", (pool_id,)
+            "SELECT * FROM ipam_dhcp_pools WHERE id = ? AND subnet_id = ?",
+            (pool_id, subnet_id),
         ).fetchone()
         if pool_row is None:
             raise ValueError("DHCP pool not found")
@@ -2055,6 +2502,8 @@ def update_dhcp_pool(
                 raise ValueError(
                     f"DHCP pool range overlaps with existing pool {p['start_ip']}-{p['end_ip']}"
                 )
+
+        validate_dhcp_pool_has_no_addresses(conn, subnet_id, start_addr, end_addr)
 
         updated_at = datetime.now(timezone.utc).isoformat()
         conn.execute(
@@ -2104,6 +2553,17 @@ def bulk_move_dhcp_pools(pool_ids: List[int], to_subnet_id: int) -> Dict:
                     "startIp": p["start_ip"],
                     "endIp": p["end_ip"],
                     "reason": f"Range not within subnet {to_subnet_row['cidr']}",
+                })
+                continue
+
+            try:
+                validate_dhcp_pool_has_no_addresses(conn, to_subnet_id, start_addr, end_addr)
+            except ValueError as exc:
+                skipped.append({
+                    "poolId": p["id"],
+                    "startIp": p["start_ip"],
+                    "endIp": p["end_ip"],
+                    "reason": str(exc),
                 })
                 continue
 
@@ -2172,6 +2632,44 @@ def check_ip_in_dhcp_pool(ip_address: str, subnet_id: int) -> bool:
         conn.close()
 
 
+def validate_address_not_in_dhcp_pool(conn: sqlite3.Connection, address: str, subnet_id: int) -> None:
+    """Reject a manually recorded address that falls inside a DHCP pool."""
+    try:
+        address_int = int(ipaddress.IPv4Address(address))
+    except ipaddress.AddressValueError:
+        return
+
+    pools = conn.execute(
+        "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ?",
+        (subnet_id,),
+    ).fetchall()
+    for pool in pools:
+        if int(ipaddress.IPv4Address(pool["start_ip"])) <= address_int <= int(ipaddress.IPv4Address(pool["end_ip"])):
+            raise ValueError("IP is within DHCP pool range")
+
+
+def validate_dhcp_pool_has_no_addresses(
+    conn: sqlite3.Connection,
+    subnet_id: int,
+    start_address: ipaddress.IPv4Address,
+    end_address: ipaddress.IPv4Address,
+) -> None:
+    """Reject a DHCP range that would overlap manually recorded addresses."""
+    start_int = int(start_address)
+    end_int = int(end_address)
+    rows = conn.execute(
+        "SELECT address FROM ipam_addresses WHERE subnet_id = ?",
+        (subnet_id,),
+    ).fetchall()
+    conflicts = [
+        row["address"]
+        for row in rows
+        if start_int <= int(ipaddress.IPv4Address(row["address"])) <= end_int
+    ]
+    if conflicts:
+        raise ValueError(f"DHCP pool range contains recorded address {conflicts[0]}")
+
+
 def get_dhcp_pool_by_id(pool_id: int) -> Optional[Dict]:
     conn = get_connection()
     try:
@@ -2237,6 +2735,8 @@ def move_dhcp_pool(from_subnet_id: int, pool_id: int, to_subnet_id: int) -> Dict
             raise ValueError(
                 f"DHCP pool range {pool_row['start_ip']}-{pool_row['end_ip']} is not within subnet {to_subnet_row['cidr']}"
             )
+
+        validate_dhcp_pool_has_no_addresses(conn, to_subnet_id, start_addr, end_addr)
 
         start_int = ip_to_int(pool_row["start_ip"])
         end_int = ip_to_int(pool_row["end_ip"])

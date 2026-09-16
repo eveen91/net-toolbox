@@ -255,6 +255,7 @@ export default function AddressPopover({
           <div className="ip-address-popover-title" id={`ip-address-dialog-title-${ip}`}>
             {title}
           </div>
+          {mode === MODE_ADD && <div className="tool-hint">IPv4 only. Network and broadcast addresses cannot be assigned.</div>}
           {mode === MODE_ADD ? (
             <span className="tool-pill tool-pill-ok ip-address-popover-status">Available</span>
           ) : (

@@ -26,11 +26,11 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Annotated, Dict, List, Literal, Optional
 
 import paramiko
 import winrm
-from fastapi import FastAPI, HTTPException, Response, Request, Cookie, Depends
+from fastapi import FastAPI, HTTPException, Response, Request, Cookie, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.responses import JSONResponse
@@ -194,6 +194,7 @@ SCAN_JOBS: dict[str, dict] = {}
 # Reverse lookup from subnet_id to the job_id currently scanning it, so a
 # subnet's active job can be found without scanning all of SCAN_JOBS.
 SCAN_JOBS_BY_SUBNET: dict[int, str] = {}
+SCAN_SCHEDULER_TASK: Optional[asyncio.Task] = None
 
 
 # ---------------------------------------------------------------------------
@@ -645,6 +646,26 @@ def require_feature(feature_id: str):
             raise HTTPException(
                 status_code=403, detail=f'Your role does not have access to "{feature_id}"'
             )
+        return user
+
+    return _dependency
+
+
+def require_ipam_permission(permission: Literal["read", "write", "scan", "admin"]):
+    """Gate IPAM actions while preserving existing roles that grant `ipam`."""
+    permission_id = f"ipam.{permission}"
+
+    def _dependency(
+        session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
+    ) -> Optional[Dict]:
+        if not auth_db.is_login_required():
+            return None
+        user = auth_db.get_user_by_session_token(session_token) if session_token else None
+        if user is None:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        permissions = user_permissions(user)
+        if "*" not in permissions and "ipam" not in permissions and permission_id not in permissions:
+            raise HTTPException(status_code=403, detail=f'Your role does not have access to "{permission_id}"')
         return user
 
     return _dependency
@@ -1548,9 +1569,25 @@ def get_audit_log(limit: int = 50):
 # ---------------------------------------------------------------------------
 
 class SubnetRequest(BaseModel):
-    cidr: str
-    vlan: Optional[int] = None
-    description: Optional[str] = None
+    cidr: str = Field(min_length=3, max_length=18)
+    vlan: Optional[int] = Field(default=None, ge=1, le=4094)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("cidr")
+    @classmethod
+    def validate_ipv4_cidr(cls, value: str) -> str:
+        try:
+            network = ipaddress.ip_network(value.strip(), strict=False)
+        except ValueError:
+            raise ValueError("CIDR must be a valid IPv4 network")
+        if network.version != 4:
+            raise ValueError("IPAM currently supports IPv4 CIDR networks only")
+        return str(network)
+
+    @field_validator("description")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() or None if value is not None else None
 
 
 class SubnetSummary(BaseModel):
@@ -1585,6 +1622,13 @@ class SubnetDetail(SubnetSummary):
     addresses: List[AddressEntry] = []
 
 
+class AddressPageResponse(BaseModel):
+    addresses: List[AddressEntry]
+    total: int
+    limit: int
+    offset: int
+
+
 class SearchAddressEntry(AddressEntry):
     subnetId: int
     subnetCidr: str
@@ -1598,19 +1642,40 @@ class IpamSettingsResponse(BaseModel):
 
 
 class UpdateIpamSettingsRequest(BaseModel):
-    scanConcurrencyLimit: int
+    scanConcurrencyLimit: int = Field(ge=db.SCAN_CONCURRENCY_MIN, le=db.SCAN_CONCURRENCY_MAX)
 
 
 class AddressRequest(BaseModel):
-    address: str
+    address: str = Field(min_length=7, max_length=15)
     status: Literal["used", "free", "reserved"] = "used"
-    hostname: Optional[str] = None
-    description: Optional[str] = None
-    team: Optional[str] = None
+    hostname: Optional[str] = Field(default=None, max_length=253)
+    description: Optional[str] = Field(default=None, max_length=500)
+    team: Optional[str] = Field(default=None, max_length=100)
     machineType: Optional[Literal["physical", "vm"]] = None
-    vmCluster: Optional[str] = None
+    vmCluster: Optional[str] = Field(default=None, max_length=100)
     environment: Optional[Literal["prod", "test", "dev"]] = None
     locked: bool = False
+
+    @field_validator("address")
+    @classmethod
+    def validate_ipv4_address(cls, value: str) -> str:
+        try:
+            address = ipaddress.IPv4Address(value.strip())
+        except ipaddress.AddressValueError:
+            raise ValueError("Address must be a valid IPv4 address")
+        return str(address)
+
+    @field_validator("hostname", "description", "team", "vmCluster")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() or None if value is not None else None
+
+    @field_validator("hostname")
+    @classmethod
+    def validate_hostname(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not HOSTNAME_RE.fullmatch(value):
+            raise ValueError("Hostname may contain only letters, numbers, dots, and hyphens")
+        return value
 
 
 class BulkAddressUpdateRequest(BaseModel):
@@ -1631,22 +1696,27 @@ class BulkAddressUpdateRequest(BaseModel):
     avoid.
     """
 
-    addressIds: List[int]
+    addressIds: Annotated[List[Annotated[int, Field(gt=0)]], Field(min_length=1, max_length=1000)]
     status: Optional[Literal["used", "free", "reserved"]] = None
-    team: Optional[str] = None
+    team: Optional[str] = Field(default=None, max_length=100)
     machineType: Optional[Literal["physical", "vm"]] = None
-    vmCluster: Optional[str] = None
+    vmCluster: Optional[str] = Field(default=None, max_length=100)
     environment: Optional[Literal["prod", "test", "dev"]] = None
     locked: Optional[bool] = None
 
+    @field_validator("team", "vmCluster")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() or None if value is not None else None
+
 
 class BulkAddressDeleteRequest(BaseModel):
-    addressIds: List[int]
+    addressIds: Annotated[List[Annotated[int, Field(gt=0)]], Field(min_length=1, max_length=1000)]
 
 
 class BulkMoveAddressesRequest(BaseModel):
-    addressIds: List[int]
-    targetSubnetId: int
+    addressIds: Annotated[List[Annotated[int, Field(gt=0)]], Field(min_length=1, max_length=1000)]
+    targetSubnetId: int = Field(gt=0)
 
 
 class BulkMoveSkippedEntry(BaseModel):
@@ -1663,15 +1733,23 @@ class BulkMoveAddressesResponse(BaseModel):
 
 
 class DhcpPoolCreate(BaseModel):
-    start_ip: str
-    end_ip: str
-    name: Optional[str] = None
-    description: Optional[str] = None
+    start_ip: str = Field(min_length=7, max_length=15)
+    end_ip: str = Field(min_length=7, max_length=15)
+    name: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("start_ip", "end_ip")
+    @classmethod
+    def validate_ipv4_address(cls, value: str) -> str:
+        try:
+            return str(ipaddress.IPv4Address(value.strip()))
+        except ipaddress.AddressValueError:
+            raise ValueError("DHCP pool addresses must be valid IPv4 addresses")
 
 
 class BulkMoveDhcpPoolsRequest(BaseModel):
-    poolIds: List[int]
-    targetSubnetId: int
+    poolIds: Annotated[List[Annotated[int, Field(gt=0)]], Field(min_length=1, max_length=1000)]
+    targetSubnetId: int = Field(gt=0)
 
 
 class BulkMoveDhcpPoolsResponse(BaseModel):
@@ -1694,7 +1772,20 @@ class ScanExcludeEntry(BaseModel):
 
 
 class ScanExcludeRequest(BaseModel):
-    address: str
+    address: str = Field(min_length=7, max_length=15)
+
+    @field_validator("address")
+    @classmethod
+    def validate_ipv4_address(cls, value: str) -> str:
+        try:
+            return str(ipaddress.IPv4Address(value.strip()))
+        except ipaddress.AddressValueError:
+            raise ValueError("Scan exclusion must be a valid IPv4 address")
+
+
+class ScanScheduleRequest(BaseModel):
+    intervalMinutes: int = Field(ge=1, le=10080)
+    enabled: bool = True
 
 
 class AutodiscoverResult(BaseModel):
@@ -1847,31 +1938,12 @@ class TagSummary(BaseModel):
     color: str
 
 
-@app.get("/api/ipam/dashboard", response_model=List[DashboardEntry], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/dashboard", response_model=List[DashboardEntry], dependencies=[Depends(require_ipam_permission("read"))])
 def get_ipam_dashboard():
-    subnets = db.list_subnets()
-    entries = []
-    for s in subnets:
-        last_scan = db.get_last_scan(s["id"])
-        entries.append({
-            "id": s["id"],
-            "cidr": s["cidr"],
-            "vlan": s["vlan"],
-            "description": s["description"],
-            "totalAddresses": s["totalAddresses"],
-            "usedCount": s["usedCount"],
-            "freeCount": s["freeCount"],
-            "reservedCount": s["reservedCount"],
-            "recordedCount": s["recordedCount"],
-            "lastScannedAt": last_scan["finishedAt"] if last_scan else None,
-            "lastScanNewlyUsed": last_scan["newlyUsedCount"] if last_scan else None,
-            "lastScanWentQuiet": last_scan["wentQuietCount"] if last_scan else None,
-            "lastScanHostnameChanged": last_scan["hostnameChangedCount"] if last_scan else None,
-        })
-    return entries
+    return db.get_ipam_dashboard()
 
 
-@app.get("/api/ipam/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnets():
     return db.list_subnets()
 
@@ -1879,7 +1951,7 @@ def get_subnets():
 @app.get(
     "/api/ipam/misplaced-addresses",
     response_model=List[MisplacedAddressEntry],
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("read"))],
 )
 def get_misplaced_addresses():
     return db.list_misplaced_addresses()
@@ -1893,7 +1965,7 @@ class NextAvailableIpResponse(BaseModel):
 @app.get(
     "/api/ipam/subnets/{subnet_id}/next-available",
     response_model=NextAvailableIpResponse,
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("read"))],
 )
 def get_next_available_ip(subnet_id: int):
     data = db.get_subnet(subnet_id)
@@ -1909,7 +1981,7 @@ def get_next_available_ip(subnet_id: int):
 @app.get(
     "/api/ipam/misplaced-dhcp-pools",
     response_model=List[MisplacedDhcpPoolEntry],
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("read"))],
 )
 def get_misplaced_dhcp_pools():
     return db.list_misplaced_dhcp_pools()
@@ -1918,13 +1990,13 @@ def get_misplaced_dhcp_pools():
 @app.get(
     "/api/ipam/addresses/search",
     response_model=List[SearchAddressEntry],
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("read"))],
 )
 def search_ipam_addresses(q: str = ""):
     return db.search_addresses(q)
 
 
-@app.get("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_ipam_permission("admin"))])
 def get_ipam_settings():
     return IpamSettingsResponse(
         scanConcurrencyLimit=db.get_scan_concurrency_limit(),
@@ -1933,7 +2005,7 @@ def get_ipam_settings():
     )
 
 
-@app.put("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_feature("ipam"))])
+@app.put("/api/ipam/settings", response_model=IpamSettingsResponse, dependencies=[Depends(require_ipam_permission("admin"))])
 def update_ipam_settings(req: UpdateIpamSettingsRequest):
     try:
         db.set_scan_concurrency_limit(req.scanConcurrencyLimit)
@@ -1946,7 +2018,7 @@ def update_ipam_settings(req: UpdateIpamSettingsRequest):
     )
 
 
-@app.post("/api/ipam/subnets", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
 def create_subnet(req: SubnetRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         user_id = user["id"] if user else None
@@ -1955,7 +2027,7 @@ def create_subnet(req: SubnetRequest, user: Optional[Dict] = Depends(require_log
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -1963,7 +2035,28 @@ def get_subnet(subnet_id: int):
     return data
 
 
-@app.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.get(
+    "/api/ipam/subnets/{subnet_id}/addresses",
+    response_model=AddressPageResponse,
+    dependencies=[Depends(require_ipam_permission("read"))],
+)
+def get_subnet_addresses(
+    subnet_id: int,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    status: Optional[Literal["used", "free", "reserved"]] = None,
+    query: Optional[str] = Query(default=None, max_length=253),
+    sort: Literal["address", "status", "hostname", "updatedAt"] = "address",
+    direction: Literal["asc", "desc"] = "asc",
+):
+    if db.get_subnet(subnet_id) is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return db.list_subnet_addresses(
+        subnet_id, limit=limit, offset=offset, status=status, query=query, sort=sort, direction=direction
+    )
+
+
+@app.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
 def update_subnet(subnet_id: int, req: SubnetRequest):
     try:
         return db.update_subnet(subnet_id, req.cidr, req.vlan, req.description)
@@ -1971,7 +2064,7 @@ def update_subnet(subnet_id: int, req: SubnetRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}", dependencies=[Depends(require_feature("ipam"))])
+@app.delete("/api/ipam/subnets/{subnet_id}", dependencies=[Depends(require_ipam_permission("write"))])
 def delete_subnet(subnet_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
     user_id = user["id"] if user else None
     deleted = db.delete_subnet(subnet_id, user_id=user_id)
@@ -1980,11 +2073,9 @@ def delete_subnet(subnet_id: int, user: Optional[Dict] = Depends(require_logged_
     return {"deleted": subnet_id}
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
 def create_address(subnet_id: int, req: AddressRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
-        if db.check_ip_in_dhcp_pool(req.address, subnet_id):
-            raise HTTPException(status_code=400, detail="IP is within DHCP pool range")
         user_id = user["id"] if user else None
         return db.add_address(
             subnet_id, req.address, req.status, req.hostname, req.description,
@@ -1995,7 +2086,7 @@ def create_address(subnet_id: int, req: AddressRequest, user: Optional[Dict] = D
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
 def edit_address(subnet_id: int, address_id: int, req: AddressRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         user_id = user["id"] if user else None
@@ -2008,7 +2099,7 @@ def edit_address(subnet_id: int, address_id: int, req: AddressRequest, user: Opt
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
 def remove_address(subnet_id: int, address_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         user_id = user["id"] if user else None
@@ -2020,7 +2111,7 @@ def remove_address(subnet_id: int, address_id: int, user: Optional[Dict] = Depen
 @app.post(
     "/api/ipam/subnets/{subnet_id}/addresses/{address_id}/move",
     response_model=MoveAddressResponse,
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("write"))],
 )
 def move_ipam_address(subnet_id: int, address_id: int, req: MoveAddressRequest):
     try:
@@ -2029,7 +2120,7 @@ def move_ipam_address(subnet_id: int, address_id: int, req: MoveAddressRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
 def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
     if not req.addressIds:
         raise HTTPException(status_code=400, detail="No addresses selected")
@@ -2040,7 +2131,7 @@ def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses/bulk-delete", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/addresses/bulk-delete", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
 def bulk_delete_addresses(subnet_id: int, req: BulkAddressDeleteRequest):
     if not req.addressIds:
         raise HTTPException(status_code=400, detail="No addresses selected")
@@ -2053,7 +2144,7 @@ def bulk_delete_addresses(subnet_id: int, req: BulkAddressDeleteRequest):
 @app.post(
     "/api/ipam/subnets/{subnet_id}/addresses/bulk-move",
     response_model=BulkMoveAddressesResponse,
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("scan"))],
 )
 def bulk_move_addresses(subnet_id: int, req: BulkMoveAddressesRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     if not req.addressIds:
@@ -2065,7 +2156,7 @@ def bulk_move_addresses(subnet_id: int, req: BulkMoveAddressesRequest, user: Opt
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail, dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("scan"))])
 async def rescan_address(subnet_id: int, address_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2095,7 +2186,7 @@ async def rescan_address(subnet_id: int, address_id: int):
     return db.get_subnet(subnet_id)
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_ipam_permission("admin"))])
 def list_subnet_scan_excludes(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2103,7 +2194,7 @@ def list_subnet_scan_excludes(subnet_id: int):
     return db.list_scan_excludes_detailed(subnet_id)
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_ipam_permission("admin"))])
 def create_subnet_scan_exclude(subnet_id: int, req: ScanExcludeRequest):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2116,7 +2207,7 @@ def create_subnet_scan_exclude(subnet_id: int, req: ScanExcludeRequest):
     return db.list_scan_excludes_detailed(subnet_id)
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_feature("ipam"))])
+@app.delete("/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_ipam_permission("admin"))])
 def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2125,7 +2216,7 @@ def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
     return db.list_scan_excludes_detailed(subnet_id)
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=DhcpPoolResponse, dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=DhcpPoolResponse, dependencies=[Depends(require_ipam_permission("write"))])
 def create_dhcp_pool(subnet_id: int, req: DhcpPoolCreate):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2136,7 +2227,7 @@ def create_dhcp_pool(subnet_id: int, req: DhcpPoolCreate):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=List[DhcpPoolResponse], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=List[DhcpPoolResponse], dependencies=[Depends(require_ipam_permission("read"))])
 def list_dhcp_pools(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2144,12 +2235,12 @@ def list_dhcp_pools(subnet_id: int):
     return db.get_dhcp_pools(subnet_id)
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}", dependencies=[Depends(require_feature("ipam"))])
+@app.delete("/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}", dependencies=[Depends(require_ipam_permission("write"))])
 def delete_dhcp_pool(subnet_id: int, pool_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
-    deleted = db.delete_dhcp_pool(pool_id)
+    deleted = db.delete_dhcp_pool(subnet_id, pool_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="DHCP pool not found")
     return {"deleted": pool_id}
@@ -2158,21 +2249,21 @@ def delete_dhcp_pool(subnet_id: int, pool_id: int):
 @app.put(
     "/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}",
     response_model=DhcpPoolResponse,
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("write"))],
 )
 def update_dhcp_pool(subnet_id: int, pool_id: int, req: DhcpPoolCreate):
     data = db.get_subnet(subnet_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
     try:
-        return db.update_dhcp_pool(pool_id, req.start_ip, req.end_ip, req.name, req.description)
+        return db.update_dhcp_pool(subnet_id, pool_id, req.start_ip, req.end_ip, req.name, req.description)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post(
     "/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}/move",
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("write"))],
 )
 def move_dhcp_pool(subnet_id: int, pool_id: int, req: MoveAddressRequest):
     try:
@@ -2184,7 +2275,7 @@ def move_dhcp_pool(subnet_id: int, pool_id: int, req: MoveAddressRequest):
 @app.post(
     "/api/ipam/dhcp-pools/bulk-move",
     response_model=BulkMoveDhcpPoolsResponse,
-    dependencies=[Depends(require_feature("ipam"))],
+    dependencies=[Depends(require_ipam_permission("write"))],
 )
 def bulk_move_dhcp_pools(req: BulkMoveDhcpPoolsRequest):
     try:
@@ -2193,7 +2284,13 @@ def bulk_move_dhcp_pools(req: BulkMoveDhcpPoolsRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, on_address_update=None) -> dict:
+async def perform_scan(
+    subnet_id: int,
+    on_progress=None,
+    on_targets_ready=None,
+    on_address_update=None,
+    is_cancelled=None,
+) -> dict:
     data = db.get_subnet(subnet_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
@@ -2246,8 +2343,13 @@ async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, 
     for address in targets:
         if on_address_update is not None:
             on_address_update(address, "in_progress")
-        tasks.append(scan_one_task(address))
+        tasks.append(asyncio.create_task(scan_one_task(address)))
     for coro in asyncio.as_completed(tasks):
+        if is_cancelled is not None and is_cancelled():
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise asyncio.CancelledError("Scan cancelled")
         result = await coro
         results.append(result)
         completed_count += 1
@@ -2262,6 +2364,8 @@ async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, 
     went_quiet = []
     hostname_changed = []
     for result in results:
+        if is_cancelled is not None and is_cancelled():
+            raise asyncio.CancelledError("Scan cancelled")
         address = result["address"]
         db.apply_scan_result(subnet_id, address, result["alive"], result["hostname"])
         if result["alive"]:
@@ -2305,44 +2409,88 @@ async def perform_scan(subnet_id: int, on_progress=None, on_targets_ready=None, 
     }
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse, dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse, dependencies=[Depends(require_ipam_permission("scan"))])
 async def autodiscover_subnet(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
 
-    if subnet_id in SCANS_IN_PROGRESS:
+    job_id = str(uuid.uuid4())
+    if not db.create_scan_job(job_id, subnet_id):
         raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
     SCANS_IN_PROGRESS.add(subnet_id)
     try:
-        return await perform_scan(subnet_id)
+        result = await perform_scan(subnet_id)
+        db.update_scan_job(job_id, status="done", result=result)
+        return result
+    except Exception as exc:
+        db.update_scan_job(job_id, status="error", error=str(exc))
+        raise
     finally:
         SCANS_IN_PROGRESS.discard(subnet_id)
 
 
 def cleanup_old_scan_jobs(max_age_seconds: float = 300.0) -> None:
+    db.expire_timed_out_scan_jobs()
+    db.cleanup_scan_jobs(max_age_seconds)
     now = time.time()
     stale_ids = [
         job_id
         for job_id, job in SCAN_JOBS.items()
-        if job["status"] in ("done", "error") and now - job["created_at"] > max_age_seconds
+        if job["status"] in ("done", "error", "cancelled") and now - job["created_at"] > max_age_seconds
     ]
     for job_id in stale_ids:
         del SCAN_JOBS[job_id]
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/autodiscover/start", dependencies=[Depends(require_feature("ipam"))])
+async def run_due_scan_schedules() -> None:
+    for schedule in db.list_due_scan_schedules():
+        try:
+            await start_autodiscover_job(schedule["subnetId"])
+            db.mark_scan_schedule_started(schedule["subnetId"])
+        except HTTPException as exc:
+            # An active scan is expected occasionally; leave the schedule due
+            # so it is retried by the next scheduler pass.
+            if exc.status_code != 409:
+                logger.warning("Could not start scheduled scan for subnet %s: %s", schedule["subnetId"], exc.detail)
+
+
+async def scan_scheduler_loop() -> None:
+    while True:
+        try:
+            cleanup_old_scan_jobs()
+            await run_due_scan_schedules()
+        except Exception:
+            logger.exception("IPAM scan scheduler iteration failed")
+        await asyncio.sleep(30)
+
+
+@app.on_event("startup")
+async def start_scan_scheduler() -> None:
+    global SCAN_SCHEDULER_TASK
+    if SCAN_SCHEDULER_TASK is None:
+        SCAN_SCHEDULER_TASK = asyncio.create_task(scan_scheduler_loop())
+
+
+@app.on_event("shutdown")
+async def stop_scan_scheduler() -> None:
+    global SCAN_SCHEDULER_TASK
+    if SCAN_SCHEDULER_TASK is not None:
+        SCAN_SCHEDULER_TASK.cancel()
+        SCAN_SCHEDULER_TASK = None
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover/start", dependencies=[Depends(require_ipam_permission("scan"))])
 async def start_autodiscover_job(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
 
-    if subnet_id in SCANS_IN_PROGRESS:
-        raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
-
     cleanup_old_scan_jobs()
 
     job_id = str(uuid.uuid4())
+    if not db.create_scan_job(job_id, subnet_id):
+        raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
     SCANS_IN_PROGRESS.add(subnet_id)
     SCAN_JOBS_BY_SUBNET[subnet_id] = job_id
     SCAN_JOBS[job_id] = {
@@ -2361,12 +2509,14 @@ async def start_autodiscover_job(subnet_id: int):
             def on_progress(completed, total):
                 SCAN_JOBS[job_id]["completed"] = completed
                 SCAN_JOBS[job_id]["total"] = total
+                db.update_scan_job(job_id, completed=completed, total=total)
 
             def on_targets_ready(targets):
                 SCAN_JOBS[job_id]["addresses"] = {
                     addr: {"status": "pending", "alive": None, "hostname": None}
                     for addr in targets
                 }
+                db.update_scan_job(job_id, addresses=SCAN_JOBS[job_id]["addresses"])
 
             def on_address_update(address, status, alive=None, hostname=None):
                 entry = SCAN_JOBS[job_id]["addresses"].get(address)
@@ -2376,18 +2526,33 @@ async def start_autodiscover_job(subnet_id: int):
                         entry["alive"] = alive
                     if hostname is not None:
                         entry["hostname"] = hostname
+                    db.update_scan_job(job_id, addresses=SCAN_JOBS[job_id]["addresses"])
 
-            result = await perform_scan(
-                subnet_id,
-                on_progress=on_progress,
-                on_targets_ready=on_targets_ready,
-                on_address_update=on_address_update,
+            result = await asyncio.wait_for(
+                perform_scan(
+                    subnet_id,
+                    on_progress=on_progress,
+                    on_targets_ready=on_targets_ready,
+                    on_address_update=on_address_update,
+                    is_cancelled=lambda: db.is_scan_job_cancel_requested(job_id),
+                ),
+                timeout=db.SCAN_JOB_TIMEOUT_SECONDS,
             )
             SCAN_JOBS[job_id]["status"] = "done"
             SCAN_JOBS[job_id]["result"] = result
+            db.update_scan_job(job_id, status="done", result=result)
+        except asyncio.CancelledError:
+            SCAN_JOBS[job_id]["status"] = "cancelled"
+            SCAN_JOBS[job_id]["error"] = "Scan cancelled"
+            db.update_scan_job(job_id, status="cancelled", error="Scan cancelled")
+        except asyncio.TimeoutError:
+            SCAN_JOBS[job_id]["status"] = "error"
+            SCAN_JOBS[job_id]["error"] = "Scan timed out"
+            db.update_scan_job(job_id, status="error", error="Scan timed out")
         except Exception as exc:
             SCAN_JOBS[job_id]["status"] = "error"
             SCAN_JOBS[job_id]["error"] = str(exc)
+            db.update_scan_job(job_id, status="error", error=str(exc))
         finally:
             SCANS_IN_PROGRESS.discard(subnet_id)
             if SCAN_JOBS_BY_SUBNET.get(subnet_id) == job_id:
@@ -2397,28 +2562,63 @@ async def start_autodiscover_job(subnet_id: int):
     return {"jobId": job_id}
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/active", dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover/jobs/{job_id}/cancel", dependencies=[Depends(require_ipam_permission("scan"))])
+def cancel_autodiscover_job(subnet_id: int, job_id: str):
+    job = db.get_scan_job(job_id)
+    if job is None or job["subnet_id"] != subnet_id:
+        raise HTTPException(status_code=404, detail="Scan job not found")
+    if job["status"] != "running":
+        raise HTTPException(status_code=409, detail="Only running scan jobs can be cancelled")
+    if not db.request_scan_job_cancel(job_id, subnet_id):
+        raise HTTPException(status_code=409, detail="Scan job can no longer be cancelled")
+    return {"jobId": job_id, "cancelRequested": True}
+
+
+@app.post("/api/ipam/subnets/{subnet_id}/autodiscover/jobs/{job_id}/retry", dependencies=[Depends(require_ipam_permission("scan"))])
+async def retry_autodiscover_job(subnet_id: int, job_id: str):
+    job = db.get_scan_job(job_id)
+    if job is None or job["subnet_id"] != subnet_id:
+        raise HTTPException(status_code=404, detail="Scan job not found")
+    if job["status"] == "running":
+        raise HTTPException(status_code=409, detail="A running scan job cannot be retried")
+    return await start_autodiscover_job(subnet_id)
+
+
+@app.get("/api/ipam/subnets/{subnet_id}/scan-schedule", dependencies=[Depends(require_ipam_permission("read"))])
+def get_scan_schedule(subnet_id: int):
+    if db.get_subnet(subnet_id) is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return db.get_scan_schedule(subnet_id)
+
+
+@app.put("/api/ipam/subnets/{subnet_id}/scan-schedule", dependencies=[Depends(require_ipam_permission("admin"))])
+def update_scan_schedule(subnet_id: int, req: ScanScheduleRequest):
+    if db.get_subnet(subnet_id) is None:
+        raise HTTPException(status_code=404, detail="Subnet not found")
+    return db.upsert_scan_schedule(subnet_id, req.intervalMinutes, req.enabled)
+
+
+@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/active", dependencies=[Depends(require_ipam_permission("read"))])
 def get_active_scan(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
 
-    job_id = SCAN_JOBS_BY_SUBNET.get(subnet_id)
-    if job_id is None:
+    job = db.get_active_scan_job(subnet_id)
+    if job is None:
         return {"jobId": None}
-
-    job = SCAN_JOBS[job_id]
-    return {"jobId": job_id, "completed": job["completed"], "total": job["total"]}
+    return {"jobId": job["id"], "completed": job["completed"], "total": job["total"]}
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}", dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}", dependencies=[Depends(require_ipam_permission("read"))])
 async def stream_autodiscover_job(subnet_id: int, job_id: str):
-    if job_id not in SCAN_JOBS:
+    job = db.get_scan_job(job_id)
+    if job is None or job["subnet_id"] != subnet_id:
         raise HTTPException(status_code=404, detail="Scan job not found")
 
     async def event_generator():
         while True:
-            job = SCAN_JOBS.get(job_id)
+            job = db.get_scan_job(job_id)
             if job is None:
                 break
             addresses = [
@@ -2453,7 +2653,7 @@ async def stream_autodiscover_job(subnet_id: int, job_id: str):
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/scans", response_model=List[ScanSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnets/{subnet_id}/scans", response_model=List[ScanSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet_scans(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2465,13 +2665,13 @@ def get_subnet_scans(subnet_id: int):
 # Custom Tags API Endpoints
 # ---------------------------------------------------------------------------
 
-@app.get("/api/ipam/tags", response_model=TagListResponse, dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/tags", response_model=TagListResponse, dependencies=[Depends(require_ipam_permission("read"))])
 def get_tags():
     tags = db.get_tags()
     return TagListResponse(tags=tags, count=len(tags))
 
 
-@app.post("/api/ipam/tags", response_model=TagResponse, dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/tags", response_model=TagResponse, dependencies=[Depends(require_ipam_permission("admin"))])
 def create_tag(req: TagCreateRequest):
     try:
         return db.create_tag(req.name, req.description, req.color)
@@ -2481,7 +2681,7 @@ def create_tag(req: TagCreateRequest):
         raise HTTPException(status_code=409, detail=f'Tag "{req.name}" already exists')
 
 
-@app.delete("/api/ipam/tags/{tag_id}", dependencies=[Depends(require_feature("ipam"))])
+@app.delete("/api/ipam/tags/{tag_id}", dependencies=[Depends(require_ipam_permission("admin"))])
 def delete_tag(tag_id: int):
     deleted = db.delete_tag(tag_id)
     if not deleted:
@@ -2489,14 +2689,14 @@ def delete_tag(tag_id: int):
     return {"deleted": tag_id}
 
 
-@app.get("/api/ipam/tags/search", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/tags/search", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def search_tags(q: str = ""):
     if not q or not q.strip():
         return []
     return db.search_tags(q.strip())
 
 
-@app.get("/api/ipam/subnets/{subnet_id}/tags", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnets/{subnet_id}/tags", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet_tags(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2504,7 +2704,7 @@ def get_subnet_tags(subnet_id: int):
     return db.get_subnet_tags(subnet_id)
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("write"))])
 def add_subnet_tag(subnet_id: int, tag_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2516,7 +2716,7 @@ def add_subnet_tag(subnet_id: int, tag_id: int):
     return db.get_subnet_tags(subnet_id)
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.delete("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("write"))])
 def remove_subnet_tag(subnet_id: int, tag_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2525,12 +2725,12 @@ def remove_subnet_tag(subnet_id: int, tag_id: int):
     return db.get_subnet_tags(subnet_id)
 
 
-@app.get("/api/ipam/addresses/{address_id}/tags", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/addresses/{address_id}/tags", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def get_address_tags(address_id: int):
     return db.get_address_tags(address_id)
 
 
-@app.post("/api/ipam/addresses/{address_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.post("/api/ipam/addresses/{address_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("write"))])
 def add_address_tag(address_id: int, tag_id: int):
     try:
         db.add_address_tag(address_id, tag_id)
@@ -2539,13 +2739,13 @@ def add_address_tag(address_id: int, tag_id: int):
     return db.get_address_tags(address_id)
 
 
-@app.delete("/api/ipam/addresses/{address_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.delete("/api/ipam/addresses/{address_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("write"))])
 def remove_address_tag(address_id: int, tag_id: int):
     db.remove_address_tag(address_id, tag_id)
     return db.get_address_tags(address_id)
 
 
-@app.get("/api/ipam/tags/{tag_id}/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/tags/{tag_id}/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnets_by_tag(tag_id: int):
     try:
         return db.get_subnets_by_tag(tag_id)
@@ -2553,7 +2753,7 @@ def get_subnets_by_tag(tag_id: int):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
-@app.get("/api/ipam/tags/{tag_id}/addresses", response_model=List[SearchAddressEntry], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/tags/{tag_id}/addresses", response_model=List[SearchAddressEntry], dependencies=[Depends(require_ipam_permission("read"))])
 def get_addresses_by_tag(tag_id: int):
     try:
         return db.get_addresses_by_tag(tag_id)
@@ -2575,7 +2775,7 @@ class SubnetAllocationResponse(BaseModel):
     nextAvailableAfter: Optional[str] = None
 
 
-@app.get("/api/ipam/subnet-allocation", response_model=SubnetAllocationResponse, dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/subnet-allocation", response_model=SubnetAllocationResponse, dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet_allocation(parent: str, prefix: int):
     try:
         result = db.find_next_contiguous_subnet(parent, prefix)
@@ -2603,27 +2803,27 @@ class AuditLogEntry(BaseModel):
     createdAt: str
 
 
-@app.get("/api/ipam/audit/address/{address_id}", response_model=List[AuditLogEntry], dependencies=[Depends(require_feature("ipam"))])
-def get_address_audit_log(address_id: int, limit: int = 100, offset: int = 0):
+@app.get("/api/ipam/audit/address/{address_id}", response_model=List[AuditLogEntry], dependencies=[Depends(require_ipam_permission("read"))])
+def get_address_audit_log(address_id: int, limit: int = Query(default=100, ge=1, le=100), offset: int = Query(default=0, ge=0)):
     return db.get_address_audit_log(address_id, limit=limit, offset=offset)
 
 
-@app.get("/api/ipam/audit/subnet/{subnet_id}", response_model=List[AuditLogEntry], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/audit/subnet/{subnet_id}", response_model=List[AuditLogEntry], dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet_audit_log(
     subnet_id: int,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=100),
 ):
     return db.get_subnet_audit_log(subnet_id, start_time=start_time, end_time=end_time, limit=limit)
 
 
-@app.get("/api/ipam/audit/export", response_model=List[AuditLogEntry], dependencies=[Depends(require_feature("ipam"))])
+@app.get("/api/ipam/audit/export", response_model=List[AuditLogEntry], dependencies=[Depends(require_ipam_permission("admin"))])
 def export_audit_log(
     subnet_id: Optional[int] = None,
     start_time: Optional[str] = None,
     end_time: Optional[str] = None,
-    limit: int = 1000,
+    limit: int = Query(default=1000, ge=1, le=1000),
 ):
     rows = db.export_audit_log_csv(
         subnet_id=subnet_id,

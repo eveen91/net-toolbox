@@ -77,6 +77,61 @@ def test_dhcp_pool_validation(client):
     assert no_overlap_resp.status_code == 200
 
 
+def test_dhcp_pool_cannot_be_updated_or_deleted_through_another_subnet(client):
+    subnet_a = client.post("/api/ipam/subnets", json={"cidr": "10.20.0.0/24"}).json()["id"]
+    subnet_b = client.post("/api/ipam/subnets", json={"cidr": "10.21.0.0/24"}).json()["id"]
+    pool = client.post(
+        f"/api/ipam/subnets/{subnet_a}/dhcp-pools",
+        json={"start_ip": "10.20.0.100", "end_ip": "10.20.0.150"},
+    ).json()
+
+    update_response = client.put(
+        f"/api/ipam/subnets/{subnet_b}/dhcp-pools/{pool['id']}",
+        json={"start_ip": "10.21.0.100", "end_ip": "10.21.0.150"},
+    )
+    assert update_response.status_code == 400
+    assert "not found" in update_response.json()["detail"]
+
+    delete_response = client.delete(f"/api/ipam/subnets/{subnet_b}/dhcp-pools/{pool['id']}")
+    assert delete_response.status_code == 404
+    assert client.get(f"/api/ipam/subnets/{subnet_a}/dhcp-pools").json()[0]["id"] == pool["id"]
+
+
+def test_dhcp_pool_and_recorded_addresses_cannot_overlap(client):
+    subnet_id = client.post("/api/ipam/subnets", json={"cidr": "10.22.0.0/24"}).json()["id"]
+    address_response = client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": "10.22.0.100", "status": "used"},
+    )
+    assert address_response.status_code == 200
+    address_id = address_response.json()["addresses"][0]["id"]
+
+    create_pool_response = client.post(
+        f"/api/ipam/subnets/{subnet_id}/dhcp-pools",
+        json={"start_ip": "10.22.0.90", "end_ip": "10.22.0.110"},
+    )
+    assert create_pool_response.status_code == 400
+    assert "recorded address" in create_pool_response.json()["detail"]
+
+    pool = client.post(
+        f"/api/ipam/subnets/{subnet_id}/dhcp-pools",
+        json={"start_ip": "10.22.0.120", "end_ip": "10.22.0.130"},
+    ).json()
+    update_address_response = client.put(
+        f"/api/ipam/subnets/{subnet_id}/addresses/{address_id}",
+        json={"address": "10.22.0.125", "status": "used"},
+    )
+    assert update_address_response.status_code == 400
+    assert "DHCP pool" in update_address_response.json()["detail"]
+
+    update_pool_response = client.put(
+        f"/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool['id']}",
+        json={"start_ip": "10.22.0.90", "end_ip": "10.22.0.110"},
+    )
+    assert update_pool_response.status_code == 400
+    assert "recorded address" in update_pool_response.json()["detail"]
+
+
 def test_dhcp_pool_ip_in_pool(client):
     import db
 

@@ -11,6 +11,14 @@ import {
 } from "./api.js";
 import "../tools/shared.css";
 import "./admin.css";
+
+const ROLE_PERMISSIONS = [
+  ...TOOLS.filter((tool) => tool.id !== "ipam").map((tool) => ({ id: tool.id, name: tool.name })),
+  { id: "ipam.read", name: "IPAM Read" },
+  { id: "ipam.write", name: "IPAM Write" },
+  { id: "ipam.scan", name: "IPAM Scan" },
+  { id: "ipam.admin", name: "IPAM Admin" },
+];
 export default function RolesPanel() {
   const [roles, setRoles] = useState([]);
   const [roleError, setRoleError] = useState(null);
@@ -153,14 +161,14 @@ return (
             onChange={(e) => setNewRoleName(e.target.value)}
           />
           <div className="nt-new-role-checkboxes">
-            {TOOLS.map((tool) => (
-              <label key={tool.id} className="nt-role-checkbox-label">
+            {ROLE_PERMISSIONS.map((permission) => (
+              <label key={permission.id} className="nt-role-checkbox-label">
                 <input
                   type="checkbox"
-                  checked={newRolePermissions.includes(tool.id)}
-                  onChange={() => toggleNewRolePermission(tool.id)}
+                  checked={newRolePermissions.includes(permission.id)}
+                  onChange={() => toggleNewRolePermission(permission.id)}
                 />
-                {tool.name}
+                {permission.name}
               </label>
             ))}
           </div>
@@ -175,7 +183,7 @@ return (
 
         <h3>Roles</h3>
         <p className="tool-hint">
-          Choose which tools each role can access. "admin" always has access to everything,
+          Choose which tools and IPAM capabilities each role can access. "admin" always has access to everything,
           plus this Config Panel, and can't be edited.
         </p>
         {roleError && <div className="tool-error">{roleError}</div>}
@@ -185,8 +193,8 @@ return (
             <thead>
               <tr>
                 <th>Role</th>
-                {TOOLS.map((tool) => (
-                  <th key={tool.id}>{tool.name}</th>
+                {ROLE_PERMISSIONS.map((permission) => (
+                  <th key={permission.id}>{permission.name}</th>
                 ))}
                 <th></th>
               </tr>
@@ -238,16 +246,16 @@ return (
                     )}
                   </td>
                   {role.name === "admin" ? (
-                    <td colSpan={TOOLS.length} className="tool-hint">
+                    <td colSpan={ROLE_PERMISSIONS.length} className="tool-hint">
                       All features
                     </td>
                   ) : (
-                    TOOLS.map((tool) => (
-                      <td key={tool.id} className="nt-role-checkbox-cell">
+                    ROLE_PERMISSIONS.map((permission) => (
+                      <td key={permission.id} className="nt-role-checkbox-cell">
                         <input
                           type="checkbox"
-                          checked={(roleEdits[role.id] || []).includes(tool.id)}
-                          onChange={() => toggleRoleEditPermission(role.id, tool.id)}
+                          checked={(roleEdits[role.id] || []).includes(permission.id)}
+                          onChange={() => toggleRoleEditPermission(role.id, permission.id)}
                         />
                       </td>
                     ))

@@ -1,6 +1,7 @@
 import auth
 import auth_db
 import db
+import sqlite3
 
 
 def _create_audit_entry(username="audit-user"):
@@ -106,3 +107,75 @@ def test_deleted_subnet_audit_entries_survive_database_reinitialization(client):
     entries = db.export_audit_log_csv()
     change_types = {entry["change_type"] for entry in entries}
     assert {"subnet_create", "subnet_delete"}.issubset(change_types)
+
+
+def test_address_only_change_is_saved_and_audited(client):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.61.70.0/29"}).json()
+    created = client.post(
+        f"/api/ipam/subnets/{subnet['id']}/addresses",
+        json={"address": "10.61.70.1", "status": "used"},
+    ).json()
+    address_id = created["addresses"][0]["id"]
+
+    response = client.put(
+        f"/api/ipam/subnets/{subnet['id']}/addresses/{address_id}",
+        json={"address": "10.61.70.2", "status": "used"},
+    )
+    assert response.status_code == 200
+    assert response.json()["addresses"][0]["address"] == "10.61.70.2"
+
+    audit = client.get(f"/api/ipam/audit/address/{address_id}").json()
+    update = next(entry for entry in audit if entry["changeType"] == "update")
+    assert update["oldValue"]["address"] == "10.61.70.1"
+    assert update["newValue"]["address"] == "10.61.70.2"
+
+
+def test_audit_migration_preserves_subnet_and_dhcp_pool_ids(client):
+    subnet = db.create_subnet("10.70.80.0/29")
+    db.add_address(subnet["id"], "10.70.80.1")
+    address_id = db.get_subnet(subnet["id"])["addresses"][0]["id"]
+
+    conn = db.get_connection()
+    try:
+        conn.execute("DROP TABLE ipam_audit_log")
+        conn.execute(
+            """
+            CREATE TABLE ipam_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                address_id INTEGER NOT NULL REFERENCES ipam_addresses(id),
+                subnet_id INTEGER,
+                dhcp_pool_id INTEGER,
+                user_id INTEGER,
+                change_type TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                description TEXT,
+                ip_address TEXT,
+                subnet_cidr TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO ipam_audit_log
+                (address_id, subnet_id, dhcp_pool_id, change_type, created_at)
+            VALUES (?, ?, ?, 'legacy', '2026-01-01T00:00:00+00:00')
+            """,
+            (address_id, subnet["id"], 84),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    db.init_db()
+
+    conn = db.get_connection()
+    try:
+        row = conn.execute(
+            "SELECT subnet_id, dhcp_pool_id FROM ipam_audit_log WHERE change_type = 'legacy'"
+        ).fetchone()
+        assert row["subnet_id"] == subnet["id"]
+        assert row["dhcp_pool_id"] == 84
+    finally:
+        conn.close()
