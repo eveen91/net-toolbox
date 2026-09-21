@@ -1,3 +1,6 @@
+import db
+
+
 def test_bulk_update_sets_only_specified_fields(client):
     subnet_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
     assert subnet_resp.status_code == 200
@@ -23,7 +26,7 @@ def test_bulk_update_sets_only_specified_fields(client):
         },
     )
     assert add2.status_code == 200
-    addresses_by_ip = {a["address"]: a for a in add2.json()["addresses"]}
+    addresses_by_ip = {a["address"]: a for a in db.get_addresses_by_subnet(subnet_id)}
     id1 = addresses_by_ip["10.0.0.1"]["id"]
     id2 = addresses_by_ip["10.0.0.2"]["id"]
 
@@ -33,7 +36,7 @@ def test_bulk_update_sets_only_specified_fields(client):
     )
     assert bulk_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
+    detail = {"addresses": db.get_addresses_by_subnet(subnet_id)}
     by_id = {a["id"]: a for a in detail["addresses"]}
 
     assert by_id[id1]["team"] == "net-ops"
@@ -59,8 +62,8 @@ def test_bulk_update_forces_vm_cluster_null_when_machine_type_not_vm(client):
         },
     )
     assert add_resp.status_code == 200
-    address_id = add_resp.json()["addresses"][0]["id"]
-    assert add_resp.json()["addresses"][0]["vmCluster"] == "cluster-a"
+    address_id = db.get_addresses_by_subnet(subnet_id)[0]["id"]
+    assert db.get_addresses_by_subnet(subnet_id)[0]["vmCluster"] == "cluster-a"
 
     bulk_resp = client.patch(
         f"/api/ipam/subnets/{subnet_id}/addresses/bulk",
@@ -68,7 +71,7 @@ def test_bulk_update_forces_vm_cluster_null_when_machine_type_not_vm(client):
     )
     assert bulk_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
+    detail = {"addresses": db.get_addresses_by_subnet(subnet_id)}
     address = next(a for a in detail["addresses"] if a["id"] == address_id)
     assert address["machineType"] == "physical"
     assert address["vmCluster"] is None
@@ -88,7 +91,7 @@ def test_bulk_update_respects_explicit_vm_cluster_override(client):
         },
     )
     assert add_resp.status_code == 200
-    address_id = add_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(subnet_id)[0]["id"]
 
     bulk_resp = client.patch(
         f"/api/ipam/subnets/{subnet_id}/addresses/bulk",
@@ -100,7 +103,7 @@ def test_bulk_update_respects_explicit_vm_cluster_override(client):
     )
     assert bulk_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
+    detail = {"addresses": db.get_addresses_by_subnet(subnet_id)}
     address = next(a for a in detail["addresses"] if a["id"] == address_id)
     assert address["machineType"] == "physical"
     assert address["vmCluster"] == "keep-me"
@@ -117,14 +120,14 @@ def test_bulk_update_skips_addresses_from_other_subnets(client):
         json={"address": "10.0.3.1", "status": "used"},
     )
     assert add_a.status_code == 200
-    address_a_id = add_a.json()["addresses"][0]["id"]
+    address_a_id = db.get_addresses_by_subnet(subnet_a_id)[0]["id"]
 
     add_b = client.post(
         f"/api/ipam/subnets/{subnet_b_id}/addresses",
         json={"address": "10.0.4.1", "status": "used", "team": "original-team"},
     )
     assert add_b.status_code == 200
-    address_b_id = add_b.json()["addresses"][0]["id"]
+    address_b_id = db.get_addresses_by_subnet(subnet_b_id)[0]["id"]
 
     # Bulk-update subnet A, but sneak in subnet B's address id too.
     bulk_resp = client.patch(
@@ -133,7 +136,7 @@ def test_bulk_update_skips_addresses_from_other_subnets(client):
     )
     assert bulk_resp.status_code == 200
 
-    subnet_b_detail = client.get(f"/api/ipam/subnets/{subnet_b_id}").json()
+    subnet_b_detail = {"addresses": db.get_addresses_by_subnet(subnet_b_id)}
     address_b = next(a for a in subnet_b_detail["addresses"] if a["id"] == address_b_id)
     assert address_b["team"] == "original-team"
 
@@ -146,7 +149,7 @@ def test_bulk_update_rejects_empty_address_list(client):
         f"/api/ipam/subnets/{subnet_id}/addresses/bulk",
         json={"addressIds": [], "team": "net-ops"},
     )
-    assert bulk_resp.status_code == 400
+    assert bulk_resp.status_code == 422
 
 
 def test_bulk_update_can_set_status(client):
@@ -163,7 +166,7 @@ def test_bulk_update_can_set_status(client):
         json={"address": "10.0.6.2", "status": "free"},
     )
     assert add2.status_code == 200
-    addresses_by_ip = {a["address"]: a for a in add2.json()["addresses"]}
+    addresses_by_ip = {a["address"]: a for a in db.get_addresses_by_subnet(subnet_id)}
     id1 = addresses_by_ip["10.0.6.1"]["id"]
     id2 = addresses_by_ip["10.0.6.2"]["id"]
 
@@ -173,7 +176,7 @@ def test_bulk_update_can_set_status(client):
     )
     assert bulk_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
+    detail = {"addresses": db.get_addresses_by_subnet(subnet_id)}
     by_id = {a["id"]: a for a in detail["addresses"]}
     assert by_id[id1]["status"] == "reserved"
     assert by_id[id2]["status"] == "reserved"
@@ -194,7 +197,7 @@ def test_bulk_delete_removes_selected_addresses(client):
         f"/api/ipam/subnets/{subnet_id}/addresses",
         json={"address": "10.0.7.3", "status": "used"},
     )
-    addresses_by_ip = {a["address"]: a for a in add3.json()["addresses"]}
+    addresses_by_ip = {a["address"]: a for a in db.get_addresses_by_subnet(subnet_id)}
     id1 = addresses_by_ip["10.0.7.1"]["id"]
     id2 = addresses_by_ip["10.0.7.2"]["id"]
     id3 = addresses_by_ip["10.0.7.3"]["id"]
@@ -205,7 +208,7 @@ def test_bulk_delete_removes_selected_addresses(client):
     )
     assert del_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
+    detail = {"addresses": db.get_addresses_by_subnet(subnet_id)}
     remaining_ids = {a["id"] for a in detail["addresses"]}
     assert remaining_ids == {id3}
 
@@ -220,13 +223,13 @@ def test_bulk_delete_skips_addresses_from_other_subnets(client):
         f"/api/ipam/subnets/{subnet_a_id}/addresses",
         json={"address": "10.0.8.1", "status": "used"},
     )
-    address_a_id = add_a.json()["addresses"][0]["id"]
+    address_a_id = db.get_addresses_by_subnet(subnet_a_id)[0]["id"]
 
     add_b = client.post(
         f"/api/ipam/subnets/{subnet_b_id}/addresses",
         json={"address": "10.0.9.1", "status": "used"},
     )
-    address_b_id = add_b.json()["addresses"][0]["id"]
+    address_b_id = db.get_addresses_by_subnet(subnet_b_id)[0]["id"]
 
     # Delete on subnet A, but sneak in subnet B's address id too.
     del_resp = client.post(
@@ -235,7 +238,7 @@ def test_bulk_delete_skips_addresses_from_other_subnets(client):
     )
     assert del_resp.status_code == 200
 
-    subnet_b_detail = client.get(f"/api/ipam/subnets/{subnet_b_id}").json()
+    subnet_b_detail = {"addresses": db.get_addresses_by_subnet(subnet_b_id)}
     remaining_ids = {a["id"] for a in subnet_b_detail["addresses"]}
     assert remaining_ids == {address_b_id}
 
@@ -248,7 +251,7 @@ def test_bulk_delete_rejects_empty_address_list(client):
         f"/api/ipam/subnets/{subnet_id}/addresses/bulk-delete",
         json={"addressIds": []},
     )
-    assert del_resp.status_code == 400
+    assert del_resp.status_code == 422
 
 
 def test_bulk_delete_404_for_missing_subnet(client):
@@ -278,7 +281,7 @@ def test_bulk_move_moves_addresses_to_destination_subnet(client):
         f"/api/ipam/subnets/{from_id}/addresses",
         json={"address": "10.1.0.2", "status": "used", "hostname": "host-two"},
     )
-    addresses_by_ip = {a["address"]: a for a in add2.json()["addresses"]}
+    addresses_by_ip = {a["address"]: a for a in db.get_addresses_by_subnet(from_id)}
     id1 = addresses_by_ip["10.1.0.1"]["id"]
     id2 = addresses_by_ip["10.1.0.2"]["id"]
 
@@ -290,9 +293,9 @@ def test_bulk_move_moves_addresses_to_destination_subnet(client):
     body = move_resp.json()
     assert body["movedCount"] == 2
     assert body["skipped"] == []
-    assert body["fromSubnet"]["addresses"] == []
+    assert db.get_addresses_by_subnet(from_id) == []
 
-    to_detail = client.get(f"/api/ipam/subnets/{to_id}").json()
+    to_detail = {"addresses": db.get_addresses_by_subnet(to_id)}
     moved_hostnames = {a["hostname"] for a in to_detail["addresses"]}
     assert moved_hostnames == {"host-one", "host-two"}
 
@@ -307,8 +310,8 @@ def test_bulk_move_rolls_back_when_a_database_error_occurs(client, monkeypatch):
     first = client.post(f"/api/ipam/subnets/{from_id}/addresses", json={"address": "10.1.12.1"})
     second = client.post(f"/api/ipam/subnets/{from_id}/addresses", json={"address": "10.1.12.2"})
     address_ids = [
-        next(a["id"] for a in first.json()["addresses"] if a["address"] == "10.1.12.1"),
-        next(a["id"] for a in second.json()["addresses"] if a["address"] == "10.1.12.2"),
+        next(a["id"] for a in db.get_addresses_by_subnet(from_id) if a["address"] == "10.1.12.1"),
+        next(a["id"] for a in db.get_addresses_by_subnet(from_id) if a["address"] == "10.1.12.2"),
     ]
 
     original_log = db._log_address_change
@@ -329,8 +332,8 @@ def test_bulk_move_rolls_back_when_a_database_error_occurs(client, monkeypatch):
     else:
         raise AssertionError("Expected simulated write failure")
 
-    source_addresses = client.get(f"/api/ipam/subnets/{from_id}").json()["addresses"]
-    destination_addresses = client.get(f"/api/ipam/subnets/{to_id}").json()["addresses"]
+    source_addresses = {"addresses": db.get_addresses_by_subnet(from_id)}["addresses"]
+    destination_addresses = {"addresses": db.get_addresses_by_subnet(to_id)}["addresses"]
     assert {a["address"] for a in source_addresses} == {"10.1.12.1", "10.1.12.2"}
     assert destination_addresses == []
 
@@ -345,7 +348,7 @@ def test_bulk_move_skips_address_outside_destination_cidr(client):
         f"/api/ipam/subnets/{from_id}/addresses",
         json={"address": "10.1.2.1", "status": "used"},
     )
-    address_id = add_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(from_id)[0]["id"]
 
     move_resp = client.post(
         f"/api/ipam/subnets/{from_id}/addresses/bulk-move",
@@ -357,7 +360,7 @@ def test_bulk_move_skips_address_outside_destination_cidr(client):
     assert len(body["skipped"]) == 1
     assert body["skipped"][0]["addressId"] == address_id
 
-    from_detail = client.get(f"/api/ipam/subnets/{from_id}").json()
+    from_detail = {"addresses": db.get_addresses_by_subnet(from_id)}
     assert len(from_detail["addresses"]) == 1
 
 
@@ -375,7 +378,7 @@ def test_bulk_move_skips_duplicate_in_destination(client):
         f"/api/ipam/subnets/{from_id}/addresses",
         json={"address": "10.1.4.1", "status": "used"},
     )
-    address_id = add_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(from_id)[0]["id"]
 
     move_resp = client.post(
         f"/api/ipam/subnets/{from_id}/addresses/bulk-move",
@@ -386,7 +389,7 @@ def test_bulk_move_skips_duplicate_in_destination(client):
     assert body["movedCount"] == 0
     assert len(body["skipped"]) == 1
 
-    from_detail = client.get(f"/api/ipam/subnets/{from_id}").json()
+    from_detail = {"addresses": db.get_addresses_by_subnet(from_id)}
     assert len(from_detail["addresses"]) == 1
 
 
@@ -404,7 +407,7 @@ def test_bulk_move_skips_addresses_in_destination_dhcp_pool(client):
         f"/api/ipam/subnets/{from_id}/addresses",
         json={"address": "10.1.5.5", "status": "used"},
     )
-    address_id = add_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(from_id)[0]["id"]
 
     move_resp = client.post(
         f"/api/ipam/subnets/{from_id}/addresses/bulk-move",
@@ -426,12 +429,12 @@ def test_bulk_move_partial_success_reports_moved_and_skipped(client):
         f"/api/ipam/subnets/{from_id}/addresses",
         json={"address": "10.1.6.5", "status": "used"},
     )
-    id_in_range = add_in_range.json()["addresses"][0]["id"]
+    id_in_range = db.get_addresses_by_subnet(from_id)[0]["id"]
     add_out_of_range = client.post(
         f"/api/ipam/subnets/{from_id}/addresses",
         json={"address": "10.1.6.20", "status": "used"},
     )
-    addresses_by_ip = {a["address"]: a for a in add_out_of_range.json()["addresses"]}
+    addresses_by_ip = {a["address"]: a for a in db.get_addresses_by_subnet(from_id)}
     id_out_of_range = addresses_by_ip["10.1.6.20"]["id"]
 
     move_resp = client.post(
@@ -444,7 +447,7 @@ def test_bulk_move_partial_success_reports_moved_and_skipped(client):
     assert len(body["skipped"]) == 1
     assert body["skipped"][0]["addressId"] == id_out_of_range
 
-    from_detail = client.get(f"/api/ipam/subnets/{from_id}").json()
+    from_detail = {"addresses": db.get_addresses_by_subnet(from_id)}
     assert len(from_detail["addresses"]) == 1
     assert from_detail["addresses"][0]["id"] == id_out_of_range
 
@@ -459,7 +462,7 @@ def test_bulk_move_rejects_empty_address_list(client):
         f"/api/ipam/subnets/{from_id}/addresses/bulk-move",
         json={"addressIds": [], "targetSubnetId": to_id},
     )
-    assert move_resp.status_code == 400
+    assert move_resp.status_code == 422
 
 
 def test_bulk_move_rejects_missing_destination_subnet(client):
@@ -469,7 +472,7 @@ def test_bulk_move_rejects_missing_destination_subnet(client):
         f"/api/ipam/subnets/{from_id}/addresses",
         json={"address": "10.1.10.1", "status": "used"},
     )
-    address_id = add_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(from_id)[0]["id"]
 
     move_resp = client.post(
         f"/api/ipam/subnets/{from_id}/addresses/bulk-move",
@@ -485,7 +488,7 @@ def test_bulk_move_rejects_same_source_and_destination(client):
         f"/api/ipam/subnets/{subnet_id}/addresses",
         json={"address": "10.1.11.1", "status": "used"},
     )
-    address_id = add_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(subnet_id)[0]["id"]
 
     move_resp = client.post(
         f"/api/ipam/subnets/{subnet_id}/addresses/bulk-move",

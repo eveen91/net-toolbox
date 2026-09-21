@@ -84,6 +84,40 @@ export function ancestorChain(subnets, subnetId) {
   return chain;
 }
 
+export function ipv4ToNumber(ip) {
+  return ip
+    .split(".")
+    .map(Number)
+    .reduce((value, octet) => value * 256 + octet, 0);
+}
+
+export function heatmapPageForAddress(cidr, address, addressesPerPage) {
+  const subnetStart = ipv4ToNumber(cidr.split("/")[0]);
+  return Math.max(0, Math.floor((ipv4ToNumber(address) - subnetStart) / addressesPerPage));
+}
+
+export function normalizeAddressPageLimit(limit, fallback = 100) {
+  return Math.min(500, Math.max(1, Number(limit) || fallback));
+}
+
+export async function fetchAllAddressPages(fetchPage, pageSize = 500) {
+  const safePageSize = normalizeAddressPageLimit(pageSize, 500);
+  const addresses = [];
+  let offset = 0;
+  let total = 0;
+
+  do {
+    const page = await fetchPage({ limit: safePageSize, offset });
+    const pageAddresses = Array.isArray(page.addresses) ? page.addresses : [];
+    addresses.push(...pageAddresses);
+    total = Number(page.total) || 0;
+    offset += pageAddresses.length;
+    if (pageAddresses.length === 0) break;
+  } while (offset < total);
+
+  return addresses;
+}
+
 export function addressesToCsv(addresses) {
   const headers = [
     "address", "status", "hostname", "description",

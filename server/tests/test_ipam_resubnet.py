@@ -1,5 +1,6 @@
 from unittest.mock import patch
 
+import db
 import ipam_scan
 
 
@@ -14,7 +15,7 @@ def _add_address(client, subnet_id, address, **fields):
     payload.update(fields)
     resp = client.post(f"/api/ipam/subnets/{subnet_id}/addresses", json=payload)
     assert resp.status_code == 200
-    addresses_by_ip = {a["address"]: a for a in resp.json()["addresses"]}
+    addresses_by_ip = {a["address"]: a for a in db.get_addresses_by_subnet(subnet_id)}
     return addresses_by_ip[address]["id"]
 
 
@@ -93,10 +94,10 @@ def test_move_address_relocates_it(client):
     )
     assert move_resp.status_code == 200
 
-    broad_detail = client.get(f"/api/ipam/subnets/{broad_id}").json()
+    broad_detail = {"addresses": db.get_addresses_by_subnet(broad_id)}
     assert all(a["address"] != "10.1.11.30" for a in broad_detail["addresses"])
 
-    narrow_detail = client.get(f"/api/ipam/subnets/{narrow_id}").json()
+    narrow_detail = {"addresses": db.get_addresses_by_subnet(narrow_id)}
     moved = next(a for a in narrow_detail["addresses"] if a["address"] == "10.1.11.30")
     assert moved["hostname"] == "host-a"
     assert moved["status"] == "used"
@@ -147,7 +148,7 @@ def test_move_address_rejects_destination_dhcp_pool(client):
     assert move_resp.status_code == 400
     assert "DHCP pool" in move_resp.json()["detail"]
 
-    source_addresses = client.get(f"/api/ipam/subnets/{broad_id}").json()["addresses"]
+    source_addresses = {"addresses": db.get_addresses_by_subnet(broad_id)}["addresses"]
     assert any(address["id"] == address_id for address in source_addresses)
 
 
@@ -171,7 +172,7 @@ def test_move_address_preserves_metadata(client):
     )
     assert move_resp.status_code == 200
 
-    narrow_detail = client.get(f"/api/ipam/subnets/{narrow_id}").json()
+    narrow_detail = {"addresses": db.get_addresses_by_subnet(narrow_id)}
     moved = next(a for a in narrow_detail["addresses"] if a["address"] == "10.1.11.30")
     assert moved["team"] == "net-ops"
     assert moved["machineType"] == "vm"
@@ -203,10 +204,10 @@ def test_rescanning_broad_subnet_does_not_recreate_moved_host(client):
         scan_resp = client.post(f"/api/ipam/subnets/{broad_id}/autodiscover")
     assert scan_resp.status_code == 200
 
-    broad_detail = client.get(f"/api/ipam/subnets/{broad_id}").json()
+    broad_detail = {"addresses": db.get_addresses_by_subnet(broad_id)}
     assert all(a["address"] != "10.9.0.20" for a in broad_detail["addresses"])
 
-    narrow_detail = client.get(f"/api/ipam/subnets/{narrow_id}").json()
+    narrow_detail = {"addresses": db.get_addresses_by_subnet(narrow_id)}
     assert any(a["address"] == "10.9.0.20" for a in narrow_detail["addresses"])
 
     # The host must not be re-flagged for another resubnet review either.

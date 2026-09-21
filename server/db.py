@@ -27,6 +27,11 @@ import auth_db
 
 DB_PATH = Path(__file__).parent / "toolbox.db"
 
+
+def _ipv4_to_int(value: str) -> int:
+    return int(ipaddress.IPv4Address(value))
+
+
 DIRECTLY_CONNECTED = "directly connected"
 IPAM_SCHEMA_VERSION = 5
 # A scan's database heartbeat must be refreshed before this duration expires.
@@ -36,6 +41,7 @@ SCAN_JOB_TIMEOUT_SECONDS = 300
 def get_connection() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.create_function("ipv4_to_int", 1, _ipv4_to_int, deterministic=True)
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
@@ -1041,6 +1047,7 @@ def move_address(from_subnet_id: int, address_id: int, to_subnet_id: int) -> Dic
         if to_subnet_row is None:
             raise ValueError("Destination subnet not found")
         validate_address_in_subnet(from_row["address"], to_subnet_row["cidr"])
+        validate_address_not_in_dhcp_pool(conn, from_row["address"], to_subnet_id)
         conn.execute(
             "DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
             (address_id, from_subnet_id),
@@ -1186,6 +1193,16 @@ def get_addresses_by_subnet(subnet_id: int) -> List[Dict]:
         conn.close()
 
 
+def subnet_exists(subnet_id: int) -> bool:
+    conn = get_connection()
+    try:
+        return conn.execute(
+            "SELECT 1 FROM ipam_subnets WHERE id = ?", (subnet_id,)
+        ).fetchone() is not None
+    finally:
+        conn.close()
+
+
 def list_subnet_addresses(
     subnet_id: int,
     *,
@@ -1195,10 +1212,12 @@ def list_subnet_addresses(
     query: Optional[str] = None,
     sort: str = "address",
     direction: str = "asc",
+    address_start: Optional[str] = None,
+    address_end: Optional[str] = None,
 ) -> Dict:
     """Return a bounded address page; never load a subnet's full address list."""
     sort_columns = {
-        "address": "address",
+        "address": "ipv4_to_int(address)",
         "status": "status",
         "hostname": "hostname",
         "updatedAt": "updated_at",
@@ -1216,6 +1235,12 @@ def list_subnet_addresses(
         where.append("(address LIKE ? OR hostname LIKE ? OR description LIKE ?)")
         like = f"%{query.strip()}%"
         values.extend([like, like, like])
+    if address_start is not None:
+        where.append("ipv4_to_int(address) >= ipv4_to_int(?)")
+        values.append(address_start)
+    if address_end is not None:
+        where.append("ipv4_to_int(address) <= ipv4_to_int(?)")
+        values.append(address_end)
     clause = " AND ".join(where)
     conn = get_connection()
     try:
@@ -1283,16 +1308,29 @@ def get_subnet(subnet_id: int) -> Optional[Dict]:
             """,
             (subnet_id,),
         ).fetchone()
-        if row is None:
-            return None
-        summary = _subnet_summary(row)
-        addr_rows = conn.execute(
-            "SELECT * FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
-        ).fetchall()
-        addresses = [_address_dict(r) for r in addr_rows]
-        addresses.sort(key=_address_sort_key)
-        summary["addresses"] = addresses
-        return summary
+        return _subnet_summary(row) if row is not None else None
+    finally:
+        conn.close()
+
+
+def get_subnet_with_addresses(subnet_id: int) -> Optional[Dict]:
+    subnet = get_subnet(subnet_id)
+    if subnet is None:
+        return None
+    addresses = get_addresses_by_subnet(subnet_id)
+    addresses.sort(key=_address_sort_key)
+    subnet["addresses"] = addresses
+    return subnet
+
+
+def get_subnet_address(subnet_id: int, address_id: int) -> Optional[Dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
+            (address_id, subnet_id),
+        ).fetchone()
+        return _address_dict(row) if row is not None else None
     finally:
         conn.close()
 
@@ -1451,6 +1489,7 @@ def add_address(
         if machine_type != "vm":
             vm_cluster = None
         address = str(ipaddress.ip_address(address.strip()))
+        validate_address_not_in_dhcp_pool(conn, address, subnet_id)
         try:
             conn.execute(
                 """
@@ -1530,6 +1569,7 @@ def update_address(
         if machine_type != "vm":
             vm_cluster = None
         address = str(ipaddress.ip_address(address.strip()))
+        validate_address_not_in_dhcp_pool(conn, address, subnet_id)
         
         # Capture old values for audit
         old_state = {
@@ -1574,6 +1614,8 @@ def update_address(
         }
         
         changes = []
+        if old_state["address"] != new_state["address"]:
+            changes.append("address")
         if old_state["status"] != new_state["status"]:
             changes.append("status")
         if old_state["hostname"] != new_state["hostname"]:

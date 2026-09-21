@@ -1,3 +1,6 @@
+import db
+
+
 def test_dhcp_pool_crud(client):
     subnet_resp = client.post("/api/ipam/subnets", json={"cidr": "192.168.1.0/24", "vlan": 100})
     assert subnet_resp.status_code == 200
@@ -47,8 +50,8 @@ def test_dhcp_pool_validation(client):
         f"/api/ipam/subnets/{subnet_id}/dhcp-pools",
         json={"start_ip": "10.0.0.50", "end_ip": "999.999.999.999"}
     )
-    assert invalid_ip_resp.status_code == 400
-    assert "Invalid IP address" in invalid_ip_resp.json()["detail"]
+    assert invalid_ip_resp.status_code == 422
+    assert "DHCP pool addresses must be valid IPv4 addresses" in str(invalid_ip_resp.json()["detail"])
 
     wrong_subnet_resp = client.post(
         f"/api/ipam/subnets/{subnet_id}/dhcp-pools",
@@ -104,7 +107,7 @@ def test_dhcp_pool_and_recorded_addresses_cannot_overlap(client):
         json={"address": "10.22.0.100", "status": "used"},
     )
     assert address_response.status_code == 200
-    address_id = address_response.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(subnet_id)[0]["id"]
 
     create_pool_response = client.post(
         f"/api/ipam/subnets/{subnet_id}/dhcp-pools",

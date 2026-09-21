@@ -1,4 +1,5 @@
 import { apiFetch } from "../../apiFetch.js";
+import { fetchAllAddressPages, normalizeAddressPageLimit } from "./logic.js";
 // Talks to the same backend as Routing Map (server/main.py), which stores
 // subnets and their recorded addresses in SQLite (see server/db.py).
 
@@ -31,6 +32,40 @@ export async function getIpamDashboard() {
 export async function getSubnet(subnetId) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`);
   return handle(res);
+}
+
+export async function getSubnetAddresses(
+  subnetId,
+  {
+    limit = 100,
+    offset = 0,
+    status = "",
+    query = "",
+    sort = "address",
+    direction = "asc",
+    addressStart = "",
+    addressEnd = "",
+  } = {}
+) {
+  const safeLimit = normalizeAddressPageLimit(limit);
+  const params = new URLSearchParams({
+    limit: String(safeLimit),
+    offset: String(offset),
+    sort,
+    direction,
+  });
+  if (status) params.set("status", status);
+  if (query.trim()) params.set("query", query.trim());
+  if (addressStart) params.set("address_start", addressStart);
+  if (addressEnd) params.set("address_end", addressEnd);
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses?${params}`);
+  return handle(res);
+}
+
+export async function getAllSubnetAddresses(subnetId, options = {}) {
+  return fetchAllAddressPages(({ limit, offset }) =>
+    getSubnetAddresses(subnetId, { ...options, limit, offset })
+  );
 }
 
 export async function createSubnet(cidr, vlan, description) {

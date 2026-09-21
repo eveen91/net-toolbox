@@ -13,7 +13,7 @@ def _create_audit_entry(username="audit-user"):
         hostname="audit-host",
         user_id=user["id"],
     )
-    address = db.get_subnet(subnet["id"])["addresses"][0]
+    address = db.get_addresses_by_subnet(subnet["id"])[0]
     return user, subnet, address
 
 
@@ -115,14 +115,14 @@ def test_address_only_change_is_saved_and_audited(client):
         f"/api/ipam/subnets/{subnet['id']}/addresses",
         json={"address": "10.61.70.1", "status": "used"},
     ).json()
-    address_id = created["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(subnet["id"])[0]["id"]
 
     response = client.put(
         f"/api/ipam/subnets/{subnet['id']}/addresses/{address_id}",
         json={"address": "10.61.70.2", "status": "used"},
     )
     assert response.status_code == 200
-    assert response.json()["addresses"][0]["address"] == "10.61.70.2"
+    assert db.get_addresses_by_subnet(subnet["id"])[0]["address"] == "10.61.70.2"
 
     audit = client.get(f"/api/ipam/audit/address/{address_id}").json()
     update = next(entry for entry in audit if entry["changeType"] == "update")
@@ -133,7 +133,7 @@ def test_address_only_change_is_saved_and_audited(client):
 def test_audit_migration_preserves_subnet_and_dhcp_pool_ids(client):
     subnet = db.create_subnet("10.70.80.0/29")
     db.add_address(subnet["id"], "10.70.80.1")
-    address_id = db.get_subnet(subnet["id"])["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(subnet["id"])[0]["id"]
 
     conn = db.get_connection()
     try:

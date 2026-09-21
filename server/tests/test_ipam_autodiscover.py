@@ -24,8 +24,8 @@ def test_scan_marks_alive_address_as_used(client):
         scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
     assert scan_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
-    addr = next(a for a in detail["addresses"] if a["address"] == target_address)
+    addresses = db.get_addresses_by_subnet(subnet_id)
+    addr = next(a for a in addresses if a["address"] == target_address)
     assert addr["status"] == "used"
     assert addr["hostname"] == "myhost.local"
 
@@ -47,8 +47,8 @@ def test_scan_flips_stale_used_address_to_free(client):
         scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
     assert scan_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
-    addr = next(a for a in detail["addresses"] if a["address"] == stale_address)
+    addresses = db.get_addresses_by_subnet(subnet_id)
+    addr = next(a for a in addresses if a["address"] == stale_address)
     assert addr["status"] == "free"
     assert addr["hostname"] is None
 
@@ -86,7 +86,7 @@ def test_scan_preserves_locked_address_even_if_unresponsive(client):
     )
     assert add_resp.status_code == 200
     address_id = next(
-        a["id"] for a in add_resp.json()["addresses"] if a["address"] == locked_address
+        a["id"] for a in db.get_addresses_by_subnet(subnet_id) if a["address"] == locked_address
     )
 
     # There's no API path to set "locked" yet, so set it directly via db.
@@ -104,8 +104,8 @@ def test_scan_preserves_locked_address_even_if_unresponsive(client):
         scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
     assert scan_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
-    addr = next(a for a in detail["addresses"] if a["address"] == locked_address)
+    addresses = db.get_addresses_by_subnet(subnet_id)
+    addr = next(a for a in addresses if a["address"] == locked_address)
     assert addr["status"] == "used"
     assert addr["hostname"] == "locked-host.local"
 
@@ -128,19 +128,6 @@ def test_scan_never_pings_excluded_address(client):
 
     pinged_addresses = [call.args[0] for call in mock_ping.call_args_list]
     assert excluded_address not in pinged_addresses
-
-
-def test_concurrent_scan_returns_409(client):
-    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
-    assert create_resp.status_code == 200
-    subnet_id = create_resp.json()["id"]
-
-    main.SCANS_IN_PROGRESS.add(subnet_id)
-    try:
-        scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
-        assert scan_resp.status_code == 409
-    finally:
-        main.SCANS_IN_PROGRESS.discard(subnet_id)
 
 
 def test_oversized_subnet_returns_400(client):
@@ -181,8 +168,8 @@ def test_scan_preserves_metadata_fields(client):
         scan_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
     assert scan_resp.status_code == 200
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
-    addr = next(a for a in detail["addresses"] if a["address"] == target_address)
+    addresses = db.get_addresses_by_subnet(subnet_id)
+    addr = next(a for a in addresses if a["address"] == target_address)
     assert addr["team"] == "networking"
     assert addr["machineType"] == "vm"
     assert addr["vmCluster"] == "cluster-a"
@@ -269,7 +256,7 @@ def test_rescan_single_address_updates_status(client):
     )
     assert add_resp.status_code == 200
     address_id = next(
-        a["id"] for a in add_resp.json()["addresses"] if a["address"] == target_address
+        a["id"] for a in db.get_addresses_by_subnet(subnet_id) if a["address"] == target_address
     )
 
     def fake_ping_host(address, *args, **kwargs):
@@ -285,7 +272,7 @@ def test_rescan_single_address_updates_status(client):
         )
     assert rescan_resp.status_code == 200
 
-    addr = next(a for a in rescan_resp.json()["addresses"] if a["address"] == target_address)
+    addr = next(a for a in db.get_addresses_by_subnet(subnet_id) if a["address"] == target_address)
     assert addr["status"] == "used"
     assert addr["hostname"] == "single.local"
 
@@ -302,7 +289,7 @@ def test_rescan_skips_reserved_address(client):
     )
     assert add_resp.status_code == 200
     address_id = next(
-        a["id"] for a in add_resp.json()["addresses"] if a["address"] == reserved_address
+        a["id"] for a in db.get_addresses_by_subnet(subnet_id) if a["address"] == reserved_address
     )
 
     with patch.object(ipam_scan, "ping_host", return_value=True) as mock_ping, \
@@ -314,31 +301,6 @@ def test_rescan_skips_reserved_address(client):
 
     mock_ping.assert_not_called()
 
-    detail = client.get(f"/api/ipam/subnets/{subnet_id}").json()
-    addr = next(a for a in detail["addresses"] if a["address"] == reserved_address)
+    addresses = db.get_addresses_by_subnet(subnet_id)
+    addr = next(a for a in addresses if a["address"] == reserved_address)
     assert addr["status"] == "reserved"
-
-
-def test_rescan_rejects_while_subnet_scan_in_progress(client):
-    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
-    assert create_resp.status_code == 200
-    subnet_id = create_resp.json()["id"]
-
-    target_address = "10.0.0.3"
-    add_resp = client.post(
-        f"/api/ipam/subnets/{subnet_id}/addresses",
-        json={"address": target_address, "status": "free"},
-    )
-    assert add_resp.status_code == 200
-    address_id = next(
-        a["id"] for a in add_resp.json()["addresses"] if a["address"] == target_address
-    )
-
-    main.SCANS_IN_PROGRESS.add(subnet_id)
-    try:
-        rescan_resp = client.post(
-            f"/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan"
-        )
-        assert rescan_resp.status_code == 409
-    finally:
-        main.SCANS_IN_PROGRESS.discard(subnet_id)

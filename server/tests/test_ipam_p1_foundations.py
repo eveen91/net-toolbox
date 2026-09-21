@@ -88,6 +88,8 @@ def test_subnet_address_page_supports_filters_sorting_and_bounds(client):
     assert page.json()["total"] == 2
     assert page.json()["addresses"][0]["hostname"] == "beta"
     assert client.get(f"/api/ipam/subnets/{subnet['id']}/addresses?limit=501").status_code == 422
+
+    point_to_point = client.post("/api/ipam/subnets", json={"cidr": "10.111.1.0/31"}).json()
     assert client.post(
         f"/api/ipam/subnets/{point_to_point['id']}/addresses", json={"address": "10.111.1.1"}
     ).status_code == 200
@@ -96,6 +98,124 @@ def test_subnet_address_page_supports_filters_sorting_and_bounds(client):
     assert client.post(
         f"/api/ipam/subnets/{host_route['id']}/addresses", json={"address": "10.111.2.7"}
     ).status_code == 200
+
+
+def test_subnet_address_page_filters_text(client):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.122.0.0/24"}).json()
+    for address, hostname, description in (
+        ("10.122.0.1", "alpha-host", "primary"),
+        ("10.122.0.2", "beta-host", "needle-description"),
+        ("10.122.0.3", "gamma-host", "secondary"),
+    ):
+        assert client.post(
+            f"/api/ipam/subnets/{subnet['id']}/addresses",
+            json={"address": address, "hostname": hostname, "description": description},
+        ).status_code == 200
+
+    by_hostname = client.get(
+        f"/api/ipam/subnets/{subnet['id']}/addresses?query=beta"
+    )
+    assert by_hostname.status_code == 200
+    assert [item["address"] for item in by_hostname.json()["addresses"]] == ["10.122.0.2"]
+
+    by_description = client.get(
+        f"/api/ipam/subnets/{subnet['id']}/addresses?query=needle"
+    )
+    assert by_description.status_code == 200
+    assert [item["address"] for item in by_description.json()["addresses"]] == ["10.122.0.2"]
+
+
+def test_subnet_address_page_sorts_ipv4_addresses_numerically(client):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.123.0.0/24"}).json()
+    for address in ("10.123.0.10", "10.123.0.2", "10.123.0.100"):
+        assert client.post(
+            f"/api/ipam/subnets/{subnet['id']}/addresses", json={"address": address}
+        ).status_code == 200
+
+    ascending = client.get(
+        f"/api/ipam/subnets/{subnet['id']}/addresses?sort=address&direction=asc"
+    )
+    assert [item["address"] for item in ascending.json()["addresses"]] == [
+        "10.123.0.2",
+        "10.123.0.10",
+        "10.123.0.100",
+    ]
+
+    descending = client.get(
+        f"/api/ipam/subnets/{subnet['id']}/addresses?sort=address&direction=desc"
+    )
+    assert [item["address"] for item in descending.json()["addresses"]] == [
+        "10.123.0.100",
+        "10.123.0.10",
+        "10.123.0.2",
+    ]
+
+
+def test_subnet_address_page_filters_inclusive_ipv4_range(client):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.124.0.0/24"}).json()
+    for address in ("10.124.0.2", "10.124.0.10", "10.124.0.20"):
+        assert client.post(
+            f"/api/ipam/subnets/{subnet['id']}/addresses", json={"address": address}
+        ).status_code == 200
+
+    response = client.get(
+        f"/api/ipam/subnets/{subnet['id']}/addresses"
+        "?address_start=10.124.0.2&address_end=10.124.0.10"
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+    assert [item["address"] for item in response.json()["addresses"]] == [
+        "10.124.0.2",
+        "10.124.0.10",
+    ]
+
+
+def test_subnet_address_page_rejects_reversed_ipv4_range(client):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.125.0.0/24"}).json()
+    response = client.get(
+        f"/api/ipam/subnets/{subnet['id']}/addresses"
+        "?address_start=10.125.0.20&address_end=10.125.0.2"
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "address_start must be less than or equal to address_end"
+
+
+def test_subnet_detail_and_mutations_return_summaries_without_loading_addresses(client, monkeypatch):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.127.0.0/24"}).json()
+    assert "addresses" not in subnet
+
+    def fail(*args, **kwargs):
+        pytest.fail("summary endpoint called a full address loader")
+
+    monkeypatch.setattr(db, "get_addresses_by_subnet", fail)
+    detail = client.get(f"/api/ipam/subnets/{subnet['id']}")
+    assert detail.status_code == 200
+    assert "addresses" not in detail.json()
+
+    created = client.post(
+        f"/api/ipam/subnets/{subnet['id']}/addresses",
+        json={"address": "10.127.0.1", "status": "used"},
+    )
+    assert created.status_code == 200
+    assert "addresses" not in created.json()
+
+
+def test_subnet_address_page_does_not_load_full_subnet_or_addresses(client, monkeypatch):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.126.0.0/24"}).json()
+    assert client.post(
+        f"/api/ipam/subnets/{subnet['id']}/addresses", json={"address": "10.126.0.1"}
+    ).status_code == 200
+
+    def fail(*args, **kwargs):
+        pytest.fail("paginated endpoint called a full subnet/address loader")
+
+    monkeypatch.setattr(db, "get_subnet", fail)
+    monkeypatch.setattr(db, "get_addresses_by_subnet", fail)
+
+    response = client.get(f"/api/ipam/subnets/{subnet['id']}/addresses?limit=1")
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["addresses"][0]["address"] == "10.126.0.1"
 
 
 def test_interrupted_scan_job_is_released_on_initialization(client):

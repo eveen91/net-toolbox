@@ -1,6 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getSubnetAddresses } from "./api.js";
+import { heatmapPageForAddress, ipv4ToNumber } from "./logic.js";
 
 const MAX_HEATMAP_ADDRESSES = 65536;
+export const MAX_HEATMAP_REQUEST = 500;
 const CELL_MIN_PX = 14;
 const CELL_GAP_PX = 3;
 const COVERAGE_FREE = 0;
@@ -14,13 +17,6 @@ const STATUS_LABELS = {
   free: "Free",
   reserved: "Reserved",
 };
-
-function ipv4ToNumber(ip) {
-  return ip
-    .split(".")
-    .map(Number)
-    .reduce((value, octet) => value * 256 + octet, 0);
-}
 
 function numberToIpv4(value) {
   return [
@@ -56,7 +52,10 @@ export default function SubnetHeatmap({
   onCellClick,
   page,
   onPageChange,
-  focusedAddressId,
+  focusedAddress,
+  addresses = [],
+  onAddressesLoaded,
+  refreshKey = 0,
 }) {
   const containerRef = useRef(null);
   const hoveredIndexRef = useRef(null);
@@ -79,10 +78,9 @@ export default function SubnetHeatmap({
     const measure = () => {
       const width = element.clientWidth;
       if (!width) return;
-      const nextColumns = Math.max(
-        1,
-        Math.floor((width + CELL_GAP_PX) / (CELL_MIN_PX + CELL_GAP_PX))
-      );
+      const maxColumns = Math.floor(MAX_HEATMAP_REQUEST / ROWS_PER_PAGE);
+      const measuredColumns = Math.floor((width + CELL_GAP_PX) / (CELL_MIN_PX + CELL_GAP_PX));
+      const nextColumns = Math.max(1, Math.min(maxColumns, measuredColumns));
       setColumns(nextColumns);
       element.style.setProperty("--ip-heatmap-cols", nextColumns);
     };
@@ -101,7 +99,7 @@ export default function SubnetHeatmap({
     const subnetStart = ipv4ToNumber(subnet.cidr.split("/")[0]);
     const subnetPrefix = Number(subnet.cidr.split("/")[1]);
     const existingAddresses = new Map(
-      (subnet.addresses || []).map((address) => [address.address, address])
+      addresses.map((address) => [address.address, address])
     );
     const childRanges = [];
     const poolRanges = [];
@@ -149,20 +147,35 @@ export default function SubnetHeatmap({
     }
 
     return { cells, childRanges, poolRanges };
-  }, [subnet, subnets, totalAddresses, pageStart, pageEnd]);
+  }, [addresses, subnet, subnets, totalAddresses, pageStart, pageEnd]);
+
+  useEffect(() => {
+    if (totalAddresses <= 0 || totalAddresses > MAX_HEATMAP_ADDRESSES) return;
+    const subnetStart = ipv4ToNumber(subnet.cidr.split("/")[0]);
+    const startIp = numberToIpv4(subnetStart + pageStart);
+    const endIp = numberToIpv4(subnetStart + pageEnd - 1);
+    let cancelled = false;
+    getSubnetAddresses(subnet.id, {
+      limit: Math.min(MAX_HEATMAP_REQUEST, pageEnd - pageStart),
+      offset: 0,
+      addressStart: startIp,
+      addressEnd: endIp,
+    }).then((page) => {
+      if (!cancelled) onAddressesLoaded?.(page.addresses, null);
+    }).catch((error) => {
+      if (!cancelled) onAddressesLoaded?.([], error);
+    });
+    return () => { cancelled = true; };
+  }, [onAddressesLoaded, pageEnd, pageStart, refreshKey, subnet.cidr, subnet.id, totalAddresses]);
 
   useEffect(() => {
     if (page !== currentPage) onPageChange(currentPage);
   }, [currentPage, onPageChange, page]);
 
   useEffect(() => {
-    if (!focusedAddressId) return;
-    const address = (subnet.addresses || []).find((entry) => entry.id === focusedAddressId);
-    if (address) {
-      const subnetStart = ipv4ToNumber(subnet.cidr.split("/")[0]);
-      onPageChange(Math.floor((ipv4ToNumber(address.address) - subnetStart) / addressesPerPage));
-    }
-  }, [addressesPerPage, focusedAddressId, onPageChange, subnet]);
+    if (!focusedAddress?.address) return;
+    onPageChange(heatmapPageForAddress(subnet.cidr, focusedAddress.address, addressesPerPage));
+  }, [addressesPerPage, focusedAddress, onPageChange, subnet.cidr]);
 
   useEffect(() => {
     hoveredIndexRef.current = null;
@@ -202,7 +215,7 @@ export default function SubnetHeatmap({
         )
         );
       }),
-    [activeIndex, pageEnd, pageStart, prepared.cells]
+    [activeIndex, prepared.cells]
   );
 
   const overlayElements = useMemo(() => {

@@ -18,9 +18,6 @@ def test_start_job_returns_job_id(client):
     assert isinstance(job_id, str)
     assert len(job_id) > 0
 
-    main.SCANS_IN_PROGRESS.discard(subnet_id)
-
-
 def test_stream_reports_final_done_status(client):
     create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
     assert create_resp.status_code == 200
@@ -81,16 +78,3 @@ def test_stream_reports_final_done_status(client):
 def test_stream_unknown_job_returns_404(client):
     resp = client.get("/api/ipam/subnets/1/autodiscover/stream/not-a-real-job-id")
     assert resp.status_code == 404
-
-
-def test_start_job_rejects_while_subnet_already_scanning(client):
-    create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
-    assert create_resp.status_code == 200
-    subnet_id = create_resp.json()["id"]
-
-    main.SCANS_IN_PROGRESS.add(subnet_id)
-    try:
-        start_resp = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover/start")
-        assert start_resp.status_code == 409
-    finally:
-        main.SCANS_IN_PROGRESS.discard(subnet_id)

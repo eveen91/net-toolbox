@@ -458,6 +458,190 @@ tr.ip-row-highlighted {
   outline: 1px solid var(--accent);
 }
 
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.ip-address-table-section {
+  margin-top: 24px;
+}
+
+.ip-address-table-heading,
+.ip-address-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ip-address-table-heading .ip-section-sub-title {
+  margin-top: 0;
+}
+
+.ip-address-count,
+.ip-address-pagination {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.ip-address-filters {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) minmax(130px, 180px) minmax(90px, 110px) auto;
+  align-items: end;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.ip-address-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.ip-address-table-wrap {
+  max-height: 520px;
+  overflow: auto;
+}
+
+.ip-address-table {
+  min-width: 760px;
+}
+
+.ip-address-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ip-address-sort.active,
+.ip-address-sort:hover,
+.ip-address-sort:focus-visible {
+  color: var(--text);
+}
+
+.ip-address-table-state {
+  padding: 28px !important;
+  color: var(--muted);
+  text-align: center !important;
+}
+
+.ip-address-pagination {
+  margin-top: 10px;
+}
+
+.ip-address-pagination > div {
+  display: flex;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .ip-address-table-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .ip-address-filters {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .ip-address-search-field {
+    grid-column: 1 / -1;
+  }
+
+  .ip-address-table-wrap {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .ip-address-table {
+    min-width: 0;
+  }
+
+  .ip-address-table thead {
+    display: none;
+  }
+
+  .ip-address-table,
+  .ip-address-table tbody,
+  .ip-address-table tr,
+  .ip-address-table td {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .ip-address-table tr {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .ip-address-table td {
+    display: grid;
+    grid-template-columns: minmax(90px, 35%) 1fr;
+    gap: 12px;
+    padding: 5px 0;
+    border: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .ip-address-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .ip-address-table td.ip-actions-cell {
+    text-align: left;
+  }
+}
+
+@media (max-width: 480px) {
+  .ip-address-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .ip-address-search-field {
+    grid-column: auto;
+  }
+
+  .ip-address-filters .tool-btn {
+    width: 100%;
+  }
+
+  .ip-address-pagination {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ip-address-pagination > div .tool-btn {
+    flex: 1;
+  }
+}
+
 /* Heatmap / Grid View for IPAM Subnets */
 .ip-heatmap-stage {
   position: relative;

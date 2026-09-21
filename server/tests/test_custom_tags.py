@@ -2,6 +2,8 @@
 
 import pytest
 
+import db
+
 
 def test_create_and_list_tags(client):
     """Test creating tags and listing them."""
@@ -127,7 +129,7 @@ def test_add_address_tag(client):
         json={"address": "10.0.2.1", "status": "used"},
     )
     assert addr_resp.status_code == 200
-    address_id = addr_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(subnet_id)[0]["id"]
 
     # Create a tag
     tag_resp = client.post("/api/ipam/tags", json={"name": "addr-tag"})
@@ -154,7 +156,7 @@ def test_remove_address_tag(client):
         f"/api/ipam/subnets/{subnet_id}/addresses",
         json={"address": "10.0.3.1", "status": "used"},
     )
-    address_id = addr_resp.json()["addresses"][0]["id"]
+    address_id = db.get_addresses_by_subnet(subnet_id)[0]["id"]
 
     tag_resp = client.post("/api/ipam/tags", json={"name": "addr-remove"})
     tag_id = tag_resp.json()["id"]
@@ -200,15 +202,18 @@ def test_get_addresses_by_tag(client):
     ).json()
     tag = client.post("/api/ipam/tags", json={"name": "addr-filter"}).json()
 
-    # Add tag to first address only
-    client.post(f"/api/ipam/addresses/{a1['addresses'][0]['id']}/tags/{tag['id']}")
+    address_id = next(
+        address["id"]
+        for address in db.get_addresses_by_subnet(subnet["id"])
+        if address["address"] == "10.0.6.1"
+    )
+    client.post(f"/api/ipam/addresses/{address_id}/tags/{tag['id']}")
 
-    # Query by tag
     resp = client.get(f"/api/ipam/tags/{tag['id']}/addresses")
     assert resp.status_code == 200
     addresses = resp.json()
     assert len(addresses) == 1
-    assert addresses[0]["id"] == a1["addresses"][0]["id"]
+    assert addresses[0]["id"] == address_id
 
 
 def test_search_tags(client):
@@ -234,16 +239,14 @@ def test_tag_cascade_delete(client):
     tag = client.post("/api/ipam/tags", json={"name": "cascade-test"}).json()
     tag_id = tag["id"]
 
-    # Add tag to both subnet and address
+    address_id = db.get_addresses_by_subnet(subnet["id"])[0]["id"]
     client.post(f"/api/ipam/subnets/{subnet['id']}/tags/{tag_id}")
-    client.post(f"/api/ipam/addresses/{addr['addresses'][0]['id']}/tags/{tag_id}")
+    client.post(f"/api/ipam/addresses/{address_id}/tags/{tag_id}")
 
-    # Delete tag
     client.delete(f"/api/ipam/tags/{tag_id}")
 
-    # Associations should be gone
     subnet_tags = client.get(f"/api/ipam/subnets/{subnet['id']}/tags").json()
-    addr_tags = client.get(f"/api/ipam/addresses/{addr['addresses'][0]['id']}/tags").json()
+    addr_tags = client.get(f"/api/ipam/addresses/{address_id}/tags").json()
     assert len(subnet_tags) == 0
     assert len(addr_tags) == 0
 

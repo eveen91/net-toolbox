@@ -172,6 +172,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
+
 HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]+$")
 EXECUTOR = ThreadPoolExecutor(max_workers=16)
 
@@ -1618,10 +1619,6 @@ class AddressEntry(BaseModel):
     updatedAt: str
 
 
-class SubnetDetail(SubnetSummary):
-    addresses: List[AddressEntry] = []
-
-
 class AddressPageResponse(BaseModel):
     addresses: List[AddressEntry]
     total: int
@@ -1726,8 +1723,8 @@ class BulkMoveSkippedEntry(BaseModel):
 
 
 class BulkMoveAddressesResponse(BaseModel):
-    fromSubnet: SubnetDetail
-    toSubnet: SubnetDetail
+    fromSubnet: SubnetSummary
+    toSubnet: SubnetSummary
     movedCount: int
     skipped: List[BulkMoveSkippedEntry] = []
 
@@ -1875,8 +1872,8 @@ class MoveAddressRequest(BaseModel):
 
 
 class MoveAddressResponse(BaseModel):
-    fromSubnet: SubnetDetail
-    toSubnet: SubnetDetail
+    fromSubnet: SubnetSummary
+    toSubnet: SubnetSummary
 
 
 # ---------------------------------------------------------------------------
@@ -1968,8 +1965,7 @@ class NextAvailableIpResponse(BaseModel):
     dependencies=[Depends(require_ipam_permission("read"))],
 )
 def get_next_available_ip(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     try:
         ip = db.get_next_available_ip(subnet_id)
@@ -2018,7 +2014,7 @@ def update_ipam_settings(req: UpdateIpamSettingsRequest):
     )
 
 
-@app.post("/api/ipam/subnets", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
+@app.post("/api/ipam/subnets", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
 def create_subnet(req: SubnetRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         user_id = user["id"] if user else None
@@ -2027,7 +2023,7 @@ def create_subnet(req: SubnetRequest, user: Optional[Dict] = Depends(require_log
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("read"))])
+@app.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet(subnet_id: int):
     data = db.get_subnet(subnet_id)
     if data is None:
@@ -2048,15 +2044,30 @@ def get_subnet_addresses(
     query: Optional[str] = Query(default=None, max_length=253),
     sort: Literal["address", "status", "hostname", "updatedAt"] = "address",
     direction: Literal["asc", "desc"] = "asc",
+    address_start: Optional[ipaddress.IPv4Address] = None,
+    address_end: Optional[ipaddress.IPv4Address] = None,
 ):
-    if db.get_subnet(subnet_id) is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
+    if address_start is not None and address_end is not None and address_start > address_end:
+        raise HTTPException(
+            status_code=400,
+            detail="address_start must be less than or equal to address_end",
+        )
     return db.list_subnet_addresses(
-        subnet_id, limit=limit, offset=offset, status=status, query=query, sort=sort, direction=direction
+        subnet_id,
+        limit=limit,
+        offset=offset,
+        status=status,
+        query=query,
+        sort=sort,
+        direction=direction,
+        address_start=str(address_start) if address_start else None,
+        address_end=str(address_end) if address_end else None,
     )
 
 
-@app.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
+@app.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
 def update_subnet(subnet_id: int, req: SubnetRequest):
     try:
         return db.update_subnet(subnet_id, req.cidr, req.vlan, req.description)
@@ -2073,7 +2084,7 @@ def delete_subnet(subnet_id: int, user: Optional[Dict] = Depends(require_logged_
     return {"deleted": subnet_id}
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
+@app.post("/api/ipam/subnets/{subnet_id}/addresses", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
 def create_address(subnet_id: int, req: AddressRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         user_id = user["id"] if user else None
@@ -2086,7 +2097,7 @@ def create_address(subnet_id: int, req: AddressRequest, user: Optional[Dict] = D
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
+@app.put("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
 def edit_address(subnet_id: int, address_id: int, req: AddressRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         user_id = user["id"] if user else None
@@ -2099,7 +2110,7 @@ def edit_address(subnet_id: int, address_id: int, req: AddressRequest, user: Opt
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
+@app.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
 def remove_address(subnet_id: int, address_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
     try:
         user_id = user["id"] if user else None
@@ -2120,7 +2131,7 @@ def move_ipam_address(subnet_id: int, address_id: int, req: MoveAddressRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
+@app.patch("/api/ipam/subnets/{subnet_id}/addresses/bulk", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
 def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
     if not req.addressIds:
         raise HTTPException(status_code=400, detail="No addresses selected")
@@ -2131,7 +2142,7 @@ def bulk_edit_addresses(subnet_id: int, req: BulkAddressUpdateRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses/bulk-delete", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("write"))])
+@app.post("/api/ipam/subnets/{subnet_id}/addresses/bulk-delete", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
 def bulk_delete_addresses(subnet_id: int, req: BulkAddressDeleteRequest):
     if not req.addressIds:
         raise HTTPException(status_code=400, detail="No addresses selected")
@@ -2156,13 +2167,12 @@ def bulk_move_addresses(subnet_id: int, req: BulkMoveAddressesRequest, user: Opt
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetDetail, dependencies=[Depends(require_ipam_permission("scan"))])
+@app.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/rescan", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("scan"))])
 async def rescan_address(subnet_id: int, address_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
 
-    address_row = next((addr for addr in data["addresses"] if addr["id"] == address_id), None)
+    address_row = db.get_subnet_address(subnet_id, address_id)
     if address_row is None:
         raise HTTPException(status_code=404, detail="Address not found")
 
@@ -2188,8 +2198,7 @@ async def rescan_address(subnet_id: int, address_id: int):
 
 @app.get("/api/ipam/subnets/{subnet_id}/scan-excludes", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_ipam_permission("admin"))])
 def list_subnet_scan_excludes(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     return db.list_scan_excludes_detailed(subnet_id)
 
@@ -2209,8 +2218,7 @@ def create_subnet_scan_exclude(subnet_id: int, req: ScanExcludeRequest):
 
 @app.delete("/api/ipam/subnets/{subnet_id}/scan-excludes/{exclude_id}", response_model=List[ScanExcludeEntry], dependencies=[Depends(require_ipam_permission("admin"))])
 def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     db.remove_scan_exclude_by_id(subnet_id, exclude_id)
     return db.list_scan_excludes_detailed(subnet_id)
@@ -2218,8 +2226,7 @@ def remove_subnet_scan_exclude(subnet_id: int, exclude_id: int):
 
 @app.post("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=DhcpPoolResponse, dependencies=[Depends(require_ipam_permission("write"))])
 def create_dhcp_pool(subnet_id: int, req: DhcpPoolCreate):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     try:
         return db.add_dhcp_pool(subnet_id, req.start_ip, req.end_ip, req.name, req.description)
@@ -2229,16 +2236,14 @@ def create_dhcp_pool(subnet_id: int, req: DhcpPoolCreate):
 
 @app.get("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=List[DhcpPoolResponse], dependencies=[Depends(require_ipam_permission("read"))])
 def list_dhcp_pools(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     return db.get_dhcp_pools(subnet_id)
 
 
 @app.delete("/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}", dependencies=[Depends(require_ipam_permission("write"))])
 def delete_dhcp_pool(subnet_id: int, pool_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     deleted = db.delete_dhcp_pool(subnet_id, pool_id)
     if not deleted:
@@ -2252,8 +2257,7 @@ def delete_dhcp_pool(subnet_id: int, pool_id: int):
     dependencies=[Depends(require_ipam_permission("write"))],
 )
 def update_dhcp_pool(subnet_id: int, pool_id: int, req: DhcpPoolCreate):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     try:
         return db.update_dhcp_pool(subnet_id, pool_id, req.start_ip, req.end_ip, req.name, req.description)
@@ -2295,10 +2299,11 @@ async def perform_scan(
     if data is None:
         raise HTTPException(status_code=404, detail="Subnet not found")
 
+    addresses = db.get_addresses_by_subnet(subnet_id)
     excludes = set(db.list_scan_excludes(subnet_id))
     excludes.update(
         addr["address"]
-        for addr in data["addresses"]
+        for addr in addresses
         if addr["status"] == "reserved" or addr["locked"]
     )
 
@@ -2411,8 +2416,7 @@ async def perform_scan(
 
 @app.post("/api/ipam/subnets/{subnet_id}/autodiscover", response_model=AutodiscoverResponse, dependencies=[Depends(require_ipam_permission("scan"))])
 async def autodiscover_subnet(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
 
     job_id = str(uuid.uuid4())
@@ -2482,8 +2486,7 @@ async def stop_scan_scheduler() -> None:
 
 @app.post("/api/ipam/subnets/{subnet_id}/autodiscover/start", dependencies=[Depends(require_ipam_permission("scan"))])
 async def start_autodiscover_job(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
 
     cleanup_old_scan_jobs()
@@ -2586,22 +2589,21 @@ async def retry_autodiscover_job(subnet_id: int, job_id: str):
 
 @app.get("/api/ipam/subnets/{subnet_id}/scan-schedule", dependencies=[Depends(require_ipam_permission("read"))])
 def get_scan_schedule(subnet_id: int):
-    if db.get_subnet(subnet_id) is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     return db.get_scan_schedule(subnet_id)
 
 
 @app.put("/api/ipam/subnets/{subnet_id}/scan-schedule", dependencies=[Depends(require_ipam_permission("admin"))])
 def update_scan_schedule(subnet_id: int, req: ScanScheduleRequest):
-    if db.get_subnet(subnet_id) is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     return db.upsert_scan_schedule(subnet_id, req.intervalMinutes, req.enabled)
 
 
 @app.get("/api/ipam/subnets/{subnet_id}/autodiscover/active", dependencies=[Depends(require_ipam_permission("read"))])
 def get_active_scan(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
 
     job = db.get_active_scan_job(subnet_id)
@@ -2655,8 +2657,7 @@ async def stream_autodiscover_job(subnet_id: int, job_id: str):
 
 @app.get("/api/ipam/subnets/{subnet_id}/scans", response_model=List[ScanSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet_scans(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     return db.list_scans(subnet_id)
 
@@ -2698,16 +2699,14 @@ def search_tags(q: str = ""):
 
 @app.get("/api/ipam/subnets/{subnet_id}/tags", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("read"))])
 def get_subnet_tags(subnet_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     return db.get_subnet_tags(subnet_id)
 
 
 @app.post("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("write"))])
 def add_subnet_tag(subnet_id: int, tag_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     try:
         db.add_subnet_tag(subnet_id, tag_id)
@@ -2718,8 +2717,7 @@ def add_subnet_tag(subnet_id: int, tag_id: int):
 
 @app.delete("/api/ipam/subnets/{subnet_id}/tags/{tag_id}", response_model=List[TagSummary], dependencies=[Depends(require_ipam_permission("write"))])
 def remove_subnet_tag(subnet_id: int, tag_id: int):
-    data = db.get_subnet(subnet_id)
-    if data is None:
+    if not db.subnet_exists(subnet_id):
         raise HTTPException(status_code=404, detail="Subnet not found")
     db.remove_subnet_tag(subnet_id, tag_id)
     return db.get_subnet_tags(subnet_id)

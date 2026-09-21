@@ -14,12 +14,12 @@ def test_update_concurrency_limit(client):
 
 def test_update_rejects_value_below_minimum(client):
     res = client.put("/api/ipam/settings", json={"scanConcurrencyLimit": 0})
-    assert res.status_code == 400
+    assert res.status_code == 422
 
 
 def test_update_rejects_value_above_maximum(client):
     res = client.put("/api/ipam/settings", json={"scanConcurrencyLimit": 9999})
-    assert res.status_code == 400
+    assert res.status_code == 422
 
 
 def test_scan_respects_concurrency_limit(client, monkeypatch):

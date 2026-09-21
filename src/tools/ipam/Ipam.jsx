@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import "./ipam.css";
 import SubnetSearch from "./SubnetSearch.jsx";
 import AddSubnetForm from "./AddSubnetForm.jsx";
@@ -8,6 +8,7 @@ import SubnetAllocator from "./SubnetAllocator.jsx";
 import DhcpPoolManager from "./DhcpPoolManager.jsx";
 import SubnetHeatmap from "./SubnetHeatmap.jsx";
 import AddressPopover from "./AddressPopover.jsx";
+import AddressTable from "./AddressTable.jsx";
 import TagSelector from "./TagSelector.jsx";
 import TagFilterBar from "./TagFilterBar.jsx";
 import {
@@ -39,6 +40,7 @@ import {
   addAddressTag,
   removeAddressTag,
   fetchSubnetAllocation,
+  getAllSubnetAddresses,
 } from "./api.js";
 
 function UtilizationBar({ subnet }) {
@@ -161,6 +163,12 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   const [popoverCoords, setPopoverCoords] = useState(null);
   const [popoverPlacement, setPopoverPlacement] = useState("below");
   const [heatmapPage, setHeatmapPage] = useState(0);
+  const [heatmapAddresses, setHeatmapAddresses] = useState([]);
+  const [heatmapError, setHeatmapError] = useState(null);
+  const [focusedAddress, setFocusedAddress] = useState(null);
+  const [addressRefreshKey, setAddressRefreshKey] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(null);
 
 
   useEffect(() => {
@@ -178,6 +186,11 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     setLastScan(null);
     setScanProgress(null);
     setHeatmapPage(0);
+    setHeatmapAddresses([]);
+    setHeatmapError(null);
+    setFocusedAddress(null);
+    setExportError(null);
+    setAddressRefreshKey((k) => k + 1);
 
     setDhcpPools([]);
 
@@ -273,17 +286,29 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     }
   };
 
-  const downloadCsv = () => {
-    const csv = addressesToCsv(subnet.addresses || []);
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${subnet.cidr.replace("/", "_")}-addresses.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const downloadCsv = async () => {
+    setExportError(null);
+    setExporting(true);
+    try {
+      const addresses = await getAllSubnetAddresses(subnet.id, {
+        sort: "address",
+        direction: "asc",
+      });
+      const csv = addressesToCsv(addresses);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${subnet.cidr.replace("/", "_")}-addresses.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setExportError(error.message);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const unallocated = subnet.totalAddresses - subnet.recordedCount;
@@ -294,7 +319,17 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
     [subnet, dhcpPools]
   );
   const popoverAddress =
-    subnet.addresses.find((item) => item.address === popoverIp) || null;
+    heatmapAddresses.find((item) => item.address === popoverIp) || null;
+
+  const handleAddressesLoaded = useCallback((addresses, error) => {
+    setHeatmapAddresses(addresses);
+    setHeatmapError(error ? error.message : null);
+  }, []);
+
+  const handleAddressMutation = (updated) => {
+    setAddressRefreshKey((key) => key + 1);
+    onDetailUpdated(updated);
+  };
 
   const closePopover = (expectedIp) => {
     if (expectedIp && popoverIp !== expectedIp) return;
@@ -321,7 +356,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
 
     setPopoverIp(ip);
     popoverOriginRef.current = cellElement;
-    const address = subnet.addresses.find((item) => item.address === ip);
+    const address = heatmapAddresses.find((item) => item.address === ip);
     if (address) onAddressSelected?.(address.id);
     setPopoverPlacement(openAbove ? "above" : "below");
     setPopoverCoords({
@@ -342,23 +377,23 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
   }, []);
 
   useEffect(() => {
-    if (!highlightedAddressId) return undefined;
+    const targetAddress = focusedAddress ||
+      heatmapAddresses.find((address) => address.id === highlightedAddressId);
+    if (!targetAddress) return undefined;
 
     const frameId = requestAnimationFrame(() => {
       const stage = heatmapStageRef.current;
-      const cellElement = stage?.querySelector(`[data-address-id="${highlightedAddressId}"]`);
+      const cellElement = stage?.querySelector(`[data-address-id="${targetAddress.id}"]`);
       if (!cellElement) return;
       cellElement.scrollIntoView({ behavior: "smooth", block: "center" });
       cellElement.focus({ preventScroll: true });
-      const ip = cellElement.dataset.ip;
-      if (ip) {
-        onAddressSelected?.(highlightedAddressId);
-        handleHeatmapCellClick(ip, cellElement);
-      }
+      onAddressSelected?.(targetAddress.id);
+      handleHeatmapCellClick(targetAddress.address, cellElement);
+      if (focusedAddress) setFocusedAddress(null);
     });
 
     return () => cancelAnimationFrame(frameId);
-  }, [heatmapPage, highlightedAddressId, subnet.id]);
+  }, [focusedAddress, heatmapAddresses, heatmapPage, highlightedAddressId, subnet.id]);
 
   return (
     <>
@@ -439,9 +474,9 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           <button
             className="tool-btn tool-btn-ghost ip-row-btn"
             onClick={downloadCsv}
-            disabled={!subnet.addresses || subnet.addresses.length === 0}
+            disabled={exporting || subnet.recordedCount === 0}
           >
-            Export CSV
+            {exporting ? "Exporting…" : "Export CSV"}
           </button>
         )}
         {!editingHeader && !confirmingScan &&
@@ -503,6 +538,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
       </div>
       {headerError && <div className="tool-error">{headerError}</div>}
       {scanError && <div className="tool-error">{scanError}</div>}
+      {exportError && <div className="tool-error" role="alert">CSV export failed: {exportError}</div>}
       {scanResult && !scanError && (
         <div className="tool-hint ip-scan-summary">
           Scanned {scanResult.scannedCount} · {scanResult.usedCount} used ·{" "}
@@ -589,8 +625,12 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           onCellClick={handleHeatmapCellClick}
           page={heatmapPage}
           onPageChange={setHeatmapPage}
-          focusedAddressId={highlightedAddressId}
+          focusedAddress={focusedAddress}
+          addresses={heatmapAddresses}
+          onAddressesLoaded={handleAddressesLoaded}
+          refreshKey={addressRefreshKey}
         />
+        {heatmapError && <div className="tool-error" role="alert">Heatmap failed to load: {heatmapError}</div>}
         {popoverIp && popoverCoords && (
           <AddressPopover
             ip={popoverIp}
@@ -599,7 +639,7 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
             coords={popoverCoords}
             placement={popoverPlacement}
             onClose={closePopover}
-            onUpdated={onDetailUpdated}
+            onUpdated={handleAddressMutation}
             tags={tags}
             addressTags={popoverAddress ? addressTagIds[popoverAddress.id] || [] : []}
             onAddressTagChange={onAddressTagChange}
@@ -607,6 +647,17 @@ function SubnetDetail({ subnet, subnets, deleting, onDelete, onDetailUpdated, on
           />
         )}
       </div>
+
+      <AddressTable
+        subnetId={subnet.id}
+        refreshKey={addressRefreshKey}
+        highlightedAddressId={highlightedAddressId}
+        onAddressOpen={(address) => {
+          setFocusedAddress(address);
+          setPopoverIp(null);
+          setPopoverCoords(null);
+        }}
+      />
 
       <h3 className="ip-section-sub-title">DHCP Pools</h3>
       <DhcpPoolManager
