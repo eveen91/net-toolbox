@@ -15,6 +15,7 @@ lines when importing device output.
 Saving a host's table replaces its entire set of routes and interfaces.
 """
 
+import hashlib
 import ipaddress
 import json
 import re
@@ -33,7 +34,7 @@ def _ipv4_to_int(value: str) -> int:
 
 
 DIRECTLY_CONNECTED = "directly connected"
-IPAM_SCHEMA_VERSION = 5
+IPAM_SCHEMA_VERSION = 8
 # A scan's database heartbeat must be refreshed before this duration expires.
 SCAN_JOB_TIMEOUT_SECONDS = 300
 
@@ -113,6 +114,7 @@ def init_db() -> None:
                 subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
                 address TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'used' CHECK(status IN ('used', 'free', 'reserved')),
+                allocation_type TEXT NOT NULL DEFAULT 'static' CHECK(allocation_type IN ('gateway', 'static', 'dhcp', 'vip', 'loopback', 'infrastructure', 'network', 'broadcast')),
                 hostname TEXT,
                 description TEXT,
                 team TEXT,
@@ -122,6 +124,22 @@ def init_db() -> None:
                 locked INTEGER NOT NULL DEFAULT 0 CHECK(locked IN (0, 1)),
                 updated_at TEXT NOT NULL,
                 UNIQUE(subnet_id, address)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_range_reservations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                subnet_id INTEGER NOT NULL REFERENCES ipam_subnets(id) ON DELETE CASCADE,
+                start_ip TEXT NOT NULL,
+                end_ip TEXT NOT NULL,
+                allocation_type TEXT NOT NULL DEFAULT 'reserved_range' CHECK(allocation_type = 'reserved_range'),
+                status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'released')),
+                label TEXT,
+                description TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             )
             """
         )
@@ -492,6 +510,21 @@ def _apply_ipam_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ipam_scan_jobs_one_running_per_subnet ON ipam_scan_jobs(subnet_id) WHERE status = 'running'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_scan_jobs_subnet_created ON ipam_scan_jobs(subnet_id, created_at DESC)")
 
+    if 6 not in applied:
+        add_column("ipam_addresses", "allocation_type", "allocation_type TEXT NOT NULL DEFAULT 'static'")
+        conn.execute("UPDATE ipam_addresses SET allocation_type = 'static' WHERE allocation_type IS NULL")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_addresses_subnet_allocation_type ON ipam_addresses(subnet_id, allocation_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_range_reservations_subnet_active ON ipam_range_reservations(subnet_id, status, start_ip, end_ip)")
+
+    if 7 not in applied:
+        conn.execute("UPDATE ipam_addresses SET allocation_type = 'static' WHERE allocation_type IS NULL OR allocation_type = ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_range_reservations_subnet_status_range ON ipam_range_reservations(subnet_id, status, start_ip, end_ip)")
+
+    if 8 not in applied:
+        add_column("ipam_scan_jobs", "cancel_requested", "cancel_requested INTEGER NOT NULL DEFAULT 0")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ipam_scan_jobs_one_running_per_subnet ON ipam_scan_jobs(subnet_id) WHERE status = 'running'")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_scan_jobs_subnet_created ON ipam_scan_jobs(subnet_id, created_at DESC)")
+
     for version in range(1, IPAM_SCHEMA_VERSION + 1):
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -748,6 +781,7 @@ def delete_host(host: str) -> bool:
 # ---------------------------------------------------------------------------
 
 IPAM_STATUSES = ("used", "free", "reserved")
+IPAM_ALLOCATION_TYPES = ("gateway", "static", "dhcp", "vip", "loopback", "infrastructure", "network", "broadcast")
 IPAM_MACHINE_TYPES = ("physical", "vm")
 IPAM_ENVIRONMENTS = ("prod", "test", "dev")
 
@@ -784,6 +818,11 @@ def validate_vlan(vlan: Optional[int]) -> None:
 def validate_status(status: str) -> None:
     if status not in IPAM_STATUSES:
         raise ValueError(f'"{status}" is not a valid status (use one of: {", ".join(IPAM_STATUSES)})')
+
+
+def validate_allocation_type(allocation_type: str) -> None:
+    if allocation_type not in IPAM_ALLOCATION_TYPES:
+        raise ValueError(f'"{allocation_type}" is not a valid allocation type (use one of: {", ".join(IPAM_ALLOCATION_TYPES)})')
 
 
 def validate_machine_type(machine_type: Optional[str]) -> None:
@@ -937,6 +976,55 @@ def find_best_subnet_for_address(address: str, subnets: List[Dict]) -> Optional[
     return best
 
 
+def _next_available_ip_in_connection(conn: sqlite3.Connection, subnet_id: int) -> Optional[str]:
+    subnet_row = conn.execute(
+        "SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)
+    ).fetchone()
+    if subnet_row is None:
+        raise ValueError(f"Subnet {subnet_id} not found")
+    net = ipaddress.ip_network(subnet_row["cidr"])
+
+    used_rows = conn.execute(
+        "SELECT address FROM ipam_addresses WHERE subnet_id = ? AND status IN ('used','reserved')",
+        (subnet_id,),
+    ).fetchall()
+    unavailable = {ipaddress.ip_address(row["address"]) for row in used_rows}
+
+    exclude_rows = conn.execute(
+        "SELECT address FROM ipam_scan_excludes WHERE subnet_id = ?", (subnet_id,)
+    ).fetchall()
+    for exclude in exclude_rows:
+        try:
+            unavailable.add(ipaddress.ip_address(exclude["address"]))
+        except ValueError:
+            try:
+                unavailable.update(ipaddress.ip_network(exclude["address"], strict=False).hosts())
+            except ValueError:
+                pass
+
+    reservation_rows = conn.execute(
+        "SELECT start_ip, end_ip FROM ipam_range_reservations WHERE subnet_id = ? AND status = 'active'",
+        (subnet_id,),
+    ).fetchall()
+    for reservation in reservation_rows:
+        unavailable.update(
+            ipaddress.IPv4Address(value)
+            for value in range(int(ipaddress.IPv4Address(reservation["start_ip"])), int(ipaddress.IPv4Address(reservation["end_ip"])) + 1)
+        )
+
+    pool_rows = conn.execute(
+        "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ?", (subnet_id,)
+    ).fetchall()
+    for pool in pool_rows:
+        unavailable.update(
+            ipaddress.IPv4Address(value)
+            for value in range(int(ipaddress.IPv4Address(pool["start_ip"])), int(ipaddress.IPv4Address(pool["end_ip"])) + 1)
+        )
+
+    candidates = [net.network_address] if net.prefixlen >= 31 else net.hosts()
+    return next((str(candidate) for candidate in candidates if candidate not in unavailable), None)
+
+
 def get_next_available_ip(subnet_id: int) -> Optional[str]:
     """
     返回指定subnet中第一个可用的未分配IP地址。
@@ -947,61 +1035,86 @@ def get_next_available_ip(subnet_id: int) -> Optional[str]:
     """
     conn = get_connection()
     try:
-        subnet_row = conn.execute(
-            "SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)
-        ).fetchone()
+        return _next_available_ip_in_connection(conn, subnet_id)
+    finally:
+        conn.close()
+
+
+def allocate_next_address(
+    subnet_id: int,
+    status: str = "reserved",
+    hostname: Optional[str] = None,
+    description: Optional[str] = None,
+    team: Optional[str] = None,
+    machine_type: Optional[str] = None,
+    vm_cluster: Optional[str] = None,
+    environment: Optional[str] = None,
+    locked: bool = False,
+    user_id: Optional[int] = None,
+) -> Dict:
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        subnet_row = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         if subnet_row is None:
-            raise ValueError(f"Subnet {subnet_id} not found")
-        net = ipaddress.ip_network(subnet_row["cidr"])
-
-        # Collect used IPs (status 'used' or 'reserved')
-        used_rows = conn.execute(
-            "SELECT address FROM ipam_addresses WHERE subnet_id = ? AND status IN ('used','reserved')",
+            raise ValueError("Subnet not found")
+        validate_status(status)
+        validate_machine_type(machine_type)
+        validate_environment(environment)
+        if machine_type != "vm":
+            vm_cluster = None
+        address = _next_available_ip_in_connection(conn, subnet_id)
+        if address is None:
+            raise ValueError("No available addresses in this subnet")
+        cursor = conn.execute(
+            """
+            INSERT INTO ipam_addresses
+                (subnet_id, address, status, allocation_type, hostname, description, team, machine_type, vm_cluster, environment, locked, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (subnet_id, address, status, "static", hostname, description, team, machine_type, vm_cluster, environment, locked, _now()),
+        )
+        address_id = cursor.lastrowid
+        _log_address_change(
+            conn,
+            address_id=address_id,
+            user_id=user_id,
+            change_type="create",
+            old_value=None,
+            new_value=json.dumps({
+                "address": address,
+                "status": status,
+                "allocationType": "static",
+                "hostname": hostname,
+                "description": description,
+                "team": team,
+                "machineType": machine_type,
+                "vmCluster": vm_cluster,
+                "environment": environment,
+                "locked": locked,
+            }),
+            description=f"Address allocated: {address}",
+            ip_address=address,
+            subnet_cidr=subnet_row["cidr"],
+        )
+        address_row = conn.execute("SELECT * FROM ipam_addresses WHERE id = ?", (address_id,)).fetchone()
+        summary_row = conn.execute(
+            """
+            SELECT s.*, COALESCE(SUM(a.status = 'used'), 0) AS used_count,
+                   COALESCE(SUM(a.status = 'free'), 0) AS free_count,
+                   COALESCE(SUM(a.status = 'reserved'), 0) AS reserved_count
+            FROM ipam_subnets s
+            LEFT JOIN ipam_addresses a ON a.subnet_id = s.id
+            WHERE s.id = ?
+            GROUP BY s.id
+            """,
             (subnet_id,),
-        ).fetchall()
-        unavailable = {ipaddress.ip_address(r["address"]) for r in used_rows}
-
-        # Collect scan exclude IPs
-        exclude_rows = conn.execute(
-            "SELECT address FROM ipam_scan_excludes WHERE subnet_id = ?", (subnet_id,)
-        ).fetchall()
-        for ex in exclude_rows:
-            try:
-                # The exclude might be a CIDR range; first try to parse as a single IP
-                ip = ipaddress.ip_address(ex["address"])
-                unavailable.add(ip)
-            except ValueError:
-                # CIDR format — exclude the entire network
-                try:
-                    excl_net = ipaddress.ip_network(ex["address"], strict=False)
-                    for host in excl_net.hosts():
-                        unavailable.add(host)
-                except ValueError:
-                    pass
-
-        # Collect DHCP pool IPs
-        pool_rows = conn.execute(
-            "SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ?", (subnet_id,)
-        ).fetchall()
-        for p in pool_rows:
-            s = ipaddress.IPv4Address(p["start_ip"])
-            e = ipaddress.IPv4Address(p["end_ip"])
-            for ip_int in range(int(s), int(e) + 1):
-                unavailable.add(ipaddress.IPv4Address(ip_int))
-
-        # Iterate through available IPs
-        if net.prefixlen >= 31:
-            # /31 or /32: return network address (typically not broadcast)
-            candidates = [net.network_address]
-            if net.prefixlen == 32:
-                candidates = [net.network_address]
-        else:
-            candidates = list(net.hosts())
-
-        for candidate in candidates:
-            if candidate not in unavailable:
-                return str(candidate)
-        return None
+        ).fetchone()
+        conn.commit()
+        return {"address": _address_dict(address_row), "subnet": _subnet_summary(summary_row)}
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -1183,6 +1296,7 @@ def _address_dict(row: sqlite3.Row) -> Dict:
         "id": row["id"],
         "address": row["address"],
         "status": row["status"],
+        "allocationType": row["allocation_type"],
         "hostname": row["hostname"],
         "description": row["description"],
         "team": row["team"],
@@ -1221,6 +1335,10 @@ def list_subnet_addresses(
     limit: int = 100,
     offset: int = 0,
     status: Optional[str] = None,
+    team: Optional[str] = None,
+    environment: Optional[str] = None,
+    machine_type: Optional[str] = None,
+    tag_id: Optional[int] = None,
     query: Optional[str] = None,
     sort: str = "address",
     direction: str = "asc",
@@ -1243,6 +1361,18 @@ def list_subnet_addresses(
     if status is not None:
         where.append("status = ?")
         values.append(status)
+    if team is not None:
+        where.append("team = ?")
+        values.append(team)
+    if environment is not None:
+        where.append("environment = ?")
+        values.append(environment)
+    if machine_type is not None:
+        where.append("machine_type = ?")
+        values.append(machine_type)
+    if tag_id is not None:
+        where.append("EXISTS (SELECT 1 FROM ipam_tag_addresses ta WHERE ta.address_id = ipam_addresses.id AND ta.tag_id = ?)")
+        values.append(tag_id)
     if query:
         where.append("(address LIKE ? OR hostname LIKE ? OR description LIKE ?)")
         like = f"%{query.strip()}%"
@@ -1500,6 +1630,7 @@ def add_address(
     vm_cluster: Optional[str] = None,
     environment: Optional[str] = None,
     locked: bool = False,
+    allocation_type: str = "static",
     user_id: Optional[int] = None,
 ) -> Dict:
     conn = get_connection()
@@ -1509,20 +1640,22 @@ def add_address(
             raise ValueError("Subnet not found")
         validate_address_in_subnet(address, subnet_row["cidr"])
         validate_status(status)
+        validate_allocation_type(allocation_type)
         validate_machine_type(machine_type)
         validate_environment(environment)
         if machine_type != "vm":
             vm_cluster = None
         address = str(ipaddress.ip_address(address.strip()))
         validate_address_not_in_dhcp_pool(conn, address, subnet_id)
+        validate_address_not_in_active_range_reservation(conn, address, subnet_id)
         try:
             conn.execute(
                 """
                 INSERT INTO ipam_addresses
-                    (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, locked, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (subnet_id, address, status, allocation_type, hostname, description, team, machine_type, vm_cluster, environment, locked, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (subnet_id, address, status, hostname, description, team, machine_type, vm_cluster, environment, locked, _now()),
+                (subnet_id, address, status, allocation_type, hostname, description, team, machine_type, vm_cluster, environment, locked, _now()),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'"{address}" is already recorded in this subnet')
@@ -1545,6 +1678,7 @@ def add_address(
             new_value=json.dumps({
                 "address": address,
                 "status": status,
+                "allocationType": "static",
                 "hostname": hostname,
                 "description": description,
                 "team": team,
@@ -1575,6 +1709,7 @@ def update_address(
     vm_cluster: Optional[str] = None,
     environment: Optional[str] = None,
     locked: bool = False,
+    allocation_type: str = "static",
     user_id: Optional[int] = None,
 ) -> Dict:
     conn = get_connection()
@@ -1589,17 +1724,21 @@ def update_address(
             raise ValueError("Address not found")
         validate_address_in_subnet(address, subnet_row["cidr"])
         validate_status(status)
+        validate_allocation_type(allocation_type)
         validate_machine_type(machine_type)
         validate_environment(environment)
         if machine_type != "vm":
             vm_cluster = None
         address = str(ipaddress.ip_address(address.strip()))
         validate_address_not_in_dhcp_pool(conn, address, subnet_id)
-        
+        if address != existing["address"]:
+            validate_address_not_in_active_range_reservation(conn, address, subnet_id)
+
         # Capture old values for audit
         old_state = {
             "address": existing["address"],
             "status": existing["status"],
+            "allocationType": existing["allocation_type"],
             "hostname": existing["hostname"],
             "description": existing["description"],
             "team": existing["team"],
@@ -1613,12 +1752,12 @@ def update_address(
             conn.execute(
                 """
                 UPDATE ipam_addresses
-                SET address = ?, status = ?, hostname = ?, description = ?,
+                SET address = ?, status = ?, allocation_type = ?, hostname = ?, description = ?,
                     team = ?, machine_type = ?, vm_cluster = ?, environment = ?, locked = ?, updated_at = ?
                 WHERE id = ? AND subnet_id = ?
                 """,
                 (
-                    address, status, hostname, description,
+                    address, status, allocation_type, hostname, description,
                     team, machine_type, vm_cluster, environment, locked,
                     _now(), address_id, subnet_id,
                 ),
@@ -1628,8 +1767,9 @@ def update_address(
         # Determine change type and log
         new_state = {
             "address": address,
-            "status": status,
-            "hostname": hostname,
+                "status": status,
+                "allocationType": allocation_type,
+                "hostname": hostname,
             "description": description,
             "team": team,
             "machineType": machine_type,
@@ -1643,6 +1783,8 @@ def update_address(
             changes.append("address")
         if old_state["status"] != new_state["status"]:
             changes.append("status")
+        if old_state["allocationType"] != new_state["allocationType"]:
+            changes.append("allocationType")
         if old_state["hostname"] != new_state["hostname"]:
             changes.append("hostname")
         if old_state["description"] != new_state["description"]:
@@ -2438,6 +2580,104 @@ def ip_to_int(ip_str: str) -> int:
 
 def int_to_ip(ip_int: int) -> str:
     return str(ipaddress.IPv4Address(ip_int))
+
+
+def _validate_range_reservation(conn, subnet_id, start_ip, end_ip, status, exclude_id=None):
+    subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+    if subnet is None:
+        raise ValueError("Subnet not found")
+    start, end = ipaddress.IPv4Address(start_ip), ipaddress.IPv4Address(end_ip)
+    if start > end:
+        raise ValueError("start_ip must be less than or equal to end_ip")
+    network = ipaddress.ip_network(subnet["cidr"])
+    if start not in network or end not in network:
+        raise ValueError(f"IP range {start_ip}-{end_ip} is not within subnet {network}")
+    if network.prefixlen < 31 and (start == network.network_address or end == network.broadcast_address):
+        raise ValueError("Range reservations cannot include network or broadcast addresses")
+    if status != "active":
+        return subnet
+    start_int, end_int = int(start), int(end)
+    for table, label in (("ipam_range_reservations", "range reservation"), ("ipam_dhcp_pools", "DHCP pool")):
+        query = f"SELECT id, start_ip, end_ip FROM {table} WHERE subnet_id = ?"
+        params = [subnet_id]
+        if table == "ipam_range_reservations":
+            query += " AND status = 'active'"
+        if exclude_id is not None and table == "ipam_range_reservations":
+            query += " AND id != ?"
+            params.append(exclude_id)
+        for row in conn.execute(query, params).fetchall():
+            if start_int <= int(ipaddress.IPv4Address(row["end_ip"])) and end_int >= int(ipaddress.IPv4Address(row["start_ip"])):
+                raise ValueError(f"Range reservation overlaps with existing {label} {row['start_ip']}-{row['end_ip']}")
+    for row in conn.execute("SELECT address FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)).fetchall():
+        value = int(ipaddress.IPv4Address(row["address"]))
+        if start_int <= value <= end_int:
+            raise ValueError(f"Range reservation overlaps with recorded address {row['address']}")
+    return subnet
+
+
+def validate_address_not_in_active_range_reservation(conn, address, subnet_id):
+    value = int(ipaddress.IPv4Address(address))
+    for row in conn.execute("SELECT start_ip, end_ip FROM ipam_range_reservations WHERE subnet_id = ? AND status = 'active'", (subnet_id,)).fetchall():
+        if int(ipaddress.IPv4Address(row["start_ip"])) <= value <= int(ipaddress.IPv4Address(row["end_ip"])):
+            raise ValueError(f'"{address}" is inside active range reservation {row["start_ip"]}-{row["end_ip"]}')
+
+
+def add_range_reservation(subnet_id, start_ip, end_ip, allocation_type="reserved_range", status="active", label=None, description=None, user_id=None):
+    if allocation_type != "reserved_range":
+        raise ValueError("Range reservation allocation type must be reserved_range")
+    conn = get_connection()
+    try:
+        subnet = _validate_range_reservation(conn, subnet_id, start_ip, end_ip, status)
+        now = _now()
+        reservation_id = conn.execute("INSERT INTO ipam_range_reservations (subnet_id, start_ip, end_ip, allocation_type, status, label, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (subnet_id, start_ip, end_ip, allocation_type, status, label, description, now, now)).lastrowid
+        row = dict(conn.execute("SELECT * FROM ipam_range_reservations WHERE id = ?", (reservation_id,)).fetchone())
+        _log_entity_change(conn, "range_reservation_create", user_id, subnet_id=subnet_id, new_value=row, description=f"Range reservation created: {start_ip}-{end_ip}", subnet_cidr=subnet["cidr"])
+        conn.commit()
+        return row
+    finally:
+        conn.close()
+
+
+def get_range_reservations(subnet_id):
+    conn = get_connection()
+    try:
+        return [dict(row) for row in conn.execute("SELECT * FROM ipam_range_reservations WHERE subnet_id = ? ORDER BY start_ip", (subnet_id,)).fetchall()]
+    finally:
+        conn.close()
+
+
+def update_range_reservation(subnet_id, reservation_id, start_ip, end_ip, allocation_type="reserved_range", status="active", label=None, description=None, user_id=None):
+    if allocation_type != "reserved_range":
+        raise ValueError("Range reservation allocation type must be reserved_range")
+    conn = get_connection()
+    try:
+        existing = conn.execute("SELECT * FROM ipam_range_reservations WHERE id = ? AND subnet_id = ?", (reservation_id, subnet_id)).fetchone()
+        if existing is None:
+            raise ValueError("Range reservation not found")
+        subnet = _validate_range_reservation(conn, subnet_id, start_ip, end_ip, status, reservation_id)
+        old_value = dict(existing)
+        conn.execute("UPDATE ipam_range_reservations SET start_ip = ?, end_ip = ?, allocation_type = ?, status = ?, label = ?, description = ?, updated_at = ? WHERE id = ?", (start_ip, end_ip, allocation_type, status, label, description, _now(), reservation_id))
+        row = dict(conn.execute("SELECT * FROM ipam_range_reservations WHERE id = ?", (reservation_id,)).fetchone())
+        _log_entity_change(conn, "range_reservation_update", user_id, subnet_id=subnet_id, old_value=old_value, new_value=row, description=f"Range reservation updated: {start_ip}-{end_ip}", subnet_cidr=subnet["cidr"])
+        conn.commit()
+        return row
+    finally:
+        conn.close()
+
+
+def delete_range_reservation(subnet_id, reservation_id, user_id=None):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM ipam_range_reservations WHERE id = ? AND subnet_id = ?", (reservation_id, subnet_id)).fetchone()
+        if row is None:
+            return False
+        subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        conn.execute("DELETE FROM ipam_range_reservations WHERE id = ?", (reservation_id,))
+        _log_entity_change(conn, "range_reservation_delete", user_id, subnet_id=subnet_id, old_value=dict(row), description=f"Range reservation deleted: {row['start_ip']}-{row['end_ip']}", subnet_cidr=subnet["cidr"] if subnet else None)
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 def add_dhcp_pool(
@@ -3303,6 +3543,143 @@ def search_tags(query: str) -> List[Dict]:
             }
             for r in rows
         ]
+    finally:
+        conn.close()
+
+
+def _allocation_snapshot(conn, parent_net):
+    subnets = conn.execute("SELECT id, cidr, updated_at FROM ipam_subnets ORDER BY id").fetchall()
+    addresses = conn.execute(
+        """
+        SELECT a.id, a.address, a.updated_at
+        FROM ipam_addresses a JOIN ipam_subnets s ON s.id = a.subnet_id
+        ORDER BY a.id
+        """
+    ).fetchall()
+    pools = conn.execute(
+        """
+        SELECT p.id, p.start_ip, p.end_ip, p.updated_at
+        FROM ipam_dhcp_pools p JOIN ipam_subnets s ON s.id = p.subnet_id
+        ORDER BY p.id
+        """
+    ).fetchall()
+    state = []
+    for row in subnets:
+        try:
+            network = ipaddress.ip_network(row["cidr"], strict=False)
+            if network.overlaps(parent_net):
+                state.append(("subnet", row["id"], str(network), row["updated_at"]))
+        except ValueError:
+            continue
+    for row in addresses:
+        try:
+            if ipaddress.ip_address(row["address"]) in parent_net:
+                state.append(("address", row["id"], row["address"], row["updated_at"]))
+        except ValueError:
+            continue
+    for row in pools:
+        try:
+            start, end = ipaddress.ip_address(row["start_ip"]), ipaddress.ip_address(row["end_ip"])
+            if start <= parent_net.broadcast_address and end >= parent_net.network_address:
+                state.append(("dhcp_pool", row["id"], row["start_ip"], row["end_ip"], row["updated_at"]))
+        except ValueError:
+            continue
+    return hashlib.sha256(json.dumps(state, separators=(",", ":")).encode()).hexdigest()
+
+
+def _allocation_ranges(conn, parent_net):
+    ranges = []
+    for row in conn.execute("SELECT cidr FROM ipam_subnets").fetchall():
+        try:
+            network = ipaddress.ip_network(row["cidr"], strict=False)
+            if network.overlaps(parent_net) and network != parent_net:
+                ranges.append((max(int(network.network_address), int(parent_net.network_address)), min(int(network.broadcast_address), int(parent_net.broadcast_address)), "subnet", str(network)))
+        except ValueError:
+            continue
+    for row in conn.execute("SELECT a.address FROM ipam_addresses a JOIN ipam_subnets s ON s.id = a.subnet_id").fetchall():
+        try:
+            address = ipaddress.ip_address(row["address"])
+            if address in parent_net:
+                ranges.append((int(address), int(address), "address", None))
+        except ValueError:
+            continue
+    for row in conn.execute("SELECT p.start_ip, p.end_ip FROM ipam_dhcp_pools p JOIN ipam_subnets s ON s.id = p.subnet_id").fetchall():
+        try:
+            start, end = ipaddress.ip_address(row["start_ip"]), ipaddress.ip_address(row["end_ip"])
+            if start <= parent_net.broadcast_address and end >= parent_net.network_address:
+                ranges.append((max(int(start), int(parent_net.network_address)), min(int(end), int(parent_net.broadcast_address)), "dhcp_pool", None))
+        except ValueError:
+            continue
+    return ranges
+
+
+def get_allocation_plan(parent_cidr: str, required_prefix: int) -> Dict:
+    parent_net = ipaddress.ip_network(parent_cidr, strict=False)
+    if parent_net.version != 4:
+        raise ValueError("IPAM currently supports IPv4 CIDR networks only")
+    if not parent_net.prefixlen <= required_prefix <= 32:
+        raise ValueError(f"Requested prefix must be between /{parent_net.prefixlen} and /32")
+    conn = get_connection()
+    try:
+        ranges = _allocation_ranges(conn, parent_net)
+        occupied = [{
+            "start": str(ipaddress.IPv4Address(start)), "end": str(ipaddress.IPv4Address(end)),
+            "source": source, "cidr": cidr,
+        } for start, end, source, cidr in sorted(ranges)]
+        size = 1 << (32 - required_prefix)
+        recommendations = []
+        for candidate in parent_net.subnets(new_prefix=required_prefix):
+            start, end = int(candidate.network_address), int(candidate.broadcast_address)
+            if not any(start <= occupied_end and end >= occupied_start for occupied_start, occupied_end, _, _ in ranges):
+                recommendations.append(str(candidate))
+                if len(recommendations) == 10:
+                    break
+        return {
+            "parent": str(parent_net), "requestedPrefix": required_prefix,
+            "recommendations": recommendations, "occupiedRanges": occupied,
+            "freshnessToken": _allocation_snapshot(conn, parent_net), "totalAddresses": size,
+        }
+    finally:
+        conn.close()
+
+
+def create_allocated_subnet(parent_cidr: str, cidr: str, freshness_token: str, vlan: Optional[int], description: Optional[str], tag_ids: List[int], user_id: Optional[int] = None) -> Dict:
+    parent_net = ipaddress.ip_network(parent_cidr, strict=False)
+    child_net = ipaddress.ip_network(cidr, strict=False)
+    if parent_net.version != 4 or child_net.version != 4 or not child_net.subnet_of(parent_net):
+        raise ValueError("Selected CIDR must be an IPv4 subnet within the selected parent")
+    validate_vlan(vlan)
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        parent_row = conn.execute("SELECT id FROM ipam_subnets WHERE cidr = ?", (str(parent_net),)).fetchone()
+        if parent_row is None:
+            raise ValueError("Selected parent subnet no longer exists")
+        if freshness_token != _allocation_snapshot(conn, parent_net):
+            raise ValueError("Allocation state is stale. Recompute availability before creating this subnet.")
+        if any(
+            child_net.overlaps(network) and network != parent_net
+            for row in conn.execute("SELECT cidr FROM ipam_subnets").fetchall()
+            for network in [ipaddress.ip_network(row["cidr"], strict=False)]
+        ):
+            raise ValueError("Allocation state is stale. The selected CIDR now overlaps an existing subnet.")
+        if any(int(child_net.network_address) <= end and int(child_net.broadcast_address) >= start for start, end, _, _ in _allocation_ranges(conn, parent_net)):
+            raise ValueError("Allocation state is stale. The selected CIDR is no longer free.")
+        tags = conn.execute(f"SELECT id, name FROM ipam_tags WHERE id IN ({','.join('?' * len(tag_ids) or 'NULL')})", tag_ids).fetchall() if tag_ids else []
+        if len(tags) != len(tag_ids):
+            raise ValueError("One or more tags no longer exist")
+        now = _now()
+        subnet_id = conn.execute("INSERT INTO ipam_subnets (cidr, vlan, description, updated_at) VALUES (?, ?, ?, ?)", (str(child_net), vlan, description, now)).lastrowid
+        _log_subnet_change(conn, subnet_id, user_id, "subnet_create", None, json.dumps({"cidr": str(child_net), "vlan": vlan, "description": description}), "Subnet created from allocation plan", str(child_net))
+        for tag in tags:
+            conn.execute("INSERT INTO ipam_tag_subnets (tag_id, subnet_id) VALUES (?, ?)", (tag["id"], subnet_id))
+            _log_entity_change(conn, "subnet_tag_add", user_id, subnet_id=subnet_id, new_value={"tagId": tag["id"], "tagName": tag["name"]}, description=f"Tag added to subnet: {tag['name']}", subnet_cidr=str(child_net))
+        recompute_subnet_hierarchy(conn)
+        conn.commit()
+        return get_subnet(subnet_id)
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

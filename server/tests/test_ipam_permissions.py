@@ -1,5 +1,9 @@
+from unittest.mock import patch
+
 import auth
 import auth_db
+import db
+import ipam_scan
 
 
 def _login_as(client, username, permissions):
@@ -44,4 +48,23 @@ def test_ipam_scan_permission_does_not_grant_write_or_admin(client):
     assert client.get("/api/ipam/subnets").status_code == 403
     assert client.post("/api/ipam/subnets", json={"cidr": "10.102.0.0/24"}).status_code == 403
     assert client.put("/api/ipam/settings", json={"scanConcurrencyLimit": 8}).status_code == 403
+    auth_db.set_setting("require_login", "false")
+
+
+def test_ipam_scan_permission_can_read_its_job_and_stream(client):
+    subnet_id = db.create_subnet("10.103.0.0/29")["id"]
+    _login_as(client, "ipam-streamer", ["ipam.scan"])
+
+    with patch.object(ipam_scan, "ping_host", return_value=False), patch.object(
+        ipam_scan, "reverse_dns", return_value=None
+    ):
+        start = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover/start")
+        assert start.status_code == 200
+        job_id = start.json()["jobId"]
+        status = client.get(f"/api/ipam/subnets/{subnet_id}/autodiscover/jobs/{job_id}")
+        assert status.status_code == 200
+        stream = client.get(f"/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}")
+        assert stream.status_code == 200
+        assert '"status": "done"' in stream.text
+
     auth_db.set_setting("require_login", "false")

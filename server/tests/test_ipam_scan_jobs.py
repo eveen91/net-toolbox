@@ -1,3 +1,4 @@
+import json
 import time
 from unittest.mock import patch
 
@@ -37,6 +38,30 @@ def test_scan_job_can_be_cancelled(client):
         assert job["status"] == "cancelled"
         assert job["error"] == "Scan cancelled"
         assert db.get_active_scan_job(subnet_id) is None
+
+
+def test_cancelled_scan_stream_emits_terminal_event_and_closes(client):
+    subnet_id = client.post("/api/ipam/subnets", json={"cidr": "10.133.0.0/29"}).json()["id"]
+
+    def slow_ping_host(*args, **kwargs):
+        time.sleep(0.2)
+        return False
+
+    with patch.object(ipam_scan, "ping_host", side_effect=slow_ping_host), patch.object(
+        ipam_scan, "reverse_dns", return_value=None
+    ):
+        start = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover/start")
+        job_id = start.json()["jobId"]
+        client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover/jobs/{job_id}/cancel")
+        response = client.get(f"/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}")
+
+    events = [
+        json.loads(line[len("data: "):])
+        for line in response.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert events[-1]["status"] == "cancelled"
+    assert events[-1]["error"] == "Scan cancelled"
 
 
 def test_completed_scan_job_can_be_retried(client):

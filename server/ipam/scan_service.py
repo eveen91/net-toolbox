@@ -1,4 +1,5 @@
 import asyncio
+import ipaddress
 import json
 import logging
 import os
@@ -46,6 +47,12 @@ async def perform_scan(
 
     addresses = repository.get_addresses_by_subnet(subnet_id)
     excludes = set(repository.list_scan_excludes(subnet_id))
+    for reservation in repository.get_range_reservations(subnet_id):
+        if reservation["status"] != "active":
+            continue
+        start = int(ipaddress.IPv4Address(reservation["start_ip"]))
+        end = int(ipaddress.IPv4Address(reservation["end_ip"]))
+        excludes.update(str(ipaddress.IPv4Address(value)) for value in range(start, end + 1))
     excludes.update(
         addr["address"]
         for addr in addresses
@@ -378,6 +385,29 @@ def get_active_scan(subnet_id: int):
     return {"jobId": job["id"], "completed": job["completed"], "total": job["total"]}
 
 
+def get_autodiscover_job(subnet_id: int, job_id: str):
+    job = repository.get_scan_job(job_id)
+    if job is None or job["subnet_id"] != subnet_id:
+        raise HTTPException(status_code=404, detail="Scan job not found")
+    return {
+        "jobId": job["id"],
+        "completed": job["completed"],
+        "total": job["total"],
+        "status": job["status"],
+        "result": job["result"],
+        "error": job["error"],
+        "addresses": [
+            {
+                "address": address,
+                "status": entry["status"],
+                "alive": entry["alive"],
+                "hostname": entry["hostname"],
+            }
+            for address, entry in job["addresses"].items()
+        ],
+    }
+
+
 async def stream_autodiscover_job(subnet_id: int, job_id: str):
     job = repository.get_scan_job(job_id)
     if job is None or job["subnet_id"] != subnet_id:
@@ -385,39 +415,17 @@ async def stream_autodiscover_job(subnet_id: int, job_id: str):
 
     async def event_generator():
         while True:
-            job = repository.get_scan_job(job_id)
-            if job is None:
-                break
-            addresses = [
-                {
-                    "address": addr,
-                    "status": entry["status"],
-                    "alive": entry["alive"],
-                    "hostname": entry["hostname"],
-                }
-                for addr, entry in job["addresses"].items()
-            ]
-            payload = json.dumps({
-                "completed": job["completed"],
-                "total": job["total"],
-                "status": job["status"],
-                "addresses": addresses,
-            })
-            yield f"data: {payload}\n\n"
-            if job["status"] in ("done", "error"):
-                final_payload = json.dumps({
-                    "completed": job["completed"],
-                    "total": job["total"],
-                    "status": job["status"],
-                    "result": job["result"],
-                    "error": job["error"],
-                    "addresses": addresses,
-                })
-                yield f"data: {final_payload}\n\n"
+            payload = get_autodiscover_job(subnet_id, job_id)
+            yield f"data: {json.dumps(payload)}\n\n"
+            if payload["status"] in ("done", "error", "cancelled"):
                 break
             await asyncio.sleep(0.5)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 def get_subnet_scans(subnet_id: int):

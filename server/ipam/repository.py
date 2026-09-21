@@ -29,6 +29,9 @@ class IpamRepository:
     def add_scan_exclude(self, *args, **kwargs):
         return self._db.add_scan_exclude(*args, **kwargs)
 
+    def add_range_reservation(self, *args, **kwargs):
+        return self._db.add_range_reservation(*args, **kwargs)
+
     def add_subnet_tag(self, *args, **kwargs):
         return self._db.add_subnet_tag(*args, **kwargs)
 
@@ -65,6 +68,9 @@ class IpamRepository:
     def delete_dhcp_pool(self, *args, **kwargs):
         return self._db.delete_dhcp_pool(*args, **kwargs)
 
+    def delete_range_reservation(self, *args, **kwargs):
+        return self._db.delete_range_reservation(*args, **kwargs)
+
     def delete_subnet(self, *args, **kwargs):
         return self._db.delete_subnet(*args, **kwargs)
 
@@ -79,6 +85,12 @@ class IpamRepository:
 
     def query_audit_log(self, *args, **kwargs):
         return self._db.query_audit_log(*args, **kwargs)
+
+    def create_allocated_subnet(self, *args, **kwargs):
+        return self._db.create_allocated_subnet(*args, **kwargs)
+
+    def get_allocation_plan(self, *args, **kwargs):
+        return self._db.get_allocation_plan(*args, **kwargs)
 
     def find_next_contiguous_subnet(self, *args, **kwargs):
         return self._db.find_next_contiguous_subnet(*args, **kwargs)
@@ -103,6 +115,12 @@ class IpamRepository:
 
     def get_ipam_dashboard(self, *args, **kwargs):
         return self._db.get_ipam_dashboard(*args, **kwargs)
+
+    def get_range_reservations(self, *args, **kwargs):
+        return self._db.get_range_reservations(*args, **kwargs)
+
+    def allocate_next_address(self, *args, **kwargs):
+        return self._db.allocate_next_address(*args, **kwargs)
 
     def get_next_available_ip(self, *args, **kwargs):
         return self._db.get_next_available_ip(*args, **kwargs)
@@ -202,6 +220,9 @@ class IpamRepository:
 
     def update_dhcp_pool(self, *args, **kwargs):
         return self._db.update_dhcp_pool(*args, **kwargs)
+
+    def update_range_reservation(self, *args, **kwargs):
+        return self._db.update_range_reservation(*args, **kwargs)
 
     def update_scan_job(self, *args, **kwargs):
         return self._db.update_scan_job(*args, **kwargs)

@@ -109,6 +109,23 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
         return service.list_misplaced_addresses()
 
 
+    @router.post(
+        "/api/ipam/subnets/{subnet_id}/allocate-next",
+        response_model=AllocateNextAddressResponse,
+        dependencies=[Depends(require_ipam_permission("write"))],
+    )
+    def allocate_next_address(subnet_id: int, req: AllocateNextAddressRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
+        try:
+            return service.allocate_next_address(
+                subnet_id, req.status, req.hostname, req.description, req.team,
+                req.machineType, req.vmCluster, req.environment, req.locked,
+                user_id=user["id"] if user else None,
+            )
+        except ValueError as exc:
+            status_code = 404 if str(exc) == "Subnet not found" else 400
+            raise HTTPException(status_code=status_code, detail=str(exc))
+
+
     @router.get(
         "/api/ipam/subnets/{subnet_id}/next-available",
         response_model=NextAvailableIpResponse,
@@ -173,6 +190,19 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             raise HTTPException(status_code=400, detail=str(exc))
 
 
+    @router.post("/api/ipam/allocation-plan/create", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
+    def create_allocated_subnet(req: CreateAllocatedSubnetRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
+        try:
+            return service.create_allocated_subnet(
+                req.parent, req.cidr, req.freshnessToken, req.vlan, req.description, req.tagIds,
+                user_id=user["id"] if user else None,
+            )
+        except ValueError as exc:
+            detail = str(exc)
+            status_code = 409 if detail.startswith("Allocation state is stale") or "overlaps" in detail else 400
+            raise HTTPException(status_code=status_code, detail=detail)
+
+
     @router.get("/api/ipam/subnets/{subnet_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("read"))])
     def get_subnet(subnet_id: int):
         data = service.get_subnet(subnet_id)
@@ -191,6 +221,10 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
         limit: int = Query(default=100, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
         status: Optional[Literal["used", "free", "reserved"]] = None,
+        team: Optional[str] = Query(default=None, max_length=100),
+        environment: Optional[Literal["prod", "test", "dev"]] = None,
+        machine_type: Optional[Literal["physical", "vm"]] = None,
+        tag_id: Optional[int] = Query(default=None, gt=0),
         query: Optional[str] = Query(default=None, max_length=253),
         sort: Literal["address", "status", "hostname", "updatedAt"] = "address",
         direction: Literal["asc", "desc"] = "asc",
@@ -209,6 +243,10 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             limit=limit,
             offset=offset,
             status=status,
+            team=team,
+            environment=environment,
+            machine_type=machine_type,
+            tag_id=tag_id,
             query=query,
             sort=sort,
             direction=direction,
@@ -241,7 +279,7 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             return service.add_address(
                 subnet_id, req.address, req.status, req.hostname, req.description,
                 req.team, req.machineType, req.vmCluster, req.environment, req.locked,
-                user_id=user_id,
+                req.allocationType, user_id=user_id,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
@@ -254,7 +292,7 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             return service.update_address(
                 subnet_id, address_id, req.address, req.status, req.hostname, req.description,
                 req.team, req.machineType, req.vmCluster, req.environment, req.locked,
-                user_id=user_id,
+                req.allocationType, user_id=user_id,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
@@ -348,6 +386,38 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             raise HTTPException(status_code=404, detail="Subnet not found")
         service.remove_scan_exclude_by_id(subnet_id, exclude_id)
         return service.list_scan_excludes_detailed(subnet_id)
+
+
+    @router.get("/api/ipam/subnets/{subnet_id}/range-reservations", response_model=List[RangeReservationResponse], dependencies=[Depends(require_ipam_permission("read"))])
+    def list_range_reservations(subnet_id: int):
+        if not service.subnet_exists(subnet_id):
+            raise HTTPException(status_code=404, detail="Subnet not found")
+        return service.get_range_reservations(subnet_id)
+
+
+    @router.post("/api/ipam/subnets/{subnet_id}/range-reservations", response_model=RangeReservationResponse, dependencies=[Depends(require_ipam_permission("write"))])
+    def create_range_reservation(subnet_id: int, req: RangeReservationRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
+        try:
+            return service.add_range_reservation(subnet_id, req.start_ip, req.end_ip, req.allocation_type, req.status, req.label, req.description, user_id=user["id"] if user else None)
+        except ValueError as exc:
+            raise HTTPException(status_code=404 if str(exc) == "Subnet not found" else 400, detail=str(exc))
+
+
+    @router.put("/api/ipam/subnets/{subnet_id}/range-reservations/{reservation_id}", response_model=RangeReservationResponse, dependencies=[Depends(require_ipam_permission("write"))])
+    def update_range_reservation(subnet_id: int, reservation_id: int, req: RangeReservationRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
+        try:
+            return service.update_range_reservation(subnet_id, reservation_id, req.start_ip, req.end_ip, req.allocation_type, req.status, req.label, req.description, user_id=user["id"] if user else None)
+        except ValueError as exc:
+            raise HTTPException(status_code=404 if str(exc) == "Range reservation not found" else 400, detail=str(exc))
+
+
+    @router.delete("/api/ipam/subnets/{subnet_id}/range-reservations/{reservation_id}", dependencies=[Depends(require_ipam_permission("write"))])
+    def delete_range_reservation(subnet_id: int, reservation_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
+        if not service.subnet_exists(subnet_id):
+            raise HTTPException(status_code=404, detail="Subnet not found")
+        if not service.delete_range_reservation(subnet_id, reservation_id, user_id=user["id"] if user else None):
+            raise HTTPException(status_code=404, detail="Range reservation not found")
+        return {"deleted": reservation_id}
 
 
     @router.post("/api/ipam/subnets/{subnet_id}/dhcp-pools", response_model=DhcpPoolResponse, dependencies=[Depends(require_ipam_permission("write"))])
@@ -508,11 +578,18 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             raise HTTPException(status_code=404, detail=str(exc))
 
 
+    @router.post("/api/ipam/allocation-plan", response_model=AllocationPlanResponse, dependencies=[Depends(require_ipam_permission("read"))])
+    def get_allocation_plan(req: AllocationPlanRequest):
+        try:
+            return service.get_allocation_plan(req.parent, req.prefix)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
     @router.get("/api/ipam/subnet-allocation", response_model=SubnetAllocationResponse, dependencies=[Depends(require_ipam_permission("read"))])
     def get_subnet_allocation(parent: str, prefix: int):
         try:
-            result = service.find_next_contiguous_subnet(parent, prefix)
-            return result
+            return service.find_next_contiguous_subnet(parent, prefix)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
 
@@ -681,12 +758,17 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
         return scans.update_scan_schedule(subnet_id, req)
 
 
-    @router.get("/api/ipam/subnets/{subnet_id}/autodiscover/active", dependencies=[Depends(require_ipam_permission("read"))])
+    @router.get("/api/ipam/subnets/{subnet_id}/autodiscover/active", dependencies=[Depends(require_ipam_permission("scan"))])
     def get_active_scan(subnet_id: int):
         return scans.get_active_scan(subnet_id)
 
 
-    @router.get("/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}", dependencies=[Depends(require_ipam_permission("read"))])
+    @router.get("/api/ipam/subnets/{subnet_id}/autodiscover/jobs/{job_id}", dependencies=[Depends(require_ipam_permission("scan"))])
+    def get_autodiscover_job(subnet_id: int, job_id: str):
+        return scans.get_autodiscover_job(subnet_id, job_id)
+
+
+    @router.get("/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}", dependencies=[Depends(require_ipam_permission("scan"))])
     async def stream_autodiscover_job(subnet_id: int, job_id: str):
         return await scans.stream_autodiscover_job(subnet_id, job_id)
 

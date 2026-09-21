@@ -25,6 +25,11 @@ const STATUS_LABELS = {
   reserved: "Reserved",
 };
 
+const ALLOCATION_TYPE_LABELS = {
+  gateway: "Gateway", static: "Static", dhcp: "DHCP", vip: "VIP", loopback: "Loopback",
+  infrastructure: "Infrastructure", network: "Network", broadcast: "Broadcast",
+};
+
 const STATUS_PILL_CLASSES = {
   used: "tool-pill-muted",
   free: "tool-pill-ok",
@@ -34,6 +39,7 @@ const STATUS_PILL_CLASSES = {
 function draftFromAddress(address) {
   return {
     status: address?.status || "used",
+    allocationType: address?.allocationType || "static",
     hostname: address?.hostname || "",
     description: address?.description || "",
     team: address?.team || "",
@@ -126,7 +132,8 @@ export default function AddressPopover({
         null,
         null,
         null,
-        false
+        false,
+        draft.allocationType
       );
       onUpdated(updated);
       if (selectionVersionRef.current === requestVersion) onClose(ip);
@@ -155,7 +162,8 @@ export default function AddressPopover({
         draft.machineType || null,
         draft.machineType === "vm" ? draft.vmCluster.trim() || null : null,
         draft.environment || null,
-        draft.locked
+        draft.locked,
+        draft.allocationType
       );
       onUpdated(updated);
       if (selectionVersionRef.current === requestVersion) setMode(MODE_VIEW);
@@ -295,6 +303,12 @@ export default function AddressPopover({
             </select>
           </div>
           <div className="tool-field">
+            <label className="tool-label" htmlFor={`ip-address-allocation-type-${ip}`}>Allocation type</label>
+            <select id={`ip-address-allocation-type-${ip}`} className="tool-input" value={draft.allocationType} onChange={(event) => setDraft({ ...draft, allocationType: event.target.value })} disabled={pending}>
+              {Object.entries(ALLOCATION_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </div>
+          <div className="tool-field">
             <label className="tool-label" htmlFor={`ip-address-hostname-${ip}`}>Hostname <span className="tool-hint">optional</span></label>
             <input
               id={`ip-address-hostname-${ip}`}
@@ -334,6 +348,7 @@ export default function AddressPopover({
           </div>
           {viewSection === "details" ? <div id={`ip-address-details-${address.id}`} role="tabpanel">
           <div className="ip-address-popover-details">
+            <Detail label="Allocation type">{ALLOCATION_TYPE_LABELS[address.allocationType] || address.allocationType || "Static"}</Detail>
             <Detail label="Hostname">{address.hostname || "-"}</Detail>
             <Detail label="Description">{address.description || "-"}</Detail>
             <Detail label="Team">{address.team || "-"}</Detail>
@@ -414,6 +429,7 @@ export default function AddressPopover({
               <option value="reserved">Reserved</option>
             </select>
           </div>
+          <div className="tool-field"><label className="tool-label" htmlFor={`ip-address-allocation-type-${ip}`}>Allocation type</label><select id={`ip-address-allocation-type-${ip}`} className="tool-input" value={draft.allocationType} onChange={(event) => setDraft({ ...draft, allocationType: event.target.value })} disabled={pending}>{Object.entries(ALLOCATION_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
           <div className="tool-field"><label className="tool-label" htmlFor={`ip-address-hostname-${ip}`}>Hostname</label><input id={`ip-address-hostname-${ip}`} className="tool-input" value={draft.hostname} onChange={(event) => setDraft({ ...draft, hostname: event.target.value })} disabled={pending} /></div>
           <div className="tool-field"><label className="tool-label" htmlFor={`ip-address-description-${ip}`}>Description</label><input id={`ip-address-description-${ip}`} className="tool-input" value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} disabled={pending} /></div>
           <div className="tool-field"><label className="tool-label" htmlFor={`ip-address-team-${ip}`}>Team</label><input id={`ip-address-team-${ip}`} className="tool-input" value={draft.team} onChange={(event) => setDraft({ ...draft, team: event.target.value })} disabled={pending} /></div>

@@ -41,6 +41,10 @@ export async function getSubnetAddresses(
     limit = 100,
     offset = 0,
     status = "",
+    team = "",
+    environment = "",
+    machineType = "",
+    tagId = "",
     query = "",
     sort = "address",
     direction = "asc",
@@ -56,6 +60,10 @@ export async function getSubnetAddresses(
     direction,
   });
   if (status) params.set("status", status);
+  if (team) params.set("team", team);
+  if (environment) params.set("environment", environment);
+  if (machineType) params.set("machine_type", machineType);
+  if (tagId) params.set("tag_id", String(tagId));
   if (query.trim()) params.set("query", query.trim());
   if (addressStart) params.set("address_start", addressStart);
   if (addressEnd) params.set("address_end", addressEnd);
@@ -104,7 +112,8 @@ export async function addAddress(
   machineType,
   vmCluster,
   environment,
-  locked
+  locked,
+  allocationType = "static"
 ) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses`, {
     method: "POST",
@@ -119,6 +128,7 @@ export async function addAddress(
       vmCluster,
       environment,
       locked,
+      allocationType,
     }),
   });
   return handle(res);
@@ -135,7 +145,8 @@ export async function updateAddress(
   machineType,
   vmCluster,
   environment,
-  locked
+  locked,
+  allocationType = "static"
 ) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
     method: "PUT",
@@ -150,6 +161,7 @@ export async function updateAddress(
       vmCluster,
       environment,
       locked,
+      allocationType,
     }),
   });
   return handle(res);
@@ -243,6 +255,11 @@ export async function getActiveAutodiscoverJob(subnetId) {
   return handle(res);
 }
 
+export async function getAutodiscoverJob(subnetId, jobId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/jobs/${jobId}`);
+  return handle(res);
+}
+
 export async function listSubnetScans(subnetId) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/scans`);
   return handle(res);
@@ -320,6 +337,30 @@ export async function searchAddresses(query) {
   return handle(res);
 }
 
+export async function getRangeReservations(subnetId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/range-reservations`);
+  return handle(res);
+}
+
+export async function createRangeReservation(subnetId, data) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/range-reservations`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  });
+  return handle(res);
+}
+
+export async function updateRangeReservation(subnetId, reservationId, data) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/range-reservations/${reservationId}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+  });
+  return handle(res);
+}
+
+export async function deleteRangeReservation(subnetId, reservationId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/range-reservations/${reservationId}`, { method: "DELETE" });
+  return handle(res);
+}
+
 export async function createDhcpPool(subnetId, data) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools`, {
     method: "POST",
@@ -361,6 +402,15 @@ export async function bulkMoveDhcpPools(poolIds, targetSubnetId) {
 
 export async function getMisplacedDhcpPools() {
   const res = await apiFetch(`${BASE_URL}/api/ipam/misplaced-dhcp-pools`);
+  return handle(res);
+}
+
+export async function allocateNextAddress(subnetId, metadata) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/allocate-next`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(metadata),
+  });
   return handle(res);
 }
 
@@ -464,6 +514,24 @@ export async function fetchSubnetsByTag(tagId) {
 
 export async function fetchAddressesByTag(tagId) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/tags/${tagId}/addresses`);
+  return handle(res);
+}
+
+export async function fetchAllocationPlan(parent, prefix) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/allocation-plan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ parent, prefix }),
+  });
+  return handle(res);
+}
+
+export async function createAllocatedSubnet(payload) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/allocation-plan/create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
   return handle(res);
 }
 

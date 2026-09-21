@@ -95,6 +95,8 @@ export default function Ipam() {
         {viewMode === "allocator" && (
           <SubnetAllocator
             subnets={subnets}
+            tags={allTags}
+            onTagCreated={handleTagCreated}
             onCreate={(created) => {
               refreshList();
               setViewMode("search");

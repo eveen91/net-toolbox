@@ -495,7 +495,7 @@ tr.ip-row-highlighted {
 
 .ip-address-filters {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(130px, 180px) minmax(90px, 110px) auto;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   align-items: end;
   gap: 10px;
   margin: 12px 0;
@@ -516,7 +516,63 @@ tr.ip-row-highlighted {
 }
 
 .ip-address-table {
-  min-width: 760px;
+  min-width: 900px;
+}
+
+.ip-selection-cell {
+  width: 34px;
+  text-align: center;
+}
+
+.ip-bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.ip-bulk-bar > span {
+  margin-right: auto;
+}
+
+.ip-bulk-bar .tool-input {
+  width: min(220px, 100%);
+}
+
+.ip-bulk-dialog {
+  max-width: 620px;
+}
+
+.ip-bulk-edit-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.ip-bulk-edit-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.ip-bulk-review,
+.ip-bulk-result {
+  margin: 16px 0;
+}
+
+.ip-bulk-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .ip-address-sort {
@@ -617,6 +673,23 @@ tr.ip-row-highlighted {
   .ip-address-table td.ip-actions-cell {
     text-align: left;
   }
+
+  .ip-selection-cell {
+    display: flex !important;
+    justify-content: flex-end;
+  }
+
+  .ip-selection-cell::before {
+    content: "Select" !important;
+  }
+
+  .ip-bulk-bar > span {
+    width: 100%;
+  }
+
+  .ip-bulk-edit-fields {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 480px) {
@@ -630,6 +703,15 @@ tr.ip-row-highlighted {
 
   .ip-address-filters .tool-btn {
     width: 100%;
+  }
+
+  .ip-bulk-bar .tool-btn,
+  .ip-bulk-bar .tool-input {
+    width: 100%;
+  }
+
+  .ip-bulk-dialog-actions {
+    flex-direction: column;
   }
 
   .ip-address-pagination {
@@ -767,7 +849,8 @@ tr.ip-row-highlighted {
    positioned children. They paint over their cells but never participate in
    grid auto-placement, so a DHCP pool or child subnet cannot shift IPs. */
 .ip-heatmap-child-outline,
-.ip-heatmap-dhcp-block {
+.ip-heatmap-dhcp-block,
+.ip-heatmap-reservation-block {
   position: absolute;
   inset: 0;
   z-index: 1;
@@ -782,7 +865,8 @@ tr.ip-row-highlighted {
   box-sizing: border-box;
 }
 .ip-heatmap-child-outline > *,
-.ip-heatmap-dhcp-block > * {
+.ip-heatmap-dhcp-block > *,
+.ip-heatmap-reservation-block > * {
   pointer-events: auto;
   min-width: 0;
 }
@@ -803,6 +887,23 @@ tr.ip-row-highlighted {
 .ip-heatmap-dhcp-block:hover {
   background: rgba(255, 200, 64, 0.25);
   border-color: var(--warn);
+}
+
+.ip-heatmap-reservation-block {
+  background: repeating-linear-gradient(135deg, rgba(200, 110, 255, 0.32) 0 3px, rgba(116, 75, 180, 0.2) 3px 6px);
+  border: 1px solid rgba(210, 145, 255, 0.75);
+}
+
+.ip-heatmap-reservation-label {
+  color: var(--text);
+  font-size: 10px;
+  padding: 0 4px;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  max-width: 100%;
 }
 
 /* Heatmap child subnet labels — plain caption text inside the colored
@@ -941,6 +1042,25 @@ tr.ip-row-highlighted {
 }
 .ip-address-popover-form .tool-field {
   margin-bottom: 0;
+}
+.ip-allocate-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+.ip-allocate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.ip-allocate-wide {
+  grid-column: 1 / -1;
+}
+@media (max-width: 520px) {
+  .ip-allocate-grid {
+    grid-template-columns: 1fr;
+  }
+  .ip-allocate-wide {
+    grid-column: auto;
+  }
 }
 .ip-address-popover-locked {
   display: inline-flex;
@@ -1207,58 +1327,26 @@ tr.ip-row-highlighted {
   margin-left: 6px;
 }
 
-.ip-subnet-allocator {
-  padding: 16px;
-}
-
-.ip-subnet-allocator h3 {
-  margin: 0 0 8px;
-}
-
-.ip-subnet-allocator p {
-  margin: 0 0 16px;
-}
-
-.ip-prefix-buttons {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.ip-prefix-buttons .tool-btn {
-  flex: 1;
-}
-
-.ip-prefix-buttons .tool-btn.active {
-  background: var(--accent-1);
-  border-color: var(--accent-1);
-  color: var(--text-inverted);
-}
-
-.ip-allocation-results {
-  margin-top: 16px;
-  padding: 16px;
-  background: var(--bg-surface);
-  border-radius: 4px;
-}
-
-.ip-allocation-results h4 {
-  margin: 0 0 12px;
-}
-
-.allocation-card {
-  padding: 12px;
-  background: var(--bg-default);
-  border-radius: 4px;
-}
-
-.allocation-card p {
-  margin: 0 0 8px;
-}
-
-.allocation-card p:last-child {
-  margin-bottom: 0;
-}
+.ip-subnet-allocator { padding: 16px; max-width: 980px; }
+.ip-allocator-header { margin-bottom: 18px; }
+.ip-allocator-header h3, .ip-allocation-results h4 { margin: 0 0 6px; }
+.ip-allocator-header p, .ip-allocation-occupied p { margin: 0; color: var(--muted); }
+.ip-allocator-controls { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(150px, .45fr) auto; align-items: end; gap: 12px; }
+.ip-allocator-controls .tool-field, .ip-allocation-create .tool-field { display: grid; gap: 6px; margin: 0; color: var(--muted); font-size: 12px; }
+.ip-allocation-results { display: grid; gap: 18px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border-soft); }
+.ip-allocation-summary { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-family: var(--mono); font-size: 12px; }
+.ip-allocation-summary strong { color: var(--text); }
+.ip-allocation-options { display: grid; gap: 6px; }
+.ip-allocation-option { display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 10px 12px; border: 1px solid var(--border-soft); border-radius: 6px; background: transparent; color: var(--text); font-family: var(--mono); text-align: left; cursor: pointer; }
+.ip-allocation-option:hover, .ip-allocation-option:focus-visible, .ip-allocation-option.selected { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); outline: none; }
+.ip-allocation-option small, .ip-allocation-occupied small { color: var(--accent-2); font-family: var(--mono); }
+.ip-allocation-occupied { border-top: 1px solid var(--border-soft); padding-top: 14px; }
+.ip-allocation-occupied ul { display: grid; gap: 5px; margin: 8px 0 0; padding: 0; list-style: none; }
+.ip-allocation-occupied li { display: flex; justify-content: space-between; gap: 12px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.ip-allocation-create { display: grid; grid-template-columns: minmax(120px, .3fr) 1fr; gap: 12px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+.ip-allocation-create h4, .ip-allocation-create > .tool-field:last-of-type, .ip-allocation-create > .tool-btn { grid-column: 1 / -1; }
+.ip-allocation-create textarea { min-height: 72px; resize: vertical; }
+@media (max-width: 700px) { .ip-allocator-controls, .ip-allocation-create { grid-template-columns: 1fr; } .ip-allocator-controls .tool-btn { width: 100%; } .ip-allocation-summary, .ip-allocation-occupied li { align-items: flex-start; flex-direction: column; gap: 4px; } }
 
 .ip-detail-tabs,
 .ip-address-popover-tabs {

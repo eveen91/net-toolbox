@@ -85,6 +85,7 @@ class UpdateIpamSettingsRequest(BaseModel):
 class AddressRequest(BaseModel):
     address: str = Field(min_length=7, max_length=15)
     status: Literal["used", "free", "reserved"] = "used"
+    allocationType: Literal["gateway", "static", "dhcp", "vip", "loopback", "infrastructure", "network", "broadcast"] = "static"
     hostname: Optional[str] = Field(default=None, max_length=253)
     description: Optional[str] = Field(default=None, max_length=500)
     team: Optional[str] = Field(default=None, max_length=100)
@@ -182,6 +183,36 @@ class DhcpPoolCreate(BaseModel):
             return str(ipaddress.IPv4Address(value.strip()))
         except ipaddress.AddressValueError:
             raise ValueError("DHCP pool addresses must be valid IPv4 addresses")
+
+
+class RangeReservationRequest(BaseModel):
+    start_ip: str = Field(min_length=7, max_length=15)
+    end_ip: str = Field(min_length=7, max_length=15)
+    allocation_type: Literal["reserved_range"] = "reserved_range"
+    status: Literal["active", "released"] = "active"
+    label: Optional[str] = Field(default=None, max_length=100)
+    description: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("start_ip", "end_ip")
+    @classmethod
+    def validate_ipv4_address(cls, value: str) -> str:
+        try:
+            return str(ipaddress.IPv4Address(value.strip()))
+        except ipaddress.AddressValueError:
+            raise ValueError("Range reservation addresses must be valid IPv4 addresses")
+
+
+class RangeReservationResponse(BaseModel):
+    id: int
+    subnet_id: int
+    start_ip: str
+    end_ip: str
+    allocation_type: Literal["reserved_range"]
+    status: Literal["active", "released"]
+    label: Optional[str] = None
+    description: Optional[str] = None
+    created_at: str
+    updated_at: str
 
 
 class BulkMoveDhcpPoolsRequest(BaseModel):
@@ -376,6 +407,34 @@ class NextAvailableIpResponse(BaseModel):
     nextAvailableIp: Optional[str] = None
 
 
+class AllocateNextAddressRequest(BaseModel):
+    status: Literal["used", "reserved"] = "reserved"
+    hostname: Optional[str] = Field(default=None, max_length=253)
+    description: Optional[str] = Field(default=None, max_length=500)
+    team: Optional[str] = Field(default=None, max_length=100)
+    machineType: Optional[Literal["physical", "vm"]] = None
+    vmCluster: Optional[str] = Field(default=None, max_length=100)
+    environment: Optional[Literal["prod", "test", "dev"]] = None
+    locked: bool = False
+
+    @field_validator("hostname", "description", "team", "vmCluster")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() or None if value is not None else None
+
+    @field_validator("hostname")
+    @classmethod
+    def validate_hostname(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not HOSTNAME_RE.fullmatch(value):
+            raise ValueError("Hostname may contain only letters, numbers, dots, and hyphens")
+        return value
+
+
+class AllocateNextAddressResponse(BaseModel):
+    address: AddressEntry
+    subnet: SubnetSummary
+
+
 class SubnetAllocationResponse(BaseModel):
     parent: str
     requestedPrefix: int
@@ -384,6 +443,52 @@ class SubnetAllocationResponse(BaseModel):
     availableTo: Optional[str] = None
     totalAddresses: int = 0
     nextAvailableAfter: Optional[str] = None
+
+
+class AllocationPlanRequest(BaseModel):
+    parent: str = Field(min_length=3, max_length=18)
+    prefix: int = Field(ge=0, le=32)
+
+    @field_validator("parent")
+    @classmethod
+    def validate_parent(cls, value: str) -> str:
+        return SubnetRequest.validate_ipv4_cidr(value)
+
+
+class AllocationRange(BaseModel):
+    start: str
+    end: str
+    source: Literal["subnet", "address", "dhcp_pool"]
+    cidr: Optional[str] = None
+
+
+class AllocationPlanResponse(BaseModel):
+    parent: str
+    requestedPrefix: int
+    recommendations: List[str]
+    occupiedRanges: List[AllocationRange]
+    freshnessToken: str
+    totalAddresses: int
+
+
+class CreateAllocatedSubnetRequest(SubnetRequest):
+    parent: str = Field(min_length=3, max_length=18)
+    freshnessToken: str = Field(min_length=16, max_length=256)
+    tagIds: List[int] = Field(default_factory=list)
+
+    @field_validator("parent")
+    @classmethod
+    def validate_parent(cls, value: str) -> str:
+        return SubnetRequest.validate_ipv4_cidr(value)
+
+    @field_validator("tagIds")
+    @classmethod
+    def validate_tag_ids(cls, value: List[int]) -> List[int]:
+        if any(tag_id <= 0 for tag_id in value):
+            raise ValueError("Tag IDs must be positive")
+        if len(set(value)) != len(value):
+            raise ValueError("Tag IDs must be unique")
+        return value
 
 
 class AuditLogEntry(BaseModel):

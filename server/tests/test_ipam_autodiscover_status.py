@@ -107,7 +107,7 @@ def test_stream_includes_address_statuses(client):
                     continue
                 event = json.loads(line[len("data: "):])
                 events.append(event)
-                if event["status"] in ("done", "error") and "result" in event:
+                if event["status"] in ("done", "error", "cancelled"):
                     break
 
     assert len(events) > 0

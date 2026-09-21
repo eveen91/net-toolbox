@@ -47,6 +47,9 @@ class IpamService:
     def add_scan_exclude(self, *args, **kwargs):
         return self.translate_value_error(self.repository.add_scan_exclude, *args, **kwargs)
 
+    def add_range_reservation(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.add_range_reservation, *args, **kwargs)
+
     def add_subnet_tag(self, *args, **kwargs):
         return self.translate_value_error(self.repository.add_subnet_tag, *args, **kwargs)
 
@@ -83,6 +86,9 @@ class IpamService:
     def delete_dhcp_pool(self, *args, **kwargs):
         return self.translate_value_error(self.repository.delete_dhcp_pool, *args, **kwargs)
 
+    def delete_range_reservation(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.delete_range_reservation, *args, **kwargs)
+
     def delete_subnet(self, *args, **kwargs):
         return self.translate_value_error(self.repository.delete_subnet, *args, **kwargs)
 
@@ -116,6 +122,12 @@ class IpamService:
             })
         return {**page, "entries": entries}
 
+    def create_allocated_subnet(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.create_allocated_subnet, *args, **kwargs)
+
+    def get_allocation_plan(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.get_allocation_plan, *args, **kwargs)
+
     def find_next_contiguous_subnet(self, *args, **kwargs):
         return self.translate_value_error(self.repository.find_next_contiguous_subnet, *args, **kwargs)
 
@@ -139,6 +151,12 @@ class IpamService:
 
     def get_ipam_dashboard(self, *args, **kwargs):
         return self.translate_value_error(self.repository.get_ipam_dashboard, *args, **kwargs)
+
+    def get_range_reservations(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.get_range_reservations, *args, **kwargs)
+
+    def allocate_next_address(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.allocate_next_address, *args, **kwargs)
 
     def get_next_available_ip(self, *args, **kwargs):
         return self.translate_value_error(self.repository.get_next_available_ip, *args, **kwargs)
@@ -238,6 +256,9 @@ class IpamService:
 
     def update_dhcp_pool(self, *args, **kwargs):
         return self.translate_value_error(self.repository.update_dhcp_pool, *args, **kwargs)
+
+    def update_range_reservation(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.update_range_reservation, *args, **kwargs)
 
     def update_scan_job(self, *args, **kwargs):
         return self.translate_value_error(self.repository.update_scan_job, *args, **kwargs)

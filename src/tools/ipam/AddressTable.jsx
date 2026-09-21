@@ -1,224 +1,55 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getSubnetAddresses } from "./api.js";
+import { bulkDeleteAddresses, bulkMoveAddresses, bulkUpdateAddresses, getSubnetAddresses } from "./api.js";
+import { bulkFieldPayload, togglePageSelection, toggleSelection } from "./bulk.js";
 import { formatTimestamp } from "./logic.js";
 
 const PAGE_SIZES = [25, 50, 100];
-const STATUS_LABELS = {
-  used: "Used",
-  free: "Free",
-  reserved: "Reserved",
-};
+const STATUS_LABELS = { used: "Used", free: "Free", reserved: "Reserved" };
+const EMPTY_EDIT = { status: "", team: "", environment: "", machineType: "", locked: "" };
 
 function SortButton({ column, activeColumn, direction, onSort, children }) {
   const active = activeColumn === column;
-  return (
-    <button
-      type="button"
-      className={`ip-address-sort ${active ? "active" : ""}`}
-      onClick={() => onSort(column)}
-      aria-label={`Sort by ${children}${active ? `, currently ${direction === "asc" ? "ascending" : "descending"}` : ""}`}
-    >
-      <span>{children}</span>
-      <span aria-hidden="true">{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span>
-    </button>
-  );
+  return <button type="button" className={`ip-address-sort ${active ? "active" : ""}`} onClick={() => onSort(column)} aria-label={`Sort by ${children}${active ? `, currently ${direction === "asc" ? "ascending" : "descending"}` : ""}`}><span>{children}</span><span aria-hidden="true">{active ? (direction === "asc" ? "↑" : "↓") : "↕"}</span></button>;
 }
 
-export default function AddressTable({ subnetId, refreshKey = 0, highlightedAddressId, onAddressOpen }) {
-  const [addresses, setAddresses] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [limit, setLimit] = useState(50);
-  const [offset, setOffset] = useState(0);
-  const [status, setStatus] = useState("");
-  const [queryInput, setQueryInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState("address");
-  const [direction, setDirection] = useState("asc");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const requestRef = useRef(0);
+function BulkDialog({ action, selectionCount, targetSubnet, draft, onDraftChange, onClose, onConfirm, pending, result }) {
+  const title = action === "delete" ? "Delete selected addresses" : action === "move" ? "Move selected addresses" : "Edit selected addresses";
+  return <div className="tool-modal-overlay" role="presentation"><div className="tool-modal ip-bulk-dialog" role="dialog" aria-modal="true" aria-labelledby="ip-bulk-dialog-title" aria-busy={pending}>
+    <div className="tool-modal-header"><div><div id="ip-bulk-dialog-title" className="ip-address-popover-title">{title}</div><div className="tool-hint">{selectionCount} selected address{selectionCount === 1 ? "" : "es"} from the current filtered page only.</div></div><button type="button" autoFocus className="tool-modal-close" onClick={onClose} disabled={pending} aria-label="Close">×</button></div>
+    {action === "edit" && <div className="ip-bulk-edit-fields">
+      <label><span>Status</span><select className="tool-input" value={draft.status} onChange={(event) => onDraftChange({ ...draft, status: event.target.value })}><option value="">Leave unchanged</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+      <label><span>Team</span><input className="tool-input" value={draft.team} onChange={(event) => onDraftChange({ ...draft, team: event.target.value })} placeholder="Leave unchanged" /></label>
+      <label><span>Environment</span><select className="tool-input" value={draft.environment} onChange={(event) => onDraftChange({ ...draft, environment: event.target.value })}><option value="">Leave unchanged</option><option value="prod">Production</option><option value="test">Test</option><option value="dev">Development</option></select></label>
+      <label><span>Machine type</span><select className="tool-input" value={draft.machineType} onChange={(event) => onDraftChange({ ...draft, machineType: event.target.value })}><option value="">Leave unchanged</option><option value="physical">Physical</option><option value="vm">VM</option></select></label>
+      <label><span>Lock state</span><select className="tool-input" value={draft.locked} onChange={(event) => onDraftChange({ ...draft, locked: event.target.value === "" ? "" : event.target.value === "true" })}><option value="">Leave unchanged</option><option value="true">Lock</option><option value="false">Unlock</option></select></label>
+    </div>}
+    {action === "move" && <div className="tool-hint ip-bulk-review">Destination: <strong>{targetSubnet?.cidr}</strong>. Addresses outside this subnet will be skipped by the server.</div>}
+    {action === "delete" && <div className="tool-error ip-bulk-review" role="alert">This permanently deletes {selectionCount} selected address{selectionCount === 1 ? "" : "es"}. This cannot be undone.</div>}
+    {result && <div className="tool-hint ip-bulk-result" role="status">{result}</div>}
+    <div className="ip-bulk-dialog-actions">{result ? <button type="button" className="tool-btn" onClick={onClose}>Done</button> : <><button type="button" className={`tool-btn ${action === "delete" ? "ip-row-btn-danger" : ""}`} onClick={onConfirm} disabled={pending || (action === "edit" && Object.keys(bulkFieldPayload(draft)).length === 0)}>{pending ? "Working…" : action === "delete" ? "Delete addresses" : action === "move" ? "Move addresses" : "Apply changes"}</button><button type="button" className="tool-btn tool-btn-ghost" onClick={onClose} disabled={pending}>Cancel</button></>}</div>
+  </div></div>;
+}
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setOffset(0);
-      setQuery(queryInput.trim());
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [queryInput]);
-
-  useEffect(() => {
-    const requestId = requestRef.current + 1;
-    requestRef.current = requestId;
-    setLoading(true);
-    setError(null);
-    getSubnetAddresses(subnetId, { limit, offset, status, query, sort, direction })
-      .then((page) => {
-        if (requestRef.current !== requestId) return;
-        if (page.total > 0 && offset >= page.total) {
-          setOffset(Math.max(0, Math.floor((page.total - 1) / limit) * limit));
-          return;
-        }
-        setAddresses(page.addresses);
-        setTotal(page.total);
-      })
-      .catch((err) => {
-        if (requestRef.current === requestId) setError(err.message);
-      })
-      .finally(() => {
-        if (requestRef.current === requestId) setLoading(false);
-      });
-  }, [direction, limit, offset, query, refreshKey, sort, status, subnetId]);
-
-  useEffect(() => {
-    setOffset(0);
-    setQueryInput("");
-    setQuery("");
-    setStatus("");
-    setSort("address");
-    setDirection("asc");
-  }, [subnetId]);
-
-  const pageNumber = Math.floor(offset / limit) + 1;
-  const pageCount = Math.max(1, Math.ceil(total / limit));
-  const rangeStart = total === 0 ? 0 : offset + 1;
-  const rangeEnd = Math.min(offset + addresses.length, total);
-  const hasFilters = Boolean(status || query);
-  const resultLabel = useMemo(() => {
-    if (loading) return "Loading address records";
-    if (total === 0) return hasFilters ? "No addresses match these filters" : "No recorded addresses";
-    return `Showing ${rangeStart}–${rangeEnd} of ${total} recorded addresses`;
-  }, [hasFilters, loading, rangeEnd, rangeStart, total]);
-
-  const handleSort = (column) => {
-    setOffset(0);
-    if (sort === column) {
-      setDirection((current) => (current === "asc" ? "desc" : "asc"));
-    } else {
-      setSort(column);
-      setDirection("asc");
-    }
-  };
-
-  const clearFilters = () => {
-    setQueryInput("");
-    setQuery("");
-    setStatus("");
-    setOffset(0);
-  };
-
-  return (
-    <section className="ip-address-table-section" aria-labelledby="ip-address-table-title">
-      <div className="ip-address-table-heading">
-        <div>
-          <h3 id="ip-address-table-title" className="ip-section-sub-title">Address records</h3>
-          <p className="tool-hint">Search and inspect recorded hosts without loading the whole subnet.</p>
-        </div>
-        <span className="ip-address-count" aria-live="polite">{resultLabel}</span>
-      </div>
-
-      <div className="ip-address-filters">
-        <label className="ip-address-search-field">
-          <span>Search records</span>
-          <input
-            className="tool-input"
-            type="search"
-            value={queryInput}
-            onChange={(event) => setQueryInput(event.target.value)}
-            placeholder="IP, hostname, or description"
-          />
-        </label>
-        <label>
-          <span>Status</span>
-          <select
-            className="tool-input"
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-              setOffset(0);
-            }}
-          >
-            <option value="">All statuses</option>
-            <option value="used">Used</option>
-            <option value="free">Free</option>
-            <option value="reserved">Reserved</option>
-          </select>
-        </label>
-        <label>
-          <span>Rows</span>
-          <select
-            className="tool-input"
-            value={limit}
-            onChange={(event) => {
-              setLimit(Number(event.target.value));
-              setOffset(0);
-            }}
-          >
-            {PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
-          </select>
-        </label>
-        {hasFilters && (
-          <button type="button" className="tool-btn tool-btn-ghost" onClick={clearFilters}>
-            Clear filters
-          </button>
-        )}
-      </div>
-
-      {error && <div className="tool-error" role="alert">{error}</div>}
-      {!error && (
-        <div className="tool-table-wrap ip-address-table-wrap" aria-busy={loading}>
-          <table className="tool-table ip-address-table">
-            <caption className="sr-only">Recorded addresses for the selected subnet</caption>
-            <thead>
-              <tr>
-                <th aria-sort={sort === "address" ? (direction === "asc" ? "ascending" : "descending") : "none"}>
-                  <SortButton column="address" activeColumn={sort} direction={direction} onSort={handleSort}>Address</SortButton>
-                </th>
-                <th aria-sort={sort === "status" ? (direction === "asc" ? "ascending" : "descending") : "none"}>
-                  <SortButton column="status" activeColumn={sort} direction={direction} onSort={handleSort}>Status</SortButton>
-                </th>
-                <th aria-sort={sort === "hostname" ? (direction === "asc" ? "ascending" : "descending") : "none"}>
-                  <SortButton column="hostname" activeColumn={sort} direction={direction} onSort={handleSort}>Hostname</SortButton>
-                </th>
-                <th>Team</th>
-                <th>Environment</th>
-                <th aria-sort={sort === "updatedAt" ? (direction === "asc" ? "ascending" : "descending") : "none"}>
-                  <SortButton column="updatedAt" activeColumn={sort} direction={direction} onSort={handleSort}>Updated</SortButton>
-                </th>
-                <th><span className="sr-only">Actions</span></th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan="7" className="ip-address-table-state">Loading records…</td></tr>
-              ) : addresses.length === 0 ? (
-                <tr><td colSpan="7" className="ip-address-table-state">{resultLabel}</td></tr>
-              ) : addresses.map((address) => (
-                <tr key={address.id} className={address.id === highlightedAddressId ? "ip-row-highlighted" : ""}>
-                  <td data-label="Address" className="ip-subnet-cidr">{address.address}</td>
-                  <td data-label="Status"><span className={`tool-pill tool-pill-${address.status === "used" ? "ok" : address.status === "reserved" ? "warn" : "muted"}`}>{STATUS_LABELS[address.status]}</span></td>
-                  <td data-label="Hostname">{address.hostname || "—"}</td>
-                  <td data-label="Team">{address.team || "—"}</td>
-                  <td data-label="Environment">{address.environment || "—"}</td>
-                  <td data-label="Updated">{formatTimestamp(address.updatedAt)}</td>
-                  <td data-label="Actions" className="ip-actions-cell">
-                    <button type="button" className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => onAddressOpen(address)}>
-                      Open
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div className="ip-address-pagination" aria-label="Address table pagination">
-        <span>Page {pageNumber} of {pageCount}</span>
-        <div>
-          <button type="button" className="tool-btn tool-btn-ghost" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0 || loading}>Previous</button>
-          <button type="button" className="tool-btn tool-btn-ghost" onClick={() => setOffset(offset + limit)} disabled={offset + limit >= total || loading}>Next</button>
-        </div>
-      </div>
-    </section>
-  );
+export default function AddressTable({ subnetId, refreshKey = 0, highlightedAddressId, onAddressOpen, tags = [], subnets = [], onMutated }) {
+  const [addresses, setAddresses] = useState([]); const [total, setTotal] = useState(0); const [limit, setLimit] = useState(50); const [offset, setOffset] = useState(0);
+  const [filters, setFilters] = useState({ status: "", team: "", environment: "", machineType: "", tagId: "" }); const [queryInput, setQueryInput] = useState(""); const [query, setQuery] = useState(""); const [sort, setSort] = useState("address"); const [direction, setDirection] = useState("asc");
+  const [loading, setLoading] = useState(true); const [error, setError] = useState(null); const [selectedIds, setSelectedIds] = useState([]); const [dialog, setDialog] = useState(null); const [draft, setDraft] = useState(EMPTY_EDIT); const [targetSubnetId, setTargetSubnetId] = useState(""); const [pending, setPending] = useState(false); const [operationResult, setOperationResult] = useState(null); const requestRef = useRef(0);
+  useEffect(() => { const timer = window.setTimeout(() => { setOffset(0); setQuery(queryInput.trim()); }, 300); return () => window.clearTimeout(timer); }, [queryInput]);
+  useEffect(() => { const requestId = ++requestRef.current; setLoading(true); setError(null); getSubnetAddresses(subnetId, { limit, offset, query, sort, direction, ...filters }).then((page) => { if (requestRef.current !== requestId) return; if (page.total > 0 && offset >= page.total) { setOffset(Math.max(0, Math.floor((page.total - 1) / limit) * limit)); return; } setAddresses(page.addresses); setTotal(page.total); }).catch((err) => { if (requestRef.current === requestId) setError(err.message); }).finally(() => { if (requestRef.current === requestId) setLoading(false); }); }, [direction, filters, limit, offset, query, refreshKey, sort, subnetId]);
+  useEffect(() => { setOffset(0); setQueryInput(""); setQuery(""); setFilters({ status: "", team: "", environment: "", machineType: "", tagId: "" }); setSort("address"); setDirection("asc"); setSelectedIds([]); }, [subnetId]);
+  useEffect(() => { setSelectedIds([]); }, [filters, limit, offset, query, sort, direction]);
+  const pageIds = addresses.map((address) => address.id); const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.includes(id)); const pageNumber = Math.floor(offset / limit) + 1; const pageCount = Math.max(1, Math.ceil(total / limit)); const rangeStart = total === 0 ? 0 : offset + 1; const rangeEnd = Math.min(offset + addresses.length, total); const hasFilters = Boolean(query || Object.values(filters).some(Boolean));
+  const resultLabel = useMemo(() => loading ? "Loading address records" : total === 0 ? (hasFilters ? "No addresses match these filters" : "No recorded addresses") : `Showing ${rangeStart}–${rangeEnd} of ${total} recorded addresses`, [hasFilters, loading, rangeEnd, rangeStart, total]);
+  const updateFilter = (name, value) => { setFilters((current) => ({ ...current, [name]: value })); setOffset(0); }; const clearFilters = () => { setQueryInput(""); setQuery(""); setFilters({ status: "", team: "", environment: "", machineType: "", tagId: "" }); setOffset(0); };
+  const handleSort = (column) => { setOffset(0); if (sort === column) setDirection((current) => current === "asc" ? "desc" : "asc"); else { setSort(column); setDirection("asc"); } };
+  const closeDialog = () => { if (!pending) { setDialog(null); setOperationResult(null); } };
+  const runOperation = async () => { setPending(true); setOperationResult(null); try { let response; if (dialog === "edit") response = await bulkUpdateAddresses(subnetId, selectedIds, bulkFieldPayload(draft)); else if (dialog === "delete") response = await bulkDeleteAddresses(subnetId, selectedIds); else response = await bulkMoveAddresses(subnetId, selectedIds, Number(targetSubnetId)); const message = dialog === "move" ? `Moved ${response.movedCount} address${response.movedCount === 1 ? "" : "es"}.${response.skipped?.length ? ` Skipped: ${response.skipped.map((item) => `${item.address || item.addressId} — ${item.reason}`).join("; ")}` : ""}` : `${selectedIds.length} address${selectedIds.length === 1 ? "" : "es"} ${dialog === "delete" ? "deleted" : "updated"}.`; setOperationResult(message); setSelectedIds([]); onMutated?.(dialog === "move" ? response.fromSubnet : response); } catch (err) { setOperationResult(err.message); } finally { setPending(false); } };
+  const moveTargets = subnets.filter((item) => item.id !== subnetId);
+  return <section className="ip-address-table-section" aria-labelledby="ip-address-table-title"><div className="ip-address-table-heading"><div><h3 id="ip-address-table-title" className="ip-section-sub-title">Address records</h3><p className="tool-hint">Filter, select, and manage recorded hosts one page at a time.</p></div><span className="ip-address-count" aria-live="polite">{resultLabel}</span></div>
+    <div className="ip-address-filters"><label className="ip-address-search-field"><span>Search records</span><input className="tool-input" type="search" value={queryInput} onChange={(event) => setQueryInput(event.target.value)} placeholder="IP, hostname, or description" /></label><label><span>Status</span><select className="tool-input" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}><option value="">All statuses</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>Team</span><input className="tool-input" value={filters.team} onChange={(event) => updateFilter("team", event.target.value)} placeholder="All teams" /></label><label><span>Environment</span><select className="tool-input" value={filters.environment} onChange={(event) => updateFilter("environment", event.target.value)}><option value="">All environments</option><option value="prod">Production</option><option value="test">Test</option><option value="dev">Development</option></select></label><label><span>Machine type</span><select className="tool-input" value={filters.machineType} onChange={(event) => updateFilter("machineType", event.target.value)}><option value="">All types</option><option value="physical">Physical</option><option value="vm">VM</option></select></label><label><span>Tag</span><select className="tool-input" value={filters.tagId} onChange={(event) => updateFilter("tagId", event.target.value)}><option value="">All tags</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label><label><span>Rows</span><select className="tool-input" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setOffset(0); }}>{PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}</select></label>{hasFilters && <button type="button" className="tool-btn tool-btn-ghost" onClick={clearFilters}>Clear filters</button>}</div>
+    {selectedIds.length > 0 && <div className="ip-bulk-bar" role="region" aria-label="Bulk actions"><span><strong>{selectedIds.length}</strong> selected on this filtered page</span><button type="button" className="tool-btn tool-btn-ghost" onClick={() => setSelectedIds([])} disabled={pending}>Clear selection</button><button type="button" className="tool-btn" onClick={() => { setDraft(EMPTY_EDIT); setDialog("edit"); }}>Edit</button><label className="sr-only" htmlFor="ip-bulk-move-target">Move destination</label><select id="ip-bulk-move-target" className="tool-input" value={targetSubnetId} onChange={(event) => setTargetSubnetId(event.target.value)}><option value="">Move to subnet…</option>{moveTargets.map((item) => <option key={item.id} value={item.id}>{item.cidr}</option>)}</select><button type="button" className="tool-btn" onClick={() => setDialog("move")} disabled={!targetSubnetId}>Move</button><button type="button" className="tool-btn tool-btn-ghost ip-row-btn-danger" onClick={() => setDialog("delete")}>Delete</button></div>}
+    {error && <div className="tool-error" role="alert">{error}</div>}{!error && <div className="tool-table-wrap ip-address-table-wrap" aria-busy={loading}><table className="tool-table ip-address-table"><caption className="sr-only">Recorded addresses for the selected subnet</caption><thead><tr><th><input type="checkbox" checked={allPageSelected} onChange={() => setSelectedIds(togglePageSelection(selectedIds, pageIds))} disabled={loading || pageIds.length === 0} aria-label="Select all addresses on this filtered page" /><span className="sr-only">Select</span></th><th aria-sort={sort === "address" ? (direction === "asc" ? "ascending" : "descending") : "none"}><SortButton column="address" activeColumn={sort} direction={direction} onSort={handleSort}>Address</SortButton></th><th aria-sort={sort === "status" ? (direction === "asc" ? "ascending" : "descending") : "none"}><SortButton column="status" activeColumn={sort} direction={direction} onSort={handleSort}>Status</SortButton></th><th aria-sort={sort === "hostname" ? (direction === "asc" ? "ascending" : "descending") : "none"}><SortButton column="hostname" activeColumn={sort} direction={direction} onSort={handleSort}>Hostname</SortButton></th><th>Team</th><th>Environment</th><th aria-sort={sort === "updatedAt" ? (direction === "asc" ? "ascending" : "descending") : "none"}><SortButton column="updatedAt" activeColumn={sort} direction={direction} onSort={handleSort}>Updated</SortButton></th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{loading ? <tr><td colSpan="8" className="ip-address-table-state">Loading records…</td></tr> : addresses.length === 0 ? <tr><td colSpan="8" className="ip-address-table-state">{resultLabel}</td></tr> : addresses.map((address) => <tr key={address.id} className={address.id === highlightedAddressId ? "ip-row-highlighted" : ""}><td data-label="Select" className="ip-selection-cell"><input type="checkbox" checked={selectedIds.includes(address.id)} onChange={() => setSelectedIds(toggleSelection(selectedIds, address.id))} aria-label={`Select ${address.address}`} /></td><td data-label="Address" className="ip-subnet-cidr">{address.address}</td><td data-label="Status"><span className={`tool-pill tool-pill-${address.status === "used" ? "ok" : address.status === "reserved" ? "warn" : "muted"}`}>{STATUS_LABELS[address.status]}</span></td><td data-label="Hostname">{address.hostname || "—"}</td><td data-label="Team">{address.team || "—"}</td><td data-label="Environment">{address.environment || "—"}</td><td data-label="Updated">{formatTimestamp(address.updatedAt)}</td><td data-label="Actions" className="ip-actions-cell"><button type="button" className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => onAddressOpen(address)}>Open</button></td></tr>)}</tbody></table></div>}
+    <div className="ip-address-pagination" aria-label="Address table pagination"><span>Page {pageNumber} of {pageCount}</span><div><button type="button" className="tool-btn tool-btn-ghost" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0 || loading}>Previous</button><button type="button" className="tool-btn tool-btn-ghost" onClick={() => setOffset(offset + limit)} disabled={offset + limit >= total || loading}>Next</button></div></div>
+    {dialog && <BulkDialog action={dialog} selectionCount={selectedIds.length} targetSubnet={subnets.find((item) => item.id === Number(targetSubnetId))} draft={draft} onDraftChange={setDraft} onClose={closeDialog} onConfirm={runOperation} pending={pending} result={operationResult} />}
+  </section>;
 }

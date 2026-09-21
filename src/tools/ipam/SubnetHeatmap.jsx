@@ -93,7 +93,7 @@ export default function SubnetHeatmap({
 
   const prepared = useMemo(() => {
     if (totalAddresses <= 0 || totalAddresses > MAX_HEATMAP_ADDRESSES) {
-      return { cells: [], childRanges: [], poolRanges: [] };
+      return { cells: [], childRanges: [], poolRanges: [], reservationRanges: [] };
     }
 
     const subnetStart = ipv4ToNumber(subnet.cidr.split("/")[0]);
@@ -103,6 +103,7 @@ export default function SubnetHeatmap({
     );
     const childRanges = [];
     const poolRanges = [];
+    const reservationRanges = [];
 
     for (const child of subnets) {
       if (child.parentId !== subnet.id) continue;
@@ -128,13 +129,22 @@ export default function SubnetHeatmap({
       poolRanges.push({ ...pool, startOffset, endOffset });
     }
 
+    for (const reservation of subnet.rangeReservations || []) {
+      if (reservation.status !== "active") continue;
+      const rawStart = ipv4ToNumber(reservation.start_ip) - subnetStart;
+      const rawEnd = ipv4ToNumber(reservation.end_ip) - subnetStart;
+      if (rawEnd < 0 || rawStart >= totalAddresses) continue;
+      reservationRanges.push({ ...reservation, startOffset: Math.max(0, rawStart), endOffset: Math.min(totalAddresses - 1, rawEnd) });
+    }
+
     const cells = [];
     for (let offset = pageStart; offset < pageEnd; offset += 1) {
       const ip = numberToIpv4(subnetStart + offset);
       const address = existingAddresses.get(ip) || null;
       const isChild = childRanges.some((range) => offset >= range.startOffset && offset <= range.endOffset);
-      const isDhcp = !isChild && poolRanges.some((range) => offset >= range.startOffset && offset <= range.endOffset);
-      const status = address?.status || "available";
+        const isDhcp = !isChild && poolRanges.some((range) => offset >= range.startOffset && offset <= range.endOffset);
+        const reservation = !isChild && !isDhcp && reservationRanges.find((range) => offset >= range.startOffset && offset <= range.endOffset);
+        const status = reservation ? "reserved_range" : address?.status || "available";
       cells.push({
         ip,
         offset,
@@ -142,11 +152,12 @@ export default function SubnetHeatmap({
         status,
         hostname: address?.hostname || null,
         description: address?.description || null,
-        isPlaceholder: isChild || isDhcp,
+        isPlaceholder: isChild || isDhcp || Boolean(reservation),
+        reservation,
       });
     }
 
-    return { cells, childRanges, poolRanges };
+    return { cells, childRanges, poolRanges, reservationRanges };
   }, [addresses, subnet, subnets, totalAddresses, pageStart, pageEnd]);
 
   useEffect(() => {
@@ -245,6 +256,16 @@ export default function SubnetHeatmap({
       ))
     );
 
+    const reservations = prepared.reservationRanges.flatMap((reservation) =>
+      visibleSegments(reservation).map((style, index) => (
+        <div key={`reservation-${reservation.id}-${index}`} className="ip-heatmap-reservation-block" style={style}>
+          {index === 0 && reservation.startOffset >= pageStart && reservation.startOffset < pageEnd && (
+            <div className="ip-heatmap-reservation-label" title={`${reservation.label || "Reserved range"}: ${reservation.start_ip} - ${reservation.end_ip}`}>{reservation.label || "Reserved"}</div>
+          )}
+        </div>
+      ))
+    );
+
     const pools = prepared.poolRanges.flatMap((pool) =>
       visibleSegments(pool).map((style, index) => (
         <div
@@ -264,8 +285,8 @@ export default function SubnetHeatmap({
       ))
     );
 
-    return [...children, ...pools];
-  }, [columns, pageEnd, pageStart, prepared.childRanges, prepared.poolRanges]);
+    return [...children, ...pools, ...reservations];
+  }, [columns, pageEnd, pageStart, prepared.childRanges, prepared.poolRanges, prepared.reservationRanges]);
 
   const getCellTarget = useCallback((event) => {
     const cellElement = event.target.closest(".ip-heatmap-cell[data-cell-index]");

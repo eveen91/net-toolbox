@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   autodiscoverStreamUrl,
   getActiveAutodiscoverJob,
+  getAutodiscoverJob,
   getSubnet,
   listSubnetScans,
   startAutodiscoverJob,
@@ -13,7 +14,11 @@ export function scanAddressLabel(address) {
   return address.alive ? "used" : "free";
 }
 
-export function useIpamScan(subnetId, onDetailUpdated) {
+export function openAutodiscoverStream(subnetId, jobId) {
+  return new EventSource(autodiscoverStreamUrl(subnetId, jobId), { withCredentials: true });
+}
+
+export function useIpamScan(subnetId, onDetailUpdated, onScanCompleted) {
   const [confirmingScan, setConfirmingScan] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(null);
@@ -21,10 +26,12 @@ export function useIpamScan(subnetId, onDetailUpdated) {
   const [lastScan, setLastScan] = useState(null);
   const [scanProgress, setScanProgress] = useState(null);
   const eventSourceRef = useRef(null);
+  const recoveryTimerRef = useRef(null);
 
   useEffect(() => {
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
+    clearTimeout(recoveryTimerRef.current);
     setConfirmingScan(false);
     setScanning(false);
     setScanError(null);
@@ -34,52 +41,87 @@ export function useIpamScan(subnetId, onDetailUpdated) {
     listSubnetScans(subnetId)
       .then((scans) => setLastScan(scans.length > 0 ? scans[0] : null))
       .catch(() => {});
-    return () => eventSourceRef.current?.close();
+    return () => {
+      eventSourceRef.current?.close();
+      clearTimeout(recoveryTimerRef.current);
+    };
   }, [subnetId]);
 
   const runAutodiscover = useCallback(async () => {
     setScanError(null);
     setScanning(true);
     setScanProgress({ completed: 0, total: 0 });
-    try {
-      const { jobId } = await startAutodiscoverJob(subnetId);
-      const eventSource = new EventSource(autodiscoverStreamUrl(subnetId, jobId));
-      eventSourceRef.current = eventSource;
-      let settled = false;
-      eventSource.onmessage = async (event) => {
-        const payload = JSON.parse(event.data);
+    let settled = false;
+
+    const finish = async (payload) => {
+      if (settled) return;
+      settled = true;
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+      clearTimeout(recoveryTimerRef.current);
+      setScanning(false);
+      setConfirmingScan(false);
+      setScanProgress(null);
+      if (payload.status !== "done") {
+        setScanError(payload.error || (payload.status === "cancelled" ? "Scan cancelled" : "Scan failed"));
+        return;
+      }
+      setScanResult(payload.result);
+      try {
+        const [scans, updatedSubnet] = await Promise.all([
+          listSubnetScans(subnetId),
+          getSubnet(subnetId),
+        ]);
+        setLastScan(scans.length > 0 ? scans[0] : null);
+        onDetailUpdated(updatedSubnet);
+        onScanCompleted?.();
+      } catch (error) {
+        setScanError(`Scan completed, but refreshing IPAM data failed: ${error.message}`);
+      }
+    };
+
+    const recover = async (jobId) => {
+      if (settled) return;
+      try {
+        const payload = await getAutodiscoverJob(subnetId, jobId);
         setScanProgress({ completed: payload.completed, total: payload.total });
-        if (payload.status === "done") {
-          settled = true;
-          setScanResult(payload.result);
-          eventSource.close();
-          eventSourceRef.current = null;
-          try {
-            const scans = await listSubnetScans(subnetId);
-            setLastScan(scans.length > 0 ? scans[0] : null);
-          } catch {}
-          onDetailUpdated(await getSubnet(subnetId));
-          setScanning(false);
-          setConfirmingScan(false);
-          setScanProgress(null);
-        } else if (payload.status === "error") {
-          settled = true;
-          setScanError(payload.error || "Scan failed");
-          eventSource.close();
-          eventSourceRef.current = null;
-          setScanning(false);
-          setConfirmingScan(false);
-          setScanProgress(null);
+        if (payload.status !== "running") {
+          await finish(payload);
+          return;
         }
-      };
-      eventSource.onerror = () => {
+        recoveryTimerRef.current = setTimeout(() => recover(jobId), 1000);
+      } catch (error) {
         if (settled) return;
-        setScanError("Lost connection to the scan progress stream.");
-        eventSource.close();
-        eventSourceRef.current = null;
+        settled = true;
+        setScanError(`Unable to read scan status: ${error.message}`);
         setScanning(false);
         setConfirmingScan(false);
         setScanProgress(null);
+      }
+    };
+
+    try {
+      const { jobId } = await startAutodiscoverJob(subnetId);
+      const eventSource = openAutodiscoverStream(subnetId, jobId);
+      eventSourceRef.current = eventSource;
+      eventSource.onmessage = async (event) => {
+        let payload;
+        try {
+          payload = JSON.parse(event.data);
+        } catch {
+          eventSource.close();
+          eventSourceRef.current = null;
+          await recover(jobId);
+          return;
+        }
+        setScanProgress({ completed: payload.completed, total: payload.total });
+        if (payload.status !== "running") await finish(payload);
+      };
+      eventSource.onerror = () => {
+        if (settled) return;
+        eventSource.close();
+        eventSourceRef.current = null;
+        recover(jobId);
       };
     } catch (error) {
       setScanError(error.message);
@@ -87,7 +129,7 @@ export function useIpamScan(subnetId, onDetailUpdated) {
       setConfirmingScan(false);
       setScanProgress(null);
     }
-  }, [onDetailUpdated, subnetId]);
+  }, [onDetailUpdated, onScanCompleted, subnetId]);
 
   return {
     confirmingScan, scanning, scanError, scanResult, lastScan, scanProgress,
@@ -109,16 +151,20 @@ export function useActiveIpamScan(subnetId) {
         if (result.jobId != null) {
           if (eventSourceRef.current == null) {
             setScanning(true);
-            const eventSource = new EventSource(autodiscoverStreamUrl(subnetId, result.jobId));
+            const eventSource = openAutodiscoverStream(subnetId, result.jobId);
             eventSourceRef.current = eventSource;
             eventSource.onmessage = (event) => {
               const payload = JSON.parse(event.data);
               setAddresses(payload.addresses || []);
-              if (payload.status === "done" || payload.status === "error") {
+              if (payload.status === "done" || payload.status === "error" || payload.status === "cancelled") {
                 eventSource.close();
                 eventSourceRef.current = null;
                 setScanning(false);
               }
+            };
+            eventSource.onerror = () => {
+              eventSource.close();
+              eventSourceRef.current = null;
             };
           }
         } else {

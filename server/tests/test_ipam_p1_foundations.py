@@ -125,9 +125,31 @@ def test_subnet_address_page_filters_text(client):
     assert [item["address"] for item in by_description.json()["addresses"]] == ["10.122.0.2"]
 
 
+def test_subnet_address_page_combines_metadata_and_tag_filters(client):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.128.0.0/29"}).json()
+    assert client.post(
+        f"/api/ipam/subnets/{subnet['id']}/addresses",
+        json={"address": "10.128.0.1", "status": "used", "team": "network", "environment": "prod", "machineType": "vm"},
+    ).status_code == 200
+    matching = db.get_addresses_by_subnet(subnet["id"])[0]
+    assert client.post(
+        f"/api/ipam/subnets/{subnet['id']}/addresses",
+        json={"address": "10.128.0.2", "status": "used", "team": "network", "environment": "test", "machineType": "vm"},
+    ).status_code == 200
+    tag = client.post("/api/ipam/tags", json={"name": "critical", "color": "#123456"}).json()
+    assert client.post(f"/api/ipam/addresses/{matching['id']}/tags/{tag['id']}").status_code == 200
+
+    response = client.get(
+        f"/api/ipam/subnets/{subnet['id']}/addresses?status=used&team=network&environment=prod&machine_type=vm&tag_id={tag['id']}&limit=1"
+    )
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["addresses"][0]["address"] == "10.128.0.1"
+
+
 def test_subnet_address_page_sorts_ipv4_addresses_numerically(client):
-    subnet = client.post("/api/ipam/subnets", json={"cidr": "10.123.0.0/24"}).json()
-    for address in ("10.123.0.10", "10.123.0.2", "10.123.0.100"):
+    subnet = client.post("/api/ipam/subnets", json={"cidr": "192.168.1.0/24"}).json()
+    for address in ("192.168.1.1", "192.168.1.10", "192.168.1.11", "192.168.1.2"):
         assert client.post(
             f"/api/ipam/subnets/{subnet['id']}/addresses", json={"address": address}
         ).status_code == 200
@@ -136,18 +158,20 @@ def test_subnet_address_page_sorts_ipv4_addresses_numerically(client):
         f"/api/ipam/subnets/{subnet['id']}/addresses?sort=address&direction=asc"
     )
     assert [item["address"] for item in ascending.json()["addresses"]] == [
-        "10.123.0.2",
-        "10.123.0.10",
-        "10.123.0.100",
+        "192.168.1.1",
+        "192.168.1.2",
+        "192.168.1.10",
+        "192.168.1.11",
     ]
 
     descending = client.get(
         f"/api/ipam/subnets/{subnet['id']}/addresses?sort=address&direction=desc"
     )
     assert [item["address"] for item in descending.json()["addresses"]] == [
-        "10.123.0.100",
-        "10.123.0.10",
-        "10.123.0.2",
+        "192.168.1.11",
+        "192.168.1.10",
+        "192.168.1.2",
+        "192.168.1.1",
     ]
 
 
@@ -255,6 +279,7 @@ def test_legacy_ipam_schema_is_migrated_to_current_versions(client):
     try:
         conn.execute("DROP TABLE ipam_addresses")
         conn.execute("DROP TABLE ipam_dhcp_pools")
+        conn.execute("DROP TABLE ipam_scan_jobs")
         conn.execute("DELETE FROM schema_migrations")
         conn.execute(
             """
@@ -283,6 +308,23 @@ def test_legacy_ipam_schema_is_migrated_to_current_versions(client):
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE ipam_scan_jobs (
+                id TEXT PRIMARY KEY,
+                subnet_id INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                completed INTEGER NOT NULL DEFAULT 0,
+                total INTEGER NOT NULL DEFAULT 0,
+                result_json TEXT,
+                error_message TEXT,
+                addresses_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                finished_at TEXT
+            )
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -293,9 +335,11 @@ def test_legacy_ipam_schema_is_migrated_to_current_versions(client):
     try:
         address_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_addresses)").fetchall()}
         pool_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_dhcp_pools)").fetchall()}
+        scan_job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(ipam_scan_jobs)").fetchall()}
         versions = {row["version"] for row in conn.execute("SELECT version FROM schema_migrations").fetchall()}
-        assert {"team", "machine_type", "vm_cluster", "environment", "locked"}.issubset(address_columns)
+        assert {"team", "machine_type", "vm_cluster", "environment", "locked", "allocation_type"}.issubset(address_columns)
         assert "manually_placed" in pool_columns
+        assert "cancel_requested" in scan_job_columns
         assert versions == set(range(1, db.IPAM_SCHEMA_VERSION + 1))
     finally:
         conn.close()

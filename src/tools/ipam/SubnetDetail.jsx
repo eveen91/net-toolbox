@@ -1,13 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AddressPopover from "./AddressPopover.jsx";
+import AllocateNextAddressForm from "./AllocateNextAddressForm.jsx";
 import AddressTable from "./AddressTable.jsx";
 import AuditTimeline from "./AuditTimeline.jsx";
 import DhcpPoolManager from "./DhcpPoolManager.jsx";
+import RangeReservationManager from "./RangeReservationManager.jsx";
 import ScanExcludeManager from "./ScanExcludeManager.jsx";
 import ScanStatusIcon from "./ScanStatusIcon.jsx";
 import SubnetHeatmap from "./SubnetHeatmap.jsx";
 import TagSelector from "./TagSelector.jsx";
-import { getAllSubnetAddresses, updateSubnet } from "./api.js";
+import { allocateNextAddress, getAllSubnetAddresses, updateSubnet } from "./api.js";
 import { addressesToCsv, ancestorChain, formatTimestamp, formatVlan, utilizationPercent } from "./logic.js";
 import { useIpamScan } from "./hooks/useIpamScan.js";
 
@@ -36,6 +38,7 @@ export default function SubnetDetail({
   const [headerError, setHeaderError] = useState(null);
   const [headerSaving, setHeaderSaving] = useState(false);
   const [dhcpPools, setDhcpPools] = useState([]);
+  const [rangeReservations, setRangeReservations] = useState([]);
   const [popoverIp, setPopoverIp] = useState(null);
   const [popoverCoords, setPopoverCoords] = useState(null);
   const [popoverPlacement, setPopoverPlacement] = useState("below");
@@ -47,12 +50,16 @@ export default function SubnetDetail({
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState(null);
   const [detailSection, setDetailSection] = useState("inventory");
+  const [allocatingNext, setAllocatingNext] = useState(false);
   const heatmapStageRef = useRef(null);
   const popoverOriginRef = useRef(null);
+  const handleScanCompleted = useCallback(() => {
+    setAddressRefreshKey((key) => key + 1);
+  }, []);
   const {
     confirmingScan, scanning, scanError, scanResult, lastScan, scanProgress,
     setConfirmingScan, setScanResult, runAutodiscover,
-  } = useIpamScan(subnet.id, onDetailUpdated);
+  } = useIpamScan(subnet.id, onDetailUpdated, handleScanCompleted);
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -66,6 +73,7 @@ export default function SubnetDetail({
     setDetailSection("inventory");
     setAddressRefreshKey((key) => key + 1);
     setDhcpPools([]);
+    setRangeReservations([]);
   }, [subnet.id]);
 
   const startEditHeader = () => {
@@ -113,7 +121,7 @@ export default function SubnetDetail({
   const ancestors = ancestorChain(subnets, subnet.id);
   const children = subnets.filter((item) => item.parentId === subnet.id);
   const unallocated = subnet.totalAddresses - subnet.recordedCount;
-  const heatmapSubnet = useMemo(() => ({ ...subnet, dhcpPools }), [subnet, dhcpPools]);
+  const heatmapSubnet = useMemo(() => ({ ...subnet, dhcpPools, rangeReservations }), [subnet, dhcpPools, rangeReservations]);
   const popoverAddress = heatmapAddresses.find((item) => item.address === popoverIp) || null;
 
   const handleAddressesLoaded = useCallback((addresses, error) => {
@@ -124,6 +132,13 @@ export default function SubnetDetail({
   const handleAddressMutation = (updated) => {
     setAddressRefreshKey((key) => key + 1);
     onDetailUpdated(updated);
+  };
+
+  const allocateNext = async (metadata) => {
+    const result = await allocateNextAddress(subnet.id, metadata);
+    setAllocatingNext(false);
+    setFocusedAddress(result.address);
+    handleAddressMutation(result.subnet);
   };
 
   const closePopover = useCallback((expectedIp) => {
@@ -214,6 +229,7 @@ export default function SubnetDetail({
         )}
         {!editingHeader && !confirmingDelete && !confirmingScan && (
           <>
+            <button className="tool-btn tool-btn-primary ip-row-btn" onClick={() => setAllocatingNext(true)}>Allocate next IP</button>
             <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={() => setConfirmingScan(true)}>Autodiscover</button>
             <ScanStatusIcon subnetId={subnet.id} />
             <button className="tool-btn tool-btn-ghost ip-row-btn" onClick={downloadCsv} disabled={exporting || subnet.recordedCount === 0}>{exporting ? "Exporting…" : "Export CSV"}</button>
@@ -238,6 +254,7 @@ export default function SubnetDetail({
           </span>
         )}
       </div>
+      {allocatingNext && <AllocateNextAddressForm subnet={subnet} onAllocate={allocateNext} onCancel={() => setAllocatingNext(false)} />}
       {headerError && <div className="tool-error">{headerError}</div>}
       {scanError && <div className="tool-error">{scanError}</div>}
       {exportError && <div className="tool-error" role="alert">CSV export failed: {exportError}</div>}
@@ -295,9 +312,11 @@ export default function SubnetDetail({
         )}
       </div>
 
-      <AddressTable subnetId={subnet.id} refreshKey={addressRefreshKey} highlightedAddressId={highlightedAddressId} onAddressOpen={(address) => { setFocusedAddress(address); setPopoverIp(null); setPopoverCoords(null); }} />
+      <AddressTable subnetId={subnet.id} refreshKey={addressRefreshKey} highlightedAddressId={highlightedAddressId} tags={tags} subnets={subnets} onMutated={handleAddressMutation} onAddressOpen={(address) => { setFocusedAddress(address); setPopoverIp(null); setPopoverCoords(null); }} />
       <h3 className="ip-section-sub-title">DHCP Pools</h3>
       <DhcpPoolManager subnetId={subnet.id} subnets={subnets} onPoolsChanged={setDhcpPools} />
+      <h3 className="ip-section-sub-title">Range reservations</h3>
+      <RangeReservationManager subnetId={subnet.id} onReservationsChanged={(reservations) => { setRangeReservations(reservations); setAddressRefreshKey((key) => key + 1); }} />
       <h3 className="ip-section-sub-title">Tags</h3>
       <TagSelector value={subnetTagIds.map((tag) => tag.id)} onChange={onTagChange} allTags={tags} placeholder="Add tags to this subnet" onTagCreated={onTagCreated} />
       <ScanExcludeManager subnetId={subnet.id} />

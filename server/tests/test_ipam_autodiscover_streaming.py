@@ -40,11 +40,13 @@ def test_stream_reports_final_done_status(client):
             "GET", f"/api/ipam/subnets/{subnet_id}/autodiscover/stream/{job_id}"
         ) as stream_resp:
             assert stream_resp.status_code == 200
+            assert stream_resp.headers["cache-control"] == "no-cache"
+            assert stream_resp.headers["x-accel-buffering"] == "no"
             for line in stream_resp.iter_lines():
                 if not line or not line.startswith("data: "):
                     continue
                 event = json.loads(line[len("data: "):])
-                if event["status"] in ("done", "error") and "result" in event:
+                if event["status"] in ("done", "error", "cancelled"):
                     final_event = event
                     break
 
