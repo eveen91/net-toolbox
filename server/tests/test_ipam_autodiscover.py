@@ -53,6 +53,65 @@ def test_scan_flips_stale_used_address_to_free(client):
     assert addr["hostname"] is None
 
 
+def test_release_removes_free_address_and_retains_audit_history(client):
+    subnet_id = client.post("/api/ipam/subnets", json={"cidr": "10.0.2.0/29"}).json()["id"]
+    client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={
+            "address": "10.0.2.3",
+            "status": "free",
+            "hostname": "old-host.local",
+            "description": "Retired host",
+        },
+    )
+    address = db.get_addresses_by_subnet(subnet_id)[0]
+
+    response = client.post(f"/api/ipam/subnets/{subnet_id}/addresses/{address['id']}/release")
+
+    assert response.status_code == 200
+    assert response.json()["freeCount"] == 0
+    assert response.json()["recordedCount"] == 0
+    assert db.get_addresses_by_subnet(subnet_id) == []
+    audit = client.get(f"/api/ipam/audit/address/{address['id']}").json()
+    release = next(entry for entry in audit if entry["changeType"] == "release")
+    assert release["oldValue"]["status"] == "free"
+    assert release["oldValue"]["description"] == "Retired host"
+    assert release["newValue"] is None
+
+
+def test_release_rejects_used_address(client):
+    subnet_id = client.post("/api/ipam/subnets", json={"cidr": "10.0.3.0/29"}).json()["id"]
+    client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": "10.0.3.3", "status": "used"},
+    )
+    address = db.get_addresses_by_subnet(subnet_id)[0]
+
+    response = client.post(f"/api/ipam/subnets/{subnet_id}/addresses/{address['id']}/release")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Only free addresses can be released"
+    assert db.get_addresses_by_subnet(subnet_id)[0]["status"] == "used"
+
+
+def test_released_quiet_address_is_not_recreated_by_scan(client):
+    subnet_id = client.post("/api/ipam/subnets", json={"cidr": "10.0.4.0/29"}).json()["id"]
+    client.post(
+        f"/api/ipam/subnets/{subnet_id}/addresses",
+        json={"address": "10.0.4.3", "status": "free"},
+    )
+    address = db.get_addresses_by_subnet(subnet_id)[0]
+    client.post(f"/api/ipam/subnets/{subnet_id}/addresses/{address['id']}/release")
+
+    with patch.object(ipam_scan, "ping_host", return_value=False), patch.object(
+        ipam_scan, "reverse_dns", return_value=None
+    ):
+        response = client.post(f"/api/ipam/subnets/{subnet_id}/autodiscover")
+
+    assert response.status_code == 200
+    assert db.get_addresses_by_subnet(subnet_id) == []
+
+
 def test_scan_never_pings_reserved_address(client):
     create_resp = client.post("/api/ipam/subnets", json={"cidr": "10.0.0.0/29"})
     assert create_resp.status_code == 200

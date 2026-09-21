@@ -43,8 +43,10 @@ describe("IPAM audit helpers", () => {
 
   it("formats labels, tones, values, and page counts", () => {
     expect(auditEventLabel("dhcp_pool_move")).toBe("DHCP pool moved");
+    expect(auditEventLabel("release")).toBe("Address released");
     expect(auditEventLabel("custom_event")).toBe("Custom Event");
     expect(auditEventTone("subnet_delete")).toBe("danger");
+    expect(auditEventTone("release")).toBe("danger");
     expect(formatAuditValue({ enabled: true })).toBe('{"enabled":true}');
     expect(formatAuditValue(null)).toBe("—");
     expect(auditPageCount(51, 25)).toBe(3);

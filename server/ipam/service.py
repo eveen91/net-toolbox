@@ -83,6 +83,9 @@ class IpamService:
     def delete_address(self, *args, **kwargs):
         return self.translate_value_error(self.repository.delete_address, *args, **kwargs)
 
+    def release_address(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.release_address, *args, **kwargs)
+
     def delete_dhcp_pool(self, *args, **kwargs):
         return self.translate_value_error(self.repository.delete_dhcp_pool, *args, **kwargs)
 

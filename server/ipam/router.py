@@ -17,6 +17,7 @@ AUDIT_CHANGE_TYPES = frozenset({
     "create",
     "update",
     "delete",
+    "release",
     "reassign",
     "subnet_create",
     "subnet_update",
@@ -296,6 +297,15 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+
+
+    @router.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/release", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
+    def release_ipam_address(subnet_id: int, address_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
+        try:
+            return service.release_address(subnet_id, address_id, user_id=user["id"] if user else None)
+        except ValueError as exc:
+            detail = str(exc)
+            raise HTTPException(status_code=404 if detail in ("Subnet not found", "Address not found") else 409, detail=detail)
 
 
     @router.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])

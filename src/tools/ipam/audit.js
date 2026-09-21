@@ -2,6 +2,7 @@ export const AUDIT_EVENT_TYPES = [
   "create",
   "update",
   "delete",
+  "release",
   "reassign",
   "subnet_create",
   "subnet_update",
@@ -24,6 +25,7 @@ const AUDIT_EVENT_LABELS = {
   create: "Address created",
   update: "Address updated",
   delete: "Address deleted",
+  release: "Address released",
   reassign: "Address reassigned",
   subnet_create: "Subnet created",
   subnet_update: "Subnet updated",
@@ -48,7 +50,7 @@ export function auditEventLabel(changeType) {
 }
 
 export function auditEventTone(changeType) {
-  if (changeType?.includes("delete") || changeType?.includes("remove")) return "danger";
+  if (changeType?.includes("delete") || changeType?.includes("remove") || changeType === "release") return "danger";
   if (changeType?.includes("create") || changeType?.includes("add")) return "success";
   if (changeType?.includes("move") || changeType === "reassign") return "accent";
   if (changeType?.includes("update")) return "info";

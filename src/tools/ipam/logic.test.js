@@ -3,7 +3,9 @@ import {
   addressesToCsv,
   fetchAllAddressPages,
   heatmapPageForAddress,
+  isOutsidePointerStart,
   normalizeAddressPageLimit,
+  shouldCloseAddressPopover,
 } from "./logic.js";
 
 describe("IPAM address helpers", () => {
@@ -40,5 +42,22 @@ describe("IPAM address helpers", () => {
     expect(csv.split("\r\n")).toHaveLength(3);
     expect(csv).toContain('"one,primary"');
     expect(csv).toContain("10.0.0.2");
+  });
+
+  it("closes the address dialog for controls and matching async requests", () => {
+    expect(shouldCloseAddressPopover(undefined, "10.0.0.1")).toBe(true);
+    expect(shouldCloseAddressPopover({ type: "click" }, "10.0.0.1")).toBe(true);
+    expect(shouldCloseAddressPopover("10.0.0.1", "10.0.0.1")).toBe(true);
+    expect(shouldCloseAddressPopover("10.0.0.2", "10.0.0.1")).toBe(false);
+  });
+
+  it("only treats a pointer gesture that starts outside as an outside click", () => {
+    const inside = {};
+    const outside = {};
+    const container = { contains: (target) => target === inside };
+
+    expect(isOutsidePointerStart(container, inside)).toBe(false);
+    expect(isOutsidePointerStart(container, outside)).toBe(true);
+    expect(isOutsidePointerStart(null, outside)).toBe(false);
   });
 });

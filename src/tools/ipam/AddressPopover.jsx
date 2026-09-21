@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import AuditTimeline from "./AuditTimeline.jsx";
 import TagSelector from "./TagSelector.jsx";
-import { formatTimestamp } from "./logic.js";
-import { addAddress, deleteAddress, rescanAddress, updateAddress } from "./api.js";
+import { formatTimestamp, isOutsidePointerStart } from "./logic.js";
+import { addAddress, deleteAddress, releaseAddress, rescanAddress, updateAddress } from "./api.js";
 
 const MODE_ADD = "add";
 const MODE_VIEW = "view";
@@ -100,17 +100,17 @@ export default function AddressPopover({
   }, [ip, mode]);
 
   useEffect(() => {
-    const handleMouseDown = (event) => {
-      if (popoverRef.current && !popoverRef.current.contains(event.target)) onClose();
+    const handlePointerDown = (event) => {
+      if (isOutsidePointerStart(popoverRef.current, event.target)) onClose();
     };
     const handleKeyDown = (event) => {
       if (event.key === "Escape") onClose();
     };
 
-    document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose]);
@@ -191,11 +191,14 @@ export default function AddressPopover({
 
   const handleDelete = async () => {
     if (!address || pending) return;
+    const releasing = address.status === "free";
     setError(null);
-    setPendingAction("delete");
+    setPendingAction(releasing ? "release" : "delete");
     const requestVersion = selectionVersionRef.current;
     try {
-      const updated = await deleteAddress(subnetId, address.id);
+      const updated = releasing
+        ? await releaseAddress(subnetId, address.id)
+        : await deleteAddress(subnetId, address.id);
       onUpdated(updated);
       if (selectionVersionRef.current === requestVersion) onClose(ip);
     } catch (requestError) {
@@ -246,10 +249,7 @@ export default function AddressPopover({
       : `IP Address: ${ip}`;
 
   return (
-    <div
-      className={isModal ? "tool-modal-overlay" : undefined}
-      onClick={isModal ? onClose : undefined}
-    >
+    <div className={isModal ? "tool-modal-overlay" : undefined}>
       <div
         ref={popoverRef}
         className={isModal ? "tool-modal" : `ip-address-popover ip-address-popover-${placement}`}
@@ -279,7 +279,7 @@ export default function AddressPopover({
           type="button"
           ref={closeButtonRef}
           className={isModal ? "tool-modal-close" : "ip-address-popover-close"}
-          onClick={onClose}
+          onClick={() => onClose()}
           disabled={pending}
           aria-label="Close"
         >
@@ -333,7 +333,7 @@ export default function AddressPopover({
             <button className="tool-btn tool-btn-primary" type="submit" disabled={pending}>
               {pendingAction === "add" ? "Adding..." : "Add address"}
             </button>
-            <button className="tool-btn tool-btn-ghost" type="button" onClick={onClose} disabled={pending}>
+            <button className="tool-btn tool-btn-ghost" type="button" onClick={() => onClose()} disabled={pending}>
               Cancel
             </button>
           </div>
@@ -371,7 +371,7 @@ export default function AddressPopover({
           </div>
           {confirmingDelete ? (
             <div className="ip-address-popover-confirm">
-              <div>Delete this address record? This cannot be undone.</div>
+              <div>{address.status === "free" ? "Release this free address? Its stored metadata will be cleared and it will disappear from the address list." : "Delete this address record? This cannot be undone."}</div>
               <div className="ip-address-popover-actions">
                 <button
                   type="button"
@@ -379,7 +379,7 @@ export default function AddressPopover({
                   onClick={handleDelete}
                   disabled={pending}
                 >
-                  {pendingAction === "delete" ? "Deleting..." : "Confirm delete"}
+                  {pendingAction === "release" ? "Releasing..." : pendingAction === "delete" ? "Deleting..." : address.status === "free" ? "Confirm release" : "Confirm delete"}
                 </button>
                 <button
                   type="button"
@@ -407,7 +407,7 @@ export default function AddressPopover({
                 onClick={() => setConfirmingDelete(true)}
                 disabled={pending}
               >
-                Delete
+                {address.status === "free" ? "Release" : "Delete"}
               </button>
             </div>
           )}

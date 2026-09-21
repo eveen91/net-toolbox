@@ -65,6 +65,9 @@ class IpamRepository:
     def delete_address(self, *args, **kwargs):
         return self._db.delete_address(*args, **kwargs)
 
+    def release_address(self, *args, **kwargs):
+        return self._db.release_address(*args, **kwargs)
+
     def delete_dhcp_pool(self, *args, **kwargs):
         return self._db.delete_dhcp_pool(*args, **kwargs)
 

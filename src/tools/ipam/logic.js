@@ -32,6 +32,14 @@ export function formatTimestamp(iso) {
   }
 }
 
+export function shouldCloseAddressPopover(expectedIp, currentIp) {
+  return typeof expectedIp !== "string" || expectedIp === currentIp;
+}
+
+export function isOutsidePointerStart(container, target) {
+  return Boolean(container && !container.contains(target));
+}
+
 // Sorts dotted-quad addresses numerically (10.0.0.2 before 10.0.0.10)
 // rather than as plain strings.
 export function compareAddresses(a, b) {

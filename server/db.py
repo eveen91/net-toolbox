@@ -1825,6 +1825,48 @@ def update_address(
     return get_subnet(subnet_id)
 
 
+def release_address(subnet_id: int, address_id: int, user_id: Optional[int] = None) -> Dict:
+    conn = get_connection()
+    try:
+        subnet_row = conn.execute("SELECT id, cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        if subnet_row is None:
+            raise ValueError("Subnet not found")
+        addr_row = conn.execute(
+            "SELECT * FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id)
+        ).fetchone()
+        if addr_row is None:
+            raise ValueError("Address not found")
+        if addr_row["status"] != "free":
+            raise ValueError("Only free addresses can be released")
+        _log_address_change(
+            conn,
+            address_id=address_id,
+            user_id=user_id,
+            change_type="release",
+            old_value=json.dumps({
+                "address": addr_row["address"],
+                "status": addr_row["status"],
+                "allocationType": addr_row["allocation_type"],
+                "hostname": addr_row["hostname"],
+                "description": addr_row["description"],
+                "team": addr_row["team"],
+                "machineType": addr_row["machine_type"],
+                "vmCluster": addr_row["vm_cluster"],
+                "environment": addr_row["environment"],
+                "locked": bool(addr_row["locked"]),
+            }),
+            new_value=None,
+            description=f"Address released: {addr_row['address']}",
+            ip_address=addr_row["address"],
+            subnet_cidr=subnet_row["cidr"],
+        )
+        conn.execute("DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_subnet(subnet_id)
+
+
 def delete_address(subnet_id: int, address_id: int, user_id: Optional[int] = None) -> Dict:
     conn = get_connection()
     try:

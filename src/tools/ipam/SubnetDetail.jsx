@@ -10,7 +10,7 @@ import ScanStatusIcon from "./ScanStatusIcon.jsx";
 import SubnetHeatmap from "./SubnetHeatmap.jsx";
 import TagSelector from "./TagSelector.jsx";
 import { allocateNextAddress, getAllSubnetAddresses, updateSubnet } from "./api.js";
-import { addressesToCsv, ancestorChain, formatTimestamp, formatVlan, utilizationPercent } from "./logic.js";
+import { addressesToCsv, ancestorChain, formatTimestamp, formatVlan, shouldCloseAddressPopover, utilizationPercent } from "./logic.js";
 import { useIpamScan } from "./hooks/useIpamScan.js";
 
 function UtilizationBar({ subnet }) {
@@ -142,7 +142,7 @@ export default function SubnetDetail({
   };
 
   const closePopover = useCallback((expectedIp) => {
-    if (expectedIp && popoverIp !== expectedIp) return;
+    if (!shouldCloseAddressPopover(expectedIp, popoverIp)) return;
     const origin = popoverOriginRef.current;
     setPopoverIp(null);
     setPopoverCoords(null);

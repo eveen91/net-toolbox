@@ -174,6 +174,13 @@ export async function deleteAddress(subnetId, addressId) {
   return handle(res);
 }
 
+export async function releaseAddress(subnetId, addressId) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}/release`, {
+    method: "POST",
+  });
+  return handle(res);
+}
+
 export async function bulkUpdateAddresses(subnetId, addressIds, fields) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/bulk`, {
     method: "PATCH",

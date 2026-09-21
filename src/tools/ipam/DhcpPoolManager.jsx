@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   getDhcpPools,
   createDhcpPool,
@@ -7,6 +7,7 @@ import {
   moveDhcpPool,
   bulkMoveDhcpPools,
 } from "./api.js";
+import { isOutsidePointerStart } from "./logic.js";
 
 function isValidIPv4(ip) {
   const parts = ip.split(".");
@@ -35,12 +36,22 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [targetSubnetId, setTargetSubnetId] = useState("");
   const [moving, setMoving] = useState(false);
+  const modalRef = useRef(null);
 
   useEffect(() => {
     loadPools();
     setSelectedIds(new Set());
     setTargetSubnetId("");
   }, [subnetId]);
+
+  useEffect(() => {
+    if (!modalOpen) return undefined;
+    const handlePointerDown = (event) => {
+      if (!submitting && isOutsidePointerStart(modalRef.current, event.target)) closeModal();
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [modalOpen, submitting]);
 
   const loadPools = async () => {
     setError(null);
@@ -316,8 +327,8 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
       )}
 
       {modalOpen && (
-        <div className="tool-modal-overlay" onClick={closeModal}>
-          <div className="tool-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="tool-modal-overlay">
+          <div ref={modalRef} className="tool-modal">
             <div className="tool-modal-header">
               <h3>{editingPool ? "Edit DHCP Pool" : "Add DHCP Pool"}</h3>
               <button type="button" className="tool-modal-close" onClick={closeModal}>
