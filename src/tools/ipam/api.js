@@ -1,4 +1,5 @@
 import { apiFetch } from "../../apiFetch.js";
+import { buildAuditQueryParams } from "./audit.js";
 import { fetchAllAddressPages, normalizeAddressPageLimit } from "./logic.js";
 // Talks to the same backend as Routing Map (server/main.py), which stores
 // subnets and their recorded addresses in SQLite (see server/db.py).
@@ -473,16 +474,29 @@ export async function fetchSubnetAllocation(parentCidr, prefix) {
   return handle(res);
 }
 
-export async function getAuditLogForAddress(addressId, limit = 100) {
-  const res = await apiFetch(
-    `${BASE_URL}/api/ipam/audit/address/${addressId}?limit=${limit}`,
-  );
+export async function queryAuditLog(options = {}) {
+  const params = buildAuditQueryParams(options);
+  const suffix = params.size ? `?${params}` : "";
+  const res = await apiFetch(`${BASE_URL}/api/ipam/audit${suffix}`);
   return handle(res);
 }
 
-export async function getAuditLogForSubnet(subnetId, limit = 50) {
-  const res = await apiFetch(
-    `${BASE_URL}/api/ipam/audit/subnet/${subnetId}?limit=${limit}`,
-  );
-  return handle(res);
+export async function exportAuditLog(options = {}, admin = false) {
+  const params = buildAuditQueryParams(options);
+  const suffix = params.size ? `?${params}` : "";
+  let path = "/api/ipam/audit/export.csv";
+  if (!admin && options.addressId) path = `/api/ipam/audit/address/${options.addressId}/export.csv`;
+  else if (!admin && options.subnetId) path = `/api/ipam/audit/subnet/${options.subnetId}/export.csv`;
+  const res = await apiFetch(`${BASE_URL}${path}${suffix}`);
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail ? String(body.detail) : detail;
+    } catch {
+      detail = detail || "Export failed";
+    }
+    throw new Error(`Backend error (${res.status}): ${detail}`);
+  }
+  return res.blob();
 }

@@ -1260,7 +1260,42 @@ tr.ip-row-highlighted {
   margin-bottom: 0;
 }
 
-/* IPAM audit log: a compact operations ledger rather than a generic list. */
+.ip-detail-tabs,
+.ip-address-popover-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 18px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ip-detail-tabs button,
+.ip-address-popover-tabs button {
+  padding: 8px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+.ip-detail-tabs button:hover,
+.ip-detail-tabs button:focus-visible,
+.ip-address-popover-tabs button:hover,
+.ip-address-popover-tabs button:focus-visible {
+  color: var(--text);
+  outline: none;
+  background: var(--bg-hover);
+}
+.ip-detail-tabs button.active,
+.ip-address-popover-tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--accent-2);
+}
+.ip-address-popover-tabs {
+  margin: 0 0 14px;
+}
+.audit-history {
+  min-width: 0;
+}
 .audit-header {
   display: flex;
   justify-content: space-between;
@@ -1280,14 +1315,7 @@ tr.ip-row-highlighted {
   color: var(--muted);
   font-size: 13px;
 }
-.audit-eyebrow {
-  color: var(--accent-2);
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
+.audit-scope-bar,
 .audit-filter-bar {
   display: flex;
   align-items: flex-end;
@@ -1357,7 +1385,7 @@ button.audit-entry-header:focus-visible {
   outline: none;
 }
 .audit-type-badge {
-  min-width: 92px;
+  min-width: 118px;
   box-sizing: border-box;
   text-align: center;
   font-size: 10px;
@@ -1367,6 +1395,24 @@ button.audit-entry-header:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   flex-shrink: 0;
+  color: var(--muted);
+  background: var(--panel-muted);
+}
+.audit-type-success {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.audit-type-danger {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.audit-type-info {
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+}
+.audit-type-accent {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 .audit-target {
   display: flex;
@@ -1468,8 +1514,91 @@ button.audit-entry-header:focus-visible {
   font-weight: 500;
 }
 
-.audit-diff tr:last-child td {
+.audit-diff tr:last-child td,
+.audit-diff tr:last-child th {
   border-bottom: none;
+}
+.audit-field {
+  width: 22%;
+  font-family: var(--mono);
+  font-weight: 500;
+  color: var(--accent-2);
+}
+.audit-diff-empty {
+  padding: 8px 0;
+}
+.audit-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.audit-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.audit-history-compact .audit-header {
+  gap: 10px;
+  padding-bottom: 10px;
+}
+.audit-history-compact .audit-header h3 {
+  font-size: 14px;
+}
+.audit-history-compact .audit-header p {
+  display: none;
+}
+.audit-history-compact .audit-filter-bar {
+  align-items: stretch;
+  margin: 10px 0;
+  padding: 8px;
+}
+.audit-history-compact .audit-filter-field,
+.audit-history-compact .audit-filter-field .tool-input {
+  width: 100%;
+  min-width: 0;
+}
+.audit-history-compact .audit-refresh {
+  margin-left: 0;
+}
+.audit-history-compact button.audit-entry-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 7px;
+  padding: 9px;
+}
+.audit-history-compact .audit-type-badge {
+  min-width: 0;
+}
+.audit-history-compact .audit-desc {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  white-space: normal;
+}
+.audit-history-compact .audit-user,
+.audit-history-compact .audit-time {
+  min-width: 0;
+}
+.audit-history-compact .audit-user {
+  grid-column: 1;
+  grid-row: 3;
+}
+.audit-history-compact .audit-time {
+  grid-column: 2 / -1;
+  grid-row: 3;
+  text-align: right;
+}
+.audit-history-compact .audit-expand {
+  grid-column: 3;
+  grid-row: 1;
+}
+.audit-history-compact .audit-pagination {
+  align-items: flex-start;
+  flex-direction: column;
 }
 
 @media (max-width: 760px) {
@@ -1478,6 +1607,15 @@ button.audit-entry-header:focus-visible {
   }
   .audit-refresh {
     margin-left: 0;
+  }
+  .audit-filter-field,
+  .audit-filter-field .tool-input {
+    width: 100%;
+    min-width: 0;
+  }
+  .audit-pagination {
+    align-items: flex-start;
+    flex-direction: column;
   }
   .audit-entry-count {
     display: none;

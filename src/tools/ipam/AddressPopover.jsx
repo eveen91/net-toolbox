@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import AuditTimeline from "./AuditTimeline.jsx";
 import TagSelector from "./TagSelector.jsx";
 import { formatTimestamp } from "./logic.js";
 import { addAddress, deleteAddress, rescanAddress, updateAddress } from "./api.js";
@@ -73,6 +74,7 @@ export default function AddressPopover({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
+  const [viewSection, setViewSection] = useState("details");
   const pending = pendingAction !== null;
 
   useEffect(() => {
@@ -82,6 +84,7 @@ export default function AddressPopover({
     setConfirmingDelete(false);
     setError(null);
     setPendingAction(null);
+    setViewSection("details");
   // A refreshed subnet replaces the address object. Reset only when the user
   // selects another IP, so background updates never discard an active draft.
   }, [ip]);
@@ -325,6 +328,11 @@ export default function AddressPopover({
 
       {mode === MODE_VIEW && address && (
         <>
+          <div className="ip-address-popover-tabs" role="tablist" aria-label="Address sections">
+            <button type="button" role="tab" aria-selected={viewSection === "details"} aria-controls={`ip-address-details-${address.id}`} className={viewSection === "details" ? "active" : ""} onClick={() => setViewSection("details")}>Details</button>
+            <button type="button" role="tab" aria-selected={viewSection === "history"} aria-controls={`ip-address-history-${address.id}`} className={viewSection === "history" ? "active" : ""} onClick={() => setViewSection("history")}>History</button>
+          </div>
+          {viewSection === "details" ? <div id={`ip-address-details-${address.id}`} role="tabpanel">
           <div className="ip-address-popover-details">
             <Detail label="Hostname">{address.hostname || "-"}</Detail>
             <Detail label="Description">{address.description || "-"}</Detail>
@@ -386,6 +394,11 @@ export default function AddressPopover({
               >
                 Delete
               </button>
+            </div>
+          )}
+          </div> : (
+            <div id={`ip-address-history-${address.id}`} role="tabpanel">
+              <AuditTimeline key={address.id} addressId={address.id} title={`${address.address} history`} pageSize={10} compact showTarget={false} />
             </div>
           )}
         </>

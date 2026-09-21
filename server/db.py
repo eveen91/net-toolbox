@@ -1032,7 +1032,7 @@ def list_misplaced_addresses() -> List[Dict]:
     return misplaced
 
 
-def move_address(from_subnet_id: int, address_id: int, to_subnet_id: int) -> Dict:
+def move_address(from_subnet_id: int, address_id: int, to_subnet_id: int, user_id: Optional[int] = None) -> Dict:
     conn = get_connection()
     try:
         from_row = conn.execute(
@@ -1048,6 +1048,18 @@ def move_address(from_subnet_id: int, address_id: int, to_subnet_id: int) -> Dic
             raise ValueError("Destination subnet not found")
         validate_address_in_subnet(from_row["address"], to_subnet_row["cidr"])
         validate_address_not_in_dhcp_pool(conn, from_row["address"], to_subnet_id)
+        from_subnet_row = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (from_subnet_id,)).fetchone()
+        _log_address_change(
+            conn,
+            address_id=address_id,
+            user_id=user_id,
+            change_type="reassign",
+            old_value=json.dumps({"address": from_row["address"], "subnetId": from_subnet_id, "subnetCidr": from_subnet_row["cidr"] if from_subnet_row else None}),
+            new_value=json.dumps({"address": from_row["address"], "subnetId": to_subnet_id, "subnetCidr": to_subnet_row["cidr"]}),
+            description=f"Address reassigned: {from_row['address']} from {from_subnet_row['cidr'] if from_subnet_row else from_subnet_id} to {to_subnet_row['cidr']}",
+            ip_address=from_row["address"],
+            subnet_cidr=to_subnet_row["cidr"],
+        )
         conn.execute(
             "DELETE FROM ipam_addresses WHERE id = ? AND subnet_id = ?",
             (address_id, from_subnet_id),
@@ -1371,12 +1383,12 @@ def create_subnet(
     return get_subnet(subnet_id)
 
 
-def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, description: Optional[str] = None) -> Dict:
+def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, description: Optional[str] = None, user_id: Optional[int] = None) -> Dict:
     cidr = validate_cidr(cidr)
     validate_vlan(vlan)
     conn = get_connection()
     try:
-        existing = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        existing = conn.execute("SELECT id, cidr, vlan, description FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         if existing is None:
             raise ValueError("Subnet not found")
         network = ipaddress.ip_network(cidr)
@@ -1424,6 +1436,19 @@ def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, descrip
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'Subnet "{cidr}" already exists')
+        old_state = {"cidr": existing["cidr"], "vlan": existing["vlan"], "description": existing["description"]}
+        new_state = {"cidr": cidr, "vlan": vlan, "description": description}
+        if old_state != new_state:
+            _log_subnet_change(
+                conn,
+                subnet_id=subnet_id,
+                user_id=user_id,
+                change_type="subnet_update",
+                old_value=json.dumps(old_state),
+                new_value=json.dumps(new_state),
+                description="Subnet updated",
+                subnet_cidr=cidr,
+            )
         recompute_subnet_hierarchy(conn)
         conn.commit()
     finally:
@@ -2380,12 +2405,30 @@ def get_scan_concurrency_limit() -> int:
     return value
 
 
-def set_scan_concurrency_limit(value: int) -> int:
+def set_scan_concurrency_limit(value: int, user_id: Optional[int] = None) -> int:
     if value < SCAN_CONCURRENCY_MIN or value > SCAN_CONCURRENCY_MAX:
         raise ValueError(
             f"Concurrency limit must be between {SCAN_CONCURRENCY_MIN} and {SCAN_CONCURRENCY_MAX}"
         )
-    set_ipam_setting("scan_concurrency_limit", str(value))
+    old_value = get_scan_concurrency_limit()
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO ipam_settings (key, value) VALUES (?, ?)",
+            ("scan_concurrency_limit", str(value)),
+        )
+        if old_value != value:
+            _log_entity_change(
+                conn,
+                change_type="settings_update",
+                user_id=user_id,
+                old_value={"scanConcurrencyLimit": old_value},
+                new_value={"scanConcurrencyLimit": value},
+                description="IPAM scan concurrency limit updated",
+            )
+        conn.commit()
+    finally:
+        conn.close()
     return value
 
 
@@ -2403,6 +2446,7 @@ def add_dhcp_pool(
     end_ip: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Dict:
     try:
         start_addr = ipaddress.IPv4Address(start_ip)
@@ -2456,15 +2500,26 @@ def add_dhcp_pool(
             (subnet_id, start_ip, end_ip, name, description, updated_at),
         )
         pool_id = cur.lastrowid
-        # Re-check hierarchy now that the pool exists — if a more-specific
-        # subnet fully contains this range, auto-relocate into it.
         auto_relocate_dhcp_pools(conn)
-        conn.commit()
-
         row = conn.execute(
             "SELECT * FROM ipam_dhcp_pools WHERE id = ?", (pool_id,)
         ).fetchone()
-        return dict(row)
+        snapshot = dict(row)
+        actual_subnet = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (row["subnet_id"],)
+        ).fetchone()
+        _log_entity_change(
+            conn,
+            change_type="dhcp_pool_create",
+            user_id=user_id,
+            subnet_id=row["subnet_id"],
+            dhcp_pool_id=pool_id,
+            new_value=snapshot,
+            description=f"DHCP pool created: {start_ip}-{end_ip}",
+            subnet_cidr=actual_subnet["cidr"] if actual_subnet else subnet_row["cidr"],
+        )
+        conn.commit()
+        return snapshot
     finally:
         conn.close()
 
@@ -2481,15 +2536,30 @@ def get_dhcp_pools(subnet_id: int) -> List[Dict]:
         conn.close()
 
 
-def delete_dhcp_pool(subnet_id: int, pool_id: int) -> bool:
+def delete_dhcp_pool(subnet_id: int, pool_id: int, user_id: Optional[int] = None) -> bool:
     conn = get_connection()
     try:
-        cur = conn.execute(
-            "DELETE FROM ipam_dhcp_pools WHERE id = ? AND subnet_id = ?",
+        row = conn.execute(
+            "SELECT * FROM ipam_dhcp_pools WHERE id = ? AND subnet_id = ?",
             (pool_id, subnet_id),
+        ).fetchone()
+        if row is None:
+            return False
+        subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        snapshot = dict(row)
+        conn.execute("DELETE FROM ipam_dhcp_pools WHERE id = ?", (pool_id,))
+        _log_entity_change(
+            conn,
+            change_type="dhcp_pool_delete",
+            user_id=user_id,
+            subnet_id=subnet_id,
+            dhcp_pool_id=pool_id,
+            old_value=snapshot,
+            description=f"DHCP pool deleted: {row['start_ip']}-{row['end_ip']}",
+            subnet_cidr=subnet["cidr"] if subnet else None,
         )
         conn.commit()
-        return cur.rowcount > 0
+        return True
     finally:
         conn.close()
 
@@ -2501,6 +2571,7 @@ def update_dhcp_pool(
     end_ip: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Dict:
     try:
         start_addr = ipaddress.IPv4Address(start_ip)
@@ -2556,16 +2627,30 @@ def update_dhcp_pool(
             """,
             (start_ip, end_ip, name, description, updated_at, pool_id),
         )
-        conn.commit()
         updated_row = conn.execute(
             "SELECT * FROM ipam_dhcp_pools WHERE id = ?", (pool_id,)
         ).fetchone()
-        return dict(updated_row)
+        old_snapshot = dict(pool_row)
+        new_snapshot = dict(updated_row)
+        if old_snapshot != new_snapshot:
+            _log_entity_change(
+                conn,
+                change_type="dhcp_pool_update",
+                user_id=user_id,
+                subnet_id=subnet_id,
+                dhcp_pool_id=pool_id,
+                old_value=old_snapshot,
+                new_value=new_snapshot,
+                description=f"DHCP pool updated: {start_ip}-{end_ip}",
+                subnet_cidr=subnet_row["cidr"],
+            )
+        conn.commit()
+        return new_snapshot
     finally:
         conn.close()
 
 
-def bulk_move_dhcp_pools(pool_ids: List[int], to_subnet_id: int) -> Dict:
+def bulk_move_dhcp_pools(pool_ids: List[int], to_subnet_id: int, user_id: Optional[int] = None) -> Dict:
     if not pool_ids:
         raise ValueError("No pools selected")
     conn = get_connection()
@@ -2631,9 +2716,27 @@ def bulk_move_dhcp_pools(pool_ids: List[int], to_subnet_id: int) -> Dict:
                 })
                 continue
 
+            from_subnet = conn.execute(
+                "SELECT cidr FROM ipam_subnets WHERE id = ?", (p["subnet_id"],)
+            ).fetchone()
             conn.execute(
                 "UPDATE ipam_dhcp_pools SET subnet_id = ?, manually_placed = 1 WHERE id = ?",
                 (to_subnet_id, p["id"]),
+            )
+            old_snapshot = dict(p)
+            new_snapshot = dict(p)
+            new_snapshot["subnet_id"] = to_subnet_id
+            new_snapshot["manually_placed"] = 1
+            _log_entity_change(
+                conn,
+                change_type="dhcp_pool_bulk_move",
+                user_id=user_id,
+                subnet_id=to_subnet_id,
+                dhcp_pool_id=p["id"],
+                old_value=old_snapshot,
+                new_value=new_snapshot,
+                description=f"DHCP pool bulk moved from {from_subnet['cidr'] if from_subnet else p['subnet_id']} to {to_subnet_row['cidr']}",
+                subnet_cidr=to_subnet_row["cidr"],
             )
             moved_count += 1
 
@@ -2755,7 +2858,7 @@ def list_misplaced_dhcp_pools() -> List[Dict]:
         conn.close()
 
 
-def move_dhcp_pool(from_subnet_id: int, pool_id: int, to_subnet_id: int) -> Dict:
+def move_dhcp_pool(from_subnet_id: int, pool_id: int, to_subnet_id: int, user_id: Optional[int] = None) -> Dict:
     conn = get_connection()
     try:
         pool_row = conn.execute(
@@ -2795,9 +2898,27 @@ def move_dhcp_pool(from_subnet_id: int, pool_id: int, to_subnet_id: int) -> Dict
                     f"DHCP pool range overlaps with existing pool in destination subnet: {p['start_ip']}-{p['end_ip']}"
                 )
 
+        from_subnet_row = conn.execute(
+            "SELECT cidr FROM ipam_subnets WHERE id = ?", (from_subnet_id,)
+        ).fetchone()
         conn.execute(
             "UPDATE ipam_dhcp_pools SET subnet_id = ?, manually_placed = 1 WHERE id = ?",
             (to_subnet_id, pool_id),
+        )
+        old_snapshot = dict(pool_row)
+        new_snapshot = dict(pool_row)
+        new_snapshot["subnet_id"] = to_subnet_id
+        new_snapshot["manually_placed"] = 1
+        _log_entity_change(
+            conn,
+            change_type="dhcp_pool_move",
+            user_id=user_id,
+            subnet_id=to_subnet_id,
+            dhcp_pool_id=pool_id,
+            old_value=old_snapshot,
+            new_value=new_snapshot,
+            description=f"DHCP pool moved from {from_subnet_row['cidr'] if from_subnet_row else from_subnet_id} to {to_subnet_row['cidr']}",
+            subnet_cidr=to_subnet_row["cidr"],
         )
         conn.commit()
         return {"fromSubnet": get_subnet(from_subnet_id), "toSubnet": get_subnet(to_subnet_id)}
@@ -2832,7 +2953,7 @@ def _validate_tag_color(color: str) -> str:
     return color
 
 
-def create_tag(name: str, description: Optional[str] = None, color: Optional[str] = None) -> Dict:
+def create_tag(name: str, description: Optional[str] = None, color: Optional[str] = None, user_id: Optional[int] = None) -> Dict:
     name = _validate_tag_name(name)
     if description is not None:
         description = description.strip()
@@ -2849,8 +2970,21 @@ def create_tag(name: str, description: Optional[str] = None, color: Optional[str
             """,
             (name, description, color, _now(), _now()),
         )
-        conn.commit()
         tag_id = cur.lastrowid
+        snapshot = {
+            "id": tag_id,
+            "name": name,
+            "description": description,
+            "color": color,
+        }
+        _log_entity_change(
+            conn,
+            change_type="tag_create",
+            user_id=user_id,
+            new_value=snapshot,
+            description=f"Tag created: {name}",
+        )
+        conn.commit()
         return get_tag(tag_id)
     finally:
         conn.close()
@@ -2893,74 +3027,136 @@ def get_tags() -> List[Dict]:
         conn.close()
 
 
-def delete_tag(tag_id: int) -> bool:
+def delete_tag(tag_id: int, user_id: Optional[int] = None) -> bool:
     conn = get_connection()
     try:
-        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        tag = conn.execute("SELECT * FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
         if tag is None:
             return False
+        snapshot = dict(tag)
         conn.execute("DELETE FROM ipam_tags WHERE id = ?", (tag_id,))
+        _log_entity_change(
+            conn,
+            change_type="tag_delete",
+            user_id=user_id,
+            old_value=snapshot,
+            description=f"Tag deleted: {tag['name']}",
+        )
         conn.commit()
         return True
     finally:
         conn.close()
 
 
-def add_subnet_tag(subnet_id: int, tag_id: int) -> None:
+def add_subnet_tag(subnet_id: int, tag_id: int, user_id: Optional[int] = None) -> None:
     conn = get_connection()
     try:
-        subnet = conn.execute("SELECT id FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        subnet = conn.execute("SELECT id, cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         if subnet is None:
             raise ValueError(f"Subnet {subnet_id} not found")
-        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        tag = conn.execute("SELECT id, name FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
         if tag is None:
             raise ValueError(f"Tag {tag_id} not found")
-        conn.execute(
+        cur = conn.execute(
             "INSERT OR IGNORE INTO ipam_tag_subnets (tag_id, subnet_id) VALUES (?, ?)",
             (tag_id, subnet_id),
         )
+        if cur.rowcount:
+            _log_entity_change(
+                conn,
+                change_type="subnet_tag_add",
+                user_id=user_id,
+                subnet_id=subnet_id,
+                new_value={"tagId": tag_id, "tagName": tag["name"]},
+                description=f"Tag added to subnet: {tag['name']}",
+                subnet_cidr=subnet["cidr"],
+            )
         conn.commit()
     finally:
         conn.close()
 
 
-def remove_subnet_tag(subnet_id: int, tag_id: int) -> None:
+def remove_subnet_tag(subnet_id: int, tag_id: int, user_id: Optional[int] = None) -> None:
     conn = get_connection()
     try:
-        conn.execute(
+        subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        tag = conn.execute("SELECT name FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        cur = conn.execute(
             "DELETE FROM ipam_tag_subnets WHERE tag_id = ? AND subnet_id = ?",
             (tag_id, subnet_id),
         )
+        if cur.rowcount:
+            _log_entity_change(
+                conn,
+                change_type="subnet_tag_remove",
+                user_id=user_id,
+                subnet_id=subnet_id,
+                old_value={"tagId": tag_id, "tagName": tag["name"] if tag else None},
+                description=f"Tag removed from subnet: {tag['name'] if tag else tag_id}",
+                subnet_cidr=subnet["cidr"] if subnet else None,
+            )
         conn.commit()
     finally:
         conn.close()
 
 
-def add_address_tag(address_id: int, tag_id: int) -> None:
+def add_address_tag(address_id: int, tag_id: int, user_id: Optional[int] = None) -> None:
     conn = get_connection()
     try:
-        addr = conn.execute("SELECT id FROM ipam_addresses WHERE id = ?", (address_id,)).fetchone()
+        addr = conn.execute(
+            "SELECT a.id, a.address, a.subnet_id, s.cidr FROM ipam_addresses a JOIN ipam_subnets s ON s.id = a.subnet_id WHERE a.id = ?",
+            (address_id,),
+        ).fetchone()
         if addr is None:
             raise ValueError(f"Address {address_id} not found")
-        tag = conn.execute("SELECT id FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        tag = conn.execute("SELECT id, name FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
         if tag is None:
             raise ValueError(f"Tag {tag_id} not found")
-        conn.execute(
+        cur = conn.execute(
             "INSERT OR IGNORE INTO ipam_tag_addresses (tag_id, address_id) VALUES (?, ?)",
             (tag_id, address_id),
         )
+        if cur.rowcount:
+            _log_entity_change(
+                conn,
+                change_type="address_tag_add",
+                user_id=user_id,
+                address_id=address_id,
+                subnet_id=addr["subnet_id"],
+                new_value={"tagId": tag_id, "tagName": tag["name"]},
+                description=f"Tag added to address: {tag['name']}",
+                ip_address=addr["address"],
+                subnet_cidr=addr["cidr"],
+            )
         conn.commit()
     finally:
         conn.close()
 
 
-def remove_address_tag(address_id: int, tag_id: int) -> None:
+def remove_address_tag(address_id: int, tag_id: int, user_id: Optional[int] = None) -> None:
     conn = get_connection()
     try:
-        conn.execute(
+        addr = conn.execute(
+            "SELECT a.address, a.subnet_id, s.cidr FROM ipam_addresses a JOIN ipam_subnets s ON s.id = a.subnet_id WHERE a.id = ?",
+            (address_id,),
+        ).fetchone()
+        tag = conn.execute("SELECT name FROM ipam_tags WHERE id = ?", (tag_id,)).fetchone()
+        cur = conn.execute(
             "DELETE FROM ipam_tag_addresses WHERE tag_id = ? AND address_id = ?",
             (tag_id, address_id),
         )
+        if cur.rowcount:
+            _log_entity_change(
+                conn,
+                change_type="address_tag_remove",
+                user_id=user_id,
+                address_id=address_id,
+                subnet_id=addr["subnet_id"] if addr else None,
+                old_value={"tagId": tag_id, "tagName": tag["name"] if tag else None},
+                description=f"Tag removed from address: {tag['name'] if tag else tag_id}",
+                ip_address=addr["address"] if addr else None,
+                subnet_cidr=addr["cidr"] if addr else None,
+            )
         conn.commit()
     finally:
         conn.close()
@@ -3361,6 +3557,42 @@ def _log_subnet_change(
     )
 
 
+def _log_entity_change(
+    conn,
+    change_type: str,
+    user_id: Optional[int] = None,
+    address_id: Optional[int] = None,
+    subnet_id: Optional[int] = None,
+    dhcp_pool_id: Optional[int] = None,
+    old_value: Optional[Dict] = None,
+    new_value: Optional[Dict] = None,
+    description: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    subnet_cidr: Optional[str] = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO ipam_audit_log
+            (address_id, subnet_id, dhcp_pool_id, user_id, change_type, old_value,
+             new_value, description, ip_address, subnet_cidr, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            address_id,
+            subnet_id,
+            dhcp_pool_id,
+            user_id,
+            change_type,
+            json.dumps(old_value) if old_value is not None else None,
+            json.dumps(new_value) if new_value is not None else None,
+            description,
+            ip_address,
+            subnet_cidr,
+            _now(),
+        ),
+    )
+
+
 def _log_address_change(
     conn,
     address_id: Optional[int],
@@ -3394,6 +3626,74 @@ def _log_address_change(
         ),
     )
     conn.execute("PRAGMA foreign_keys = ON")
+
+
+def query_audit_log(
+    subnet_id: Optional[int] = None,
+    address_id: Optional[int] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
+    change_types: Optional[List[str]] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> Dict:
+    conn = get_connection()
+    try:
+        clauses = []
+        params: List = []
+        if address_id is not None:
+            clauses.append("address_id = ?")
+            params.append(address_id)
+        elif subnet_id is not None:
+            subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+            address_rows = conn.execute(
+                "SELECT id FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)
+            ).fetchall()
+            address_ids = [row["id"] for row in address_rows]
+            subnet_clauses = ["subnet_id = ?"]
+            subnet_params: List = [subnet_id]
+            if subnet is not None:
+                subnet_clauses.append("subnet_cidr = ?")
+                subnet_params.append(subnet["cidr"])
+            if address_ids:
+                subnet_clauses.append(
+                    f"address_id IN ({','.join('?' for _ in address_ids)})"
+                )
+                subnet_params.extend(address_ids)
+            clauses.append(f"({' OR '.join(subnet_clauses)})")
+            params.extend(subnet_params)
+        if start_time:
+            clauses.append("created_at >= ?")
+            params.append(start_time)
+        if end_time:
+            clauses.append("created_at <= ?")
+            params.append(end_time)
+        if change_types:
+            clauses.append(f"change_type IN ({','.join('?' for _ in change_types)})")
+            params.extend(change_types)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        total = conn.execute(
+            f"SELECT COUNT(*) AS total FROM ipam_audit_log {where}", params
+        ).fetchone()["total"]
+        rows = conn.execute(
+            f"""
+            SELECT id, address_id, subnet_id, dhcp_pool_id, user_id, change_type,
+                   old_value, new_value, description, ip_address, subnet_cidr, created_at
+            FROM ipam_audit_log
+            {where}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (*params, limit, offset),
+        ).fetchall()
+        return {
+            "entries": [dict(row) for row in rows],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    finally:
+        conn.close()
 
 
 def get_address_audit_log(

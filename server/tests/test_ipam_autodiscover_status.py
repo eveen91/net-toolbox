@@ -3,7 +3,7 @@ import time
 from unittest.mock import patch
 
 import ipam_scan
-import main
+from ipam import scan_service
 
 
 def wait_for_job_done(job_id, timeout=5.0):
@@ -15,7 +15,7 @@ def wait_for_job_done(job_id, timeout=5.0):
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        job = main.SCAN_JOBS.get(job_id)
+        job = scan_service.SCAN_JOBS.get(job_id)
         if job is None or job["status"] != "running":
             return job
         time.sleep(0.05)
