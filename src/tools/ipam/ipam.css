@@ -1,6 +1,21 @@
 /* Styles unique to the IPAM tool. Shared panel/form/table styles live in
    ../shared.css and are imported at the app shell level. */
 
+.ip-inventory-view-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 18px 0 12px;
+}
+
+.ip-quality-toolbar,
+.ip-quality-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
 .ip-divider {
   border: none;
   border-top: 1px solid var(--border-soft);
@@ -24,7 +39,7 @@
   font-family: var(--mono);
   font-size: 10.5px;
   color: var(--accent-2);
-  background: #0a121e;
+  background: var(--input-bg);
   border: 1px solid var(--border-soft);
   border-radius: 999px;
   padding: 1px 7px;
@@ -45,7 +60,7 @@
   height: 6px;
   border-radius: 999px;
   overflow: hidden;
-  background: #0a121e;
+  background: var(--input-bg);
   border: 1px solid var(--border-soft);
   margin: 14px 0 4px;
 }
@@ -154,7 +169,7 @@ th.ip-actions-cell {
   cursor: pointer;
 }
 .ip-child-row:hover {
-  background: #17233688;
+  background: var(--bg-hover);
 }
 
 .tool-table-wrap.ip-table-wrap-full {
@@ -281,7 +296,7 @@ th.ip-actions-cell {
 }
 .ip-search-option:hover,
 .ip-search-option.highlighted {
-  background: #17233688;
+  background: var(--bg-hover);
 }
 .ip-search-option.current {
   background: var(--accent);
@@ -289,7 +304,7 @@ th.ip-actions-cell {
 .ip-search-option.current .ip-search-option-cidr,
 .ip-search-option.current .tool-hint,
 .ip-search-option.current .ip-subnet-counts {
-  color: #06211f;
+  color: var(--primary-text);
 }
 .ip-search-option-top {
   display: flex;
@@ -692,6 +707,57 @@ tr.ip-row-highlighted {
   }
 }
 
+@media (max-width: 760px) {
+  .ip-dashboard-table-wrap {
+    overflow: visible;
+  }
+
+  .ip-dashboard-table,
+  .ip-dashboard-table tbody,
+  .ip-dashboard-table tr,
+  .ip-dashboard-table td {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .ip-dashboard-table thead {
+    display: none;
+  }
+
+  .ip-dashboard-table tr {
+    padding: 12px;
+    border-bottom: 1px solid var(--border-soft);
+  }
+
+  .ip-dashboard-table td {
+    display: grid;
+    grid-template-columns: minmax(100px, 38%) 1fr;
+    gap: 10px;
+    padding: 5px 0;
+    border: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .ip-dashboard-table td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  .ip-dashboard-table .ip-actions-cell {
+    text-align: left;
+  }
+
+  .ip-dashboard-table .ip-actions-cell .tool-btn {
+    width: 100%;
+  }
+}
+
 @media (max-width: 480px) {
   .ip-address-filters {
     grid-template-columns: 1fr;
@@ -741,7 +807,8 @@ tr.ip-row-highlighted {
      drifted out of sync with where the grid actually put each cell. With
      the column count coming from the same JS value in both places, cells
      and overlays can never disagree about the grid's shape. */
-  grid-template-columns: repeat(var(--ip-heatmap-cols, 32), minmax(14px, 1fr));
+  /* Keep tiles compact on wide workspaces. Match CELL_MIN_PX in SubnetHeatmap. */
+  grid-template-columns: repeat(var(--ip-heatmap-cols, 25), 24px);
   gap: 3px;
   margin: 15px 0;
 }
@@ -1740,3 +1807,10 @@ button.audit-entry-header:focus-visible {
     grid-row: 1;
   }
 }
+
+.ip-permission-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+.ip-move-subnet { margin: 0 0 20px; }
+.ip-move-subnet fieldset { border: 0; padding: 12px 0; margin: 0; min-width: 0; }
+.ip-move-subnet select { display: inline-block; width: auto; max-width: 100%; margin: 0 12px 12px 8px; }
+.ip-move-subnet p { overflow-wrap: anywhere; }

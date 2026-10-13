@@ -19,7 +19,11 @@ export async function runConnectionTest(payload) {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ? JSON.stringify(body.detail) : detail;
+      if (typeof body.detail === "string") detail = body.detail;
+      else if (Array.isArray(body.detail)) detail = body.detail.map(item => {
+        const field = (item.loc || []).filter(part => part !== "body").join(".");
+        return `${field ? `${field}: ` : ""}${item.msg || "Invalid value"}`;
+      }).join("; ");
     } catch {
       // ignore — keep statusText
     }

@@ -1,0 +1,472 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<title id="title">Device Visualization — top navigation alternative</title>
+<desc id="desc">Static design proposal with illustrative data. A single top navigation bar frees 216 pixels for module content. Infrastructure, Diagnostics and Utilities menus provide module navigation. Not a working application.</desc>
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#11161D"/>
+<rect x="0" y="0" width="1440" height="60" rx="0" fill="#181F28"/>
+<path d="M0 60H1440" stroke="#344252"/>
+<text x="24" y="37" font-family="DejaVu Sans Mono, monospace" font-size="19" font-weight="600" fill="#E8EDF3">net::toolbox</text>
+<text x="205" y="36" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Workspace</text>
+<rect x="306" y="12" width="148" height="36" rx="6" fill="#203D3A"/>
+<text x="318" y="36" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#72D6C3">Infrastructure</text>
+<path d="M435 27L439 31L443 27" fill="none" stroke="#72D6C3" stroke-width="1.5"/>
+<text x="480" y="36" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Diagnostics</text>
+<path d="M567 27L571 31L575 27" fill="none" stroke="#A5B2C2" stroke-width="1.5"/>
+<text x="608" y="36" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Utilities</text>
+<path d="M670 27L674 31L678 27" fill="none" stroke="#A5B2C2" stroke-width="1.5"/>
+<text x="716" y="36" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Administration</text>
+<path d="M868 16L868 44" stroke="#344252"/>
+<text x="895" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Tenant</text>
+<rect x="950" y="12" width="172" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="962" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Example tenant</text>
+<text x="1150" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">network.admin</text>
+<rect x="1312" y="12" width="104" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="1324" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Account</text>
+<text x="24" y="108" font-family="Inter, DejaVu Sans, sans-serif" font-size="26" font-weight="600" fill="#E8EDF3">Device Visualization</text>
+<text x="24" y="136" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Document physical ports, destinations and VLAN assignments.</text>
+<rect x="1270" y="88" width="146" height="36" rx="6" fill="#72D6C3"/>
+<text x="1282" y="111" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#10231F">Add device</text>
+<text x="24" y="185" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Devices</text>
+<path d="M24 200H82" stroke="#72D6C3"/>
+<text x="100" y="185" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">History lookup</text>
+<path d="M24 202H1416" stroke="#344252"/>
+<rect x="0" y="874" width="1440" height="26" rx="0" fill="#202A35"/>
+<text x="24" y="892" font-family="Inter, DejaVu Sans, sans-serif" font-size="10" font-weight="400" fill="#A5B2C2">TOP NAVIGATION ALTERNATIVE · ILLUSTRATIVE DATA · 216 PX MORE CONTENT WIDTH · NOT A LIVE SYSTEM</text>
+<rect xmlns="http://www.w3.org/2000/svg" x="24.0" y="220" width="214.46" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="39.14" y="243" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Devices: sw-core-01</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="268.73" y="244" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Device list collapsed while editing a port</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="24.0" y="272" width="1042.0" height="574" rx="8" fill="#181F28" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="49.23" y="310" font-family="Inter, DejaVu Sans, sans-serif" font-size="24" font-weight="600" fill="#E8EDF3">sw-core-01</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="49.23" y="338" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Switch · Example chassis · 56 ports · 32 assigned</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="821.27" y="290" width="216.98" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="836.41" y="313" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Edit device</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="49.23" y="382" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Panel</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="150.15" y="382" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Port table</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="293.96" y="382" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">History</text>
+
+<path xmlns="http://www.w3.org/2000/svg" d="M49.23 396.0H1038.25" stroke="#344252" />
+
+<path xmlns="http://www.w3.org/2000/svg" d="M49.23 396.0H102.21" stroke="#72D6C3" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="49.23" y="412" width="259.87" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="64.37" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Find port by name</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="440.3" y="412" width="83.26" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="455.43" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Fit</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="536.17" y="412" width="50.46" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="551.31" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">−</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="608.08" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Fit</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="657.27" y="412" width="50.46" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="672.41" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">+</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="722.87" y="412" width="146.33" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="738.01" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Fullscreen</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="49.23" y="481" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#F1C277">Saved documentation · No live link status</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="49.23" y="504" width="989.02" height="196" rx="6" fill="#11161D" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="71.94" y="529" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">FRONT PANEL · ALL GROUPS VISIBLE</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="71.94" y="559" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Ethernet · 48 ports · 1G</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="71.94" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="76.98" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="75.72" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">1</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="71.94" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="76.98" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="75.72" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">2</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="100.95" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="106.0" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="104.74" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">3</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="100.95" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="106.0" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="104.74" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">4</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="129.97" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="135.01" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="133.75" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">5</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="129.97" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="135.01" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="133.75" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">6</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="158.98" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="164.03" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="162.77" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">7</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="158.98" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="164.03" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="162.77" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">8</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="188.0" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="193.04" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="191.78" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">9</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="188.0" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="193.04" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="191.78" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">10</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="217.01" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="222.06" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="220.79" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">11</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="217.01" y="620" width="23.97" height="24" rx="2" fill="#203D3A" stroke="#72D6C3" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="222.06" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="220.79" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">12</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="246.02" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="251.07" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="249.81" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">13</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="246.02" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="251.07" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="249.81" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">14</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="275.04" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="280.08" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="278.82" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">15</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="275.04" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="280.08" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="278.82" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">16</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="304.05" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="309.1" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="307.84" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">17</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="304.05" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="309.1" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="307.84" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">18</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="333.07" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="338.11" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="336.85" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">19</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="333.07" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="338.11" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="336.85" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">20</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="362.08" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="367.13" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="365.87" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">21</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="362.08" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="367.13" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="365.87" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">22</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="391.1" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="396.14" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="394.88" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">23</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="391.1" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="396.14" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="394.88" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">24</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="420.11" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="425.16" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="423.9" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">25</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="420.11" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="425.16" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="423.9" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">26</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="449.13" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="454.17" y="582" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="452.91" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">27</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="449.13" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="454.17" y="624" width="13.88" height="7" rx="1" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="452.91" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">28</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="478.14" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="483.19" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="481.92" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">29</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="478.14" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="483.19" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="481.92" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">30</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="507.15" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="512.2" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="510.94" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">31</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="507.15" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="512.2" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="510.94" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">32</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="536.17" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="541.22" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="539.95" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">33</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="536.17" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="541.22" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="539.95" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">34</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="565.18" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="570.23" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="568.97" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">35</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="565.18" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="570.23" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="568.97" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">36</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="594.2" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="599.24" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="597.98" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">37</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="594.2" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="599.24" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="597.98" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">38</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="623.21" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="628.26" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="627.0" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">39</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="623.21" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="628.26" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="627.0" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">40</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="652.23" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="657.27" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="656.01" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">41</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="652.23" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="657.27" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="656.01" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">42</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="681.24" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="686.29" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="685.03" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">43</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="681.24" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="686.29" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="685.03" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">44</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="710.26" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="715.3" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="714.04" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">45</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="710.26" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="715.3" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="714.04" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">46</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="739.27" y="578" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="744.32" y="582" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="743.06" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">47</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="739.27" y="620" width="23.97" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="744.32" y="624" width="13.88" height="7" rx="1" fill="#A5B2C2" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="743.06" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">48</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="790.99" y="559" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#E8EDF3">SFP · 4 × 10G</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="790.99" y="578" width="35.32" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="797.3" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">49</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="790.99" y="620" width="35.32" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="797.3" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">50</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="831.36" y="578" width="35.32" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="837.67" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">51</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="831.36" y="620" width="35.32" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="837.67" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">52</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="894.44" y="559" font-family="Inter, DejaVu Sans, sans-serif" font-size="10" font-weight="400" fill="#E8EDF3">QSFP · 4 × 40G</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="894.44" y="578" width="42.89" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="904.53" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">53</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="894.44" y="620" width="42.89" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="904.53" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">54</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="942.37" y="578" width="42.89" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="952.46" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">55</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="942.37" y="620" width="42.89" height="24" rx="2" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="952.46" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">56</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="71.94" y="680" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">Wider overview. Full names and editable data remain in the inspector.</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="49.23" y="728" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#72D6C3">Assigned</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="177.9" y="728" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Unassigned</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="336.85" y="728" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Outline: selected port</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="49.23" y="778" font-family="DejaVu Sans Mono, monospace" font-size="15" font-weight="600" fill="#E8EDF3">Selected: 1/1/12 · Ethernet · 1G</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="49.23" y="805" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">For dense panels, use Port table or zoom to select precisely.</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="1082.0" y="220" width="334.0" height="626" rx="8" fill="#181F28" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="255" font-family="DejaVu Sans Mono, monospace" font-size="22" font-weight="600" fill="#E8EDF3">1/1/12</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="280" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Ethernet · 1G · Saved assignment</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="318" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Port label</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="1102.0" y="328" width="294.0" height="38" rx="6" fill="#11161D" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="1112.0" y="353" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Application server 02</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="388" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Leads to</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="1102.0" y="398" width="294.0" height="38" rx="6" fill="#11161D" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="1112.0" y="423" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">app-prod-02 / NIC 1</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="458" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Port mode</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="1102.0" y="468" width="294.0" height="38" rx="6" fill="#11161D" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="1112.0" y="493" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Access</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="528" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Access VLAN</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="1102.0" y="538" width="294.0" height="38" rx="6" fill="#11161D" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="1112.0" y="563" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">200</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="610" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#F1C277">Documentation only.</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="632" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">No device configuration is applied.</text>
+
+<text xmlns="http://www.w3.org/2000/svg" x="1102.0" y="723" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#72D6C3">Open device history</text>
+
+<path xmlns="http://www.w3.org/2000/svg" d="M1102.00 780.0H1396.00" stroke="#344252" />
+
+<rect xmlns="http://www.w3.org/2000/svg" x="1102.0" y="796" width="154.0" height="36" rx="6" fill="#72D6C3" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="1114.0" y="819" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#10231F">Save assignment</text>
+
+<rect xmlns="http://www.w3.org/2000/svg" x="1268.0" y="796" width="128.0" height="36" rx="6" fill="#202A35" stroke="#344252" />
+
+<text xmlns="http://www.w3.org/2000/svg" x="1280.0" y="819" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Cancel</text>
+
+</svg>

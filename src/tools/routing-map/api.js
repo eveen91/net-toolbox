@@ -48,3 +48,18 @@ export async function deleteRoutingHost(host) {
   });
   return handle(res);
 }
+export async function listRoutingMoveTargets() {
+  return handle(await apiFetch(`${BASE_URL}/api/routing/move-targets`));
+}
+
+export async function previewRoutingHostMove(host, targetTenantId) {
+  const query = new URLSearchParams({ targetTenantId });
+  return handle(await apiFetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}/move-preview?${query}`));
+}
+
+export async function moveRoutingHost(host, targetTenantId, expectedVersion) {
+  return handle(await apiFetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}/move`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetTenantId, expectedVersion }),
+  }));
+}

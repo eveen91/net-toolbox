@@ -16,3 +16,5 @@ dist/*
 /.opencode/
 /AGENTS.md
 /graphify-out/
+server/tenants/
+/.impeccable/

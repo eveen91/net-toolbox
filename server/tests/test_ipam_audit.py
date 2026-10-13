@@ -71,7 +71,7 @@ def test_subnet_create_and_delete_are_audited(client):
     assert create_response.status_code == 200
     subnet_id = create_response.json()["id"]
 
-    delete_response = client.delete(f"/api/ipam/subnets/{subnet_id}")
+    delete_response = client.request("DELETE", f"/api/ipam/subnets/{subnet_id}", json={"reason": "Audit regression"})
     assert delete_response.status_code == 200
 
     export_response = client.get("/api/ipam/audit/export")
@@ -91,7 +91,9 @@ def test_subnet_create_and_delete_are_audited(client):
     assert delete_entry["addressId"] is None
     assert delete_entry["subnetId"] == subnet_id
     assert delete_entry["username"] == user["username"]
-    assert delete_entry["oldValue"] == create_entry["newValue"]
+    assert {key: delete_entry["oldValue"][key] for key in create_entry["newValue"]} == create_entry["newValue"]
+    assert delete_entry["oldValue"]["id"] == subnet_id
+    assert delete_entry["oldValue"]["addresses"] == []
 
     subnet_response = client.get(f"/api/ipam/audit/subnet/{subnet_id}")
     assert subnet_response.status_code == 200
@@ -103,7 +105,7 @@ def test_subnet_create_and_delete_are_audited(client):
 
 def test_deleted_subnet_audit_entries_survive_database_reinitialization(client):
     subnet = db.create_subnet("10.60.70.0/24")
-    assert db.delete_subnet(subnet["id"])
+    assert db.delete_subnet(subnet["id"], "Audit regression")
 
     db.init_db()
 

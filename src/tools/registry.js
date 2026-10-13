@@ -1,3 +1,6 @@
+import React from "react";
+import DeviceVisualization from "./device-visualization/DeviceVisualization.jsx";
+import DeviceIcon from "./device-visualization/DeviceIcon.jsx";
 import SubnetSplitter from "./subnet-splitter/SubnetSplitter.jsx";
 import ConnectionTest from "./connection-test/ConnectionTest.jsx";
 import RoutingMap from "./routing-map/RoutingMap.jsx";
@@ -11,8 +14,10 @@ import PostChangeValidation from "./post-change-validation/PostChangeValidation.
 //   2. Import it below
 //   3. Add an entry to this array — the toolbar and home page pick it up automatically
 export const TOOLS = [
+  { id: "device-visualization", name: "Device Visualization", icon: React.createElement(DeviceIcon), tagline: "Map physical ports on switches, firewalls and servers.", status: "live", Component: DeviceVisualization },
   {
     id: "subnet-splitter",
+    scope: "global",
     name: "Subnet Splitter",
     icon: "/⊃",
     tagline: "Carve a network into the largest CIDR blocks around excluded ranges.",
@@ -37,6 +42,7 @@ export const TOOLS = [
   },
   {
     id: "ip-calculator",
+    scope: "global",
     name: "IP Calculator",
     icon: "#",
     tagline: "Enter an IP and netmask to get the network, broadcast, and usable host range.",
@@ -74,13 +80,14 @@ export const TOOLS = [
 // meaning unrestricted access — see server/auth_db.py's ADMIN_ROLE_NAME.
 export function hasToolAccess(permissions, toolId) {
   if (!permissions) return false;
-  return permissions.includes("*") || permissions.includes(toolId);
+  return permissions.includes("*") || permissions.includes(toolId) ||
+    (toolId === "ipam" && permissions.includes("ipam.read"));
 }
 
 // Live tools a given user is allowed to see, given their role permissions.
 // When login isn't required there's no user/role to check against, so
 // everything stays visible — matches the app's existing "open" behavior.
 export function visibleTools(user, loginRequired) {
-  if (!loginRequired || !user) return TOOLS;
-  return TOOLS.filter((tool) => hasToolAccess(user.permissions, tool.id));
+  if (!user) return loginRequired ? [] : TOOLS;
+  return TOOLS.filter((tool) => hasToolAccess(tool.scope === "global" ? (user.globalPermissions || user.permissions) : user.permissions, tool.id));
 }

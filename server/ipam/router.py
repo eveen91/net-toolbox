@@ -22,6 +22,7 @@ AUDIT_CHANGE_TYPES = frozenset({
     "subnet_create",
     "subnet_update",
     "subnet_delete",
+    "subnet_tenant_move",
     "dhcp_pool_create",
     "dhcp_pool_update",
     "dhcp_pool_delete",
@@ -34,6 +35,10 @@ AUDIT_CHANGE_TYPES = frozenset({
     "address_tag_add",
     "address_tag_remove",
     "settings_update",
+    "archive_restore",
+    "range_reservation_create",
+    "range_reservation_update",
+    "range_reservation_delete",
 })
 
 
@@ -99,6 +104,45 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
     @router.get("/api/ipam/subnets", response_model=List[SubnetSummary], dependencies=[Depends(require_ipam_permission("read"))])
     def get_subnets():
         return service.list_subnets()
+
+
+    @router.post("/api/ipam/import", dependencies=[Depends(require_ipam_permission("write"))])
+    def import_ipam(req: ImportRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
+        try:
+            return service.import_ipam_records([record.model_dump() for record in req.records], req.confirm, user_id=user["id"] if user else None)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+
+    @router.get("/api/ipam/archives", dependencies=[Depends(require_ipam_permission("read"))])
+    def get_archives(resource_type: Optional[str] = None):
+        return service.list_archives(resource_type)
+
+
+    @router.post("/api/ipam/archives/{archive_id}/restore", dependencies=[Depends(require_ipam_permission("write"))])
+    def restore_archive(archive_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
+        try:
+            return service.restore_archive(archive_id, user_id=user["id"] if user else None)
+        except ValueError as exc:
+            raise HTTPException(status_code=404 if str(exc) == "Archive not found or retention period expired" else 409, detail=str(exc))
+
+
+    @router.get(
+        "/api/ipam/data-quality/violations",
+        response_model=List[DataQualityViolation],
+        dependencies=[Depends(require_ipam_permission("read"))],
+    )
+    def get_data_quality_violations():
+        return service.list_data_quality_violations()
+
+
+    @router.post(
+        "/api/ipam/data-quality/violations/{violation_id}/mute",
+        dependencies=[Depends(require_ipam_permission("write"))],
+    )
+    def mute_data_quality_violation(violation_id: str, req: DataQualityMuteRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
+        service.mute_data_quality_violation(violation_id, req.reason, req.expiresAt, user_id=user["id"] if user else None)
+        return {"muted": violation_id}
 
 
     @router.get(
@@ -259,15 +303,15 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
     @router.put("/api/ipam/subnets/{subnet_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
     def update_subnet(subnet_id: int, req: SubnetRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
         try:
-            return service.update_subnet(subnet_id, req.cidr, req.vlan, req.description, user_id=user["id"] if user else None)
+            return service.update_subnet(subnet_id, req.cidr, req.vlan, req.description, req.expectedUpdatedAt, user_id=user["id"] if user else None)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=409 if str(exc) == "Record was modified by another user" else 400, detail=str(exc))
 
 
     @router.delete("/api/ipam/subnets/{subnet_id}", dependencies=[Depends(require_ipam_permission("write"))])
-    def delete_subnet(subnet_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
+    def delete_subnet(subnet_id: int, req: ArchiveRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
         user_id = user["id"] if user else None
-        deleted = service.delete_subnet(subnet_id, user_id=user_id)
+        deleted = service.delete_subnet(subnet_id, req.reason, user_id=user_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Subnet not found")
         return {"deleted": subnet_id}
@@ -293,10 +337,10 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
             return service.update_address(
                 subnet_id, address_id, req.address, req.status, req.hostname, req.description,
                 req.team, req.machineType, req.vmCluster, req.environment, req.locked,
-                req.allocationType, user_id=user_id,
+                req.allocationType, req.expectedUpdatedAt, user_id=user_id,
             )
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=409 if str(exc) == "Record was modified by another user" else 400, detail=str(exc))
 
 
     @router.post("/api/ipam/subnets/{subnet_id}/addresses/{address_id}/release", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
@@ -309,10 +353,10 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
 
 
     @router.delete("/api/ipam/subnets/{subnet_id}/addresses/{address_id}", response_model=SubnetSummary, dependencies=[Depends(require_ipam_permission("write"))])
-    def remove_address(subnet_id: int, address_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
+    def remove_address(subnet_id: int, address_id: int, req: ArchiveRequest, user: Optional[Dict] = Depends(require_logged_in_user)):
         try:
             user_id = user["id"] if user else None
-            return service.delete_address(subnet_id, address_id, user_id=user_id)
+            return service.delete_address(subnet_id, address_id, req.reason, user_id=user_id)
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 
@@ -345,7 +389,7 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
         if not req.addressIds:
             raise HTTPException(status_code=400, detail="No addresses selected")
         try:
-            return service.bulk_delete_addresses(subnet_id, req.addressIds)
+            return service.bulk_delete_addresses(subnet_id, req.addressIds, req.reason or "Bulk archive")
         except ValueError as exc:
             raise HTTPException(status_code=404, detail=str(exc))
 
@@ -449,10 +493,10 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
 
 
     @router.delete("/api/ipam/subnets/{subnet_id}/dhcp-pools/{pool_id}", dependencies=[Depends(require_ipam_permission("write"))])
-    def delete_dhcp_pool(subnet_id: int, pool_id: int, user: Optional[Dict] = Depends(require_logged_in_user)):
+    def delete_dhcp_pool(subnet_id: int, pool_id: int, req: Optional[ArchiveRequest] = None, user: Optional[Dict] = Depends(require_logged_in_user)):
         if not service.subnet_exists(subnet_id):
             raise HTTPException(status_code=404, detail="Subnet not found")
-        deleted = service.delete_dhcp_pool(subnet_id, pool_id, user_id=user["id"] if user else None)
+        deleted = service.delete_dhcp_pool(subnet_id, pool_id, req.reason if req else "DHCP pool archive", user_id=user["id"] if user else None)
         if not deleted:
             raise HTTPException(status_code=404, detail="DHCP pool not found")
         return {"deleted": pool_id}
@@ -467,9 +511,9 @@ def build_router(service: IpamService, require_ipam_permission, require_logged_i
         if not service.subnet_exists(subnet_id):
             raise HTTPException(status_code=404, detail="Subnet not found")
         try:
-            return service.update_dhcp_pool(subnet_id, pool_id, req.start_ip, req.end_ip, req.name, req.description, user_id=user["id"] if user else None)
+            return service.update_dhcp_pool(subnet_id, pool_id, req.start_ip, req.end_ip, req.name, req.description, req.expectedUpdatedAt, user_id=user["id"] if user else None)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=409 if str(exc) == "Record was modified by another user" else 400, detail=str(exc))
 
 
     @router.post(

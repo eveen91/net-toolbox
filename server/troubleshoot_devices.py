@@ -1,5 +1,6 @@
 import logging
 import sqlite3
+from tenancy.context import database_path
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -9,7 +10,7 @@ DB_PATH = Path(__file__).parent / "toolbox.db"
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(database_path(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn

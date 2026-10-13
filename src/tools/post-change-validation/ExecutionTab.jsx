@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 const SAMPLE_TESTS = [
   { id: "T-01", layer: "Control Plane", desc: "Check Point Cluster Health", status: "PASS", detail: "Active/Standby verified" },
@@ -15,13 +15,15 @@ export default function ExecutionTab({ plan }) {
   const [testResults, setTestResults] = useState([]);
   const [progress, setProgress] = useState(0);
 
+  const timerRef = useRef(null);
+  useEffect(() => () => clearInterval(timerRef.current), []);
   const handleStartRun = () => {
     setRunning(true);
     setTestResults([]);
     setProgress(10);
 
     let current = 0;
-    const interval = setInterval(() => {
+    const interval = timerRef.current = setInterval(() => {
       if (current < SAMPLE_TESTS.length) {
         setTestResults((prev) => [...prev, SAMPLE_TESTS[current]]);
         current += 1;
@@ -37,7 +39,7 @@ export default function ExecutionTab({ plan }) {
     <div>
       <div className="tool-section-title">Test Execution & Live Grid</div>
       <p className="tool-hint" style={{ marginBottom: "20px" }}>
-        Execute T-01 through T-22 modular tests against configured devices.
+        Preview example test results. No commands are sent to devices.
       </p>
 
       <div className="tool-actions" style={{ marginBottom: "20px" }}>
@@ -46,7 +48,7 @@ export default function ExecutionTab({ plan }) {
           onClick={handleStartRun}
           disabled={running}
         >
-          {running ? "Running Tests..." : "Launch Validation Suite"}
+          {running ? "Running Tests..." : "Run demonstration"}
         </button>
       </div>
 

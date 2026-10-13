@@ -1,7 +1,7 @@
 import React from "react";
 import ChangePasswordForm from "./ChangePasswordForm.jsx";
 
-export default function AccountPanel({ user, top, onClose }) {
+export default function AccountPanel({ user, top, onClose, onLogout }) {
   return (
     <div className="nt-account-popover" style={{ top }}>
       <div className="nt-account-popover-header">
@@ -20,6 +20,7 @@ export default function AccountPanel({ user, top, onClose }) {
       <div className="nt-account-popover-divider" />
       <div className="nt-account-popover-label">Change password</div>
       <ChangePasswordForm onClose={onClose} />
+      {onLogout && <button type="button" className="tool-btn tool-btn-ghost" onClick={onLogout}>Log out</button>}
     </div>
   );
 }

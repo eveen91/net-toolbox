@@ -245,7 +245,7 @@ return (
                       </div>
                     )}
                   </td>
-                  {role.name === "admin" ? (
+                  {["admin", "tenant-admin"].includes(role.name) ? (
                     <td colSpan={ROLE_PERMISSIONS.length} className="tool-hint">
                       All features
                     </td>
@@ -261,7 +261,7 @@ return (
                     ))
                   )}
                   <td className="nt-admin-actions">
-                    {role.name === "admin" ? (
+                    {["admin", "tenant-admin"].includes(role.name) ? (
                       <span className="nt-admin-actions-placeholder">—</span>
                     ) : (
                       <>

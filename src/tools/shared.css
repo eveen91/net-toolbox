@@ -48,7 +48,7 @@
 .tool-input,
 .tool-textarea {
   width: 100%;
-  background: #0a121e;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text);
@@ -92,7 +92,7 @@
 }
 .tool-btn-primary {
   background: var(--accent);
-  color: #06211f;
+  color: var(--primary-text);
   flex: 1;
 }
 .tool-btn-primary:hover {
@@ -115,7 +115,7 @@
 .tool-warning {
   margin-top: 14px;
   border: 1px solid var(--warn-dim);
-  background: #241d0f;
+  background: var(--warning-bg);
   color: var(--warn);
   font-size: 12.5px;
   font-family: var(--mono);
@@ -125,8 +125,8 @@
 
 .tool-error {
   margin-top: 14px;
-  border: 1px solid #6b2c3a;
-  background: #2a1420;
+  border: 1px solid var(--danger);
+  background: var(--danger-bg);
   color: var(--danger);
   font-size: 12.5px;
   font-family: var(--mono);
@@ -201,7 +201,7 @@ table.tool-table {
   vertical-align: middle;
 }
 .tool-table tr:hover td {
-  background: #16233a;
+  background: var(--bg-hover);
 }
 .tool-table-wrap {
   max-height: 360px;
@@ -219,19 +219,19 @@ table.tool-table {
   white-space: nowrap;
 }
 .tool-pill-ok {
-  background: #123a2e;
-  color: #6ee7b7;
+  background: var(--success-bg);
+  color: var(--success);
 }
 .tool-pill-no {
-  background: #3a1420;
+  background: var(--danger-bg);
   color: var(--danger);
 }
 .tool-pill-warn {
-  background: #3a2f14;
+  background: var(--warning-bg);
   color: var(--warn);
 }
 .tool-pill-muted {
-  background: #1c2536;
+  background: var(--bg-elevated);
   color: var(--muted);
 }
 
@@ -251,11 +251,11 @@ table.tool-table {
   white-space: nowrap;
 }
 .tool-badge-default {
-  background: #1c2536;
+  background: var(--bg-elevated);
   color: var(--muted);
 }
 .tool-badge-accent {
-  background: #0a121e;
+  background: var(--input-bg);
   color: var(--accent-2);
   border-color: var(--accent-dim);
 }

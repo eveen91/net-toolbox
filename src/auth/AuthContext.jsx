@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import { setTenantId, getTenantId } from "../tenantContext.js";
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from "react";
 import { getSessionInfo, login as loginRequest, logout as logoutRequest } from "./api.js";
 
 const AuthContext = createContext(null);
@@ -26,10 +27,20 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [tenants, setTenants] = useState([]);
+  const [tenantId, setSelectedTenant] = useState(getTenantId);
+  const [tenantSwitchError, setTenantSwitchError] = useState(null);
+  const refreshSequence = useRef(0);
 
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     try {
       const info = await getSessionInfo();
+      if (sequence !== refreshSequence.current) return;
+      setTenantSwitchError(null);
+      setTenants(info.tenants || []);
+      setTenantId(info.tenantId);
+      setSelectedTenant(info.tenantId || null);
       setLoginRequired(info.loginRequired);
       setAdEnabled(info.adEnabled);
       setUser(info.user);
@@ -45,21 +56,23 @@ export function AuthProvider({ children }) {
         localStorage.removeItem(HAD_SESSION_KEY);
       }
     } catch (e) {
-      console.error("Failed to load session info", e);
+      if (sequence !== refreshSequence.current) return;
+      setTenantSwitchError("Could not verify tenant access. Please retry.");
+      throw e;
     } finally {
-      setLoading(false);
+      if (sequence === refreshSequence.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    refresh();
+    refresh().catch(() => {});
   }, [refresh]);
 
   useEffect(() => {
     const handler = () => {
       setSessionExpired(true);
       localStorage.setItem(SESSION_EXPIRED_PENDING_KEY, "1");
-      refresh();
+      refresh().catch(() => {});
     };
     window.addEventListener("nt-auth-required", handler);
     return () => window.removeEventListener("nt-auth-required", handler);
@@ -67,22 +80,33 @@ export function AuthProvider({ children }) {
 
   const login = async (username, password, authMethod = "local") => {
     const loggedInUser = await loginRequest(username, password, authMethod);
-    setUser(loggedInUser);
+    setLoading(true);
     setSessionExpired(false);
     localStorage.setItem(HAD_SESSION_KEY, "1");
     localStorage.removeItem(SESSION_EXPIRED_PENDING_KEY);
+    await refresh();
     return loggedInUser;
   };
 
   const logout = async () => {
     await logoutRequest();
     setUser(null);
+    setTenantId(null);
+    await refresh();
     localStorage.removeItem(HAD_SESSION_KEY);
     localStorage.removeItem(SESSION_EXPIRED_PENDING_KEY);
   };
 
+  const switchTenant = async (id) => {
+    if (!tenants.some((tenant) => tenant.id === id)) return;
+    setLoading(true);
+    setTenantSwitchError(null);
+    setTenantId(id);
+    await refresh().catch(() => {});
+  };
+
   return (
-    <AuthContext.Provider value={{ loginRequired, adEnabled, user, loading, login, logout, refresh, sessionExpired }}>
+    <AuthContext.Provider value={{ loginRequired, adEnabled, user, loading, login, logout, refresh, sessionExpired, tenants, tenantId, switchTenant, tenantSwitchError }}>
       {children}
     </AuthContext.Provider>
   );

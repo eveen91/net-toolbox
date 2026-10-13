@@ -197,6 +197,15 @@ class IpamService:
     def list_due_scan_schedules(self, *args, **kwargs):
         return self.translate_value_error(self.repository.list_due_scan_schedules, *args, **kwargs)
 
+    def list_data_quality_violations(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.list_data_quality_violations, *args, **kwargs)
+
+    def import_ipam_records(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.import_ipam_records, *args, **kwargs)
+
+    def list_archives(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.list_archives, *args, **kwargs)
+
     def list_misplaced_addresses(self, *args, **kwargs):
         return self.translate_value_error(self.repository.list_misplaced_addresses, *args, **kwargs)
 
@@ -224,6 +233,9 @@ class IpamService:
     def move_address(self, *args, **kwargs):
         return self.translate_value_error(self.repository.move_address, *args, **kwargs)
 
+    def mute_data_quality_violation(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.mute_data_quality_violation, *args, **kwargs)
+
     def move_dhcp_pool(self, *args, **kwargs):
         return self.translate_value_error(self.repository.move_dhcp_pool, *args, **kwargs)
 
@@ -238,6 +250,9 @@ class IpamService:
 
     def remove_subnet_tag(self, *args, **kwargs):
         return self.translate_value_error(self.repository.remove_subnet_tag, *args, **kwargs)
+
+    def restore_archive(self, *args, **kwargs):
+        return self.translate_value_error(self.repository.restore_archive, *args, **kwargs)
 
     def request_scan_job_cancel(self, *args, **kwargs):
         return self.translate_value_error(self.repository.request_scan_job_cancel, *args, **kwargs)

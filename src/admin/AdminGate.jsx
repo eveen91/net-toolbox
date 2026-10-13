@@ -1,3 +1,4 @@
+import TenantsPanel from "../tenants/TenantsPanel.jsx";
 import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { getBootstrapStatus } from "./api.js";
@@ -35,6 +36,10 @@ export default function AdminGate() {
     if (loginRequired) return;
     loadStatus();
   }, [loginRequired, loadStatus]);
+
+  if (user?.role !== "admin" && user?.tenantRole === "tenant-admin") {
+    return <TenantsPanel />;
+  }
 
   if (loginRequired || user?.role === "admin") {
     return <AdminPanel />;

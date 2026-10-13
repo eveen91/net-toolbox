@@ -1,5 +1,6 @@
 import ipaddress
 import re
+from datetime import datetime, timezone
 from typing import Annotated, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -11,6 +12,7 @@ HOSTNAME_RE = re.compile(r"^[a-zA-Z0-9.\-]+$")
 
 class SubnetRequest(BaseModel):
     cidr: str = Field(min_length=3, max_length=18)
+    expectedUpdatedAt: Optional[str] = None
     vlan: Optional[int] = Field(default=None, ge=1, le=4094)
     description: Optional[str] = Field(default=None, max_length=500)
 
@@ -84,6 +86,7 @@ class UpdateIpamSettingsRequest(BaseModel):
 
 class AddressRequest(BaseModel):
     address: str = Field(min_length=7, max_length=15)
+    expectedUpdatedAt: Optional[str] = None
     status: Literal["used", "free", "reserved"] = "used"
     allocationType: Literal["gateway", "static", "dhcp", "vip", "loopback", "infrastructure", "network", "broadcast"] = "static"
     hostname: Optional[str] = Field(default=None, max_length=253)
@@ -114,6 +117,27 @@ class AddressRequest(BaseModel):
         if value is not None and not HOSTNAME_RE.fullmatch(value):
             raise ValueError("Hostname may contain only letters, numbers, dots, and hyphens")
         return value
+
+
+class ImportRecord(BaseModel):
+    resourceType: Literal["subnet", "address", "dhcp_pool"]
+    cidr: Optional[str] = None
+    subnetCidr: Optional[str] = None
+    address: Optional[str] = None
+    status: Optional[Literal["used", "free", "reserved"]] = "used"
+    allocationType: Optional[Literal["gateway", "static", "dhcp", "vip", "loopback", "infrastructure", "network", "broadcast"]] = "static"
+    hostname: Optional[str] = None
+    description: Optional[str] = None
+    team: Optional[str] = None
+    vlan: Optional[int] = Field(default=None, ge=1, le=4094)
+    startIp: Optional[str] = None
+    endIp: Optional[str] = None
+    name: Optional[str] = None
+
+
+class ImportRequest(BaseModel):
+    records: Annotated[List[ImportRecord], Field(min_length=1, max_length=1000)]
+    confirm: bool = False
 
 
 class BulkAddressUpdateRequest(BaseModel):
@@ -148,8 +172,26 @@ class BulkAddressUpdateRequest(BaseModel):
         return value.strip() or None if value is not None else None
 
 
+class ArchiveRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Archive reason is required")
+        return value
+
+
 class BulkAddressDeleteRequest(BaseModel):
     addressIds: Annotated[List[Annotated[int, Field(gt=0)]], Field(min_length=1, max_length=1000)]
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: Optional[str]) -> Optional[str]:
+        return value.strip() or None if value is not None else None
 
 
 class BulkMoveAddressesRequest(BaseModel):
@@ -172,6 +214,7 @@ class BulkMoveAddressesResponse(BaseModel):
 
 class DhcpPoolCreate(BaseModel):
     start_ip: str = Field(min_length=7, max_length=15)
+    expectedUpdatedAt: Optional[str] = None
     end_ip: str = Field(min_length=7, max_length=15)
     name: Optional[str] = Field(default=None, max_length=100)
     description: Optional[str] = Field(default=None, max_length=500)
@@ -313,6 +356,50 @@ class DashboardEntry(BaseModel):
     lastScanNewlyUsed: Optional[int] = None
     lastScanWentQuiet: Optional[int] = None
     lastScanHostnameChanged: Optional[int] = None
+
+
+class DataQualityViolation(BaseModel):
+    id: str
+    rule: str
+    severity: Literal["warning", "critical"]
+    resourceType: Literal["subnet", "address"]
+    resourceId: int
+    subnetId: Optional[int] = None
+    subnetCidr: Optional[str] = None
+    addressId: Optional[int] = None
+    address: Optional[str] = None
+    hostname: Optional[str] = None
+    message: str
+    proposedSubnetId: Optional[int] = None
+    proposedSubnetCidr: Optional[str] = None
+
+
+class DataQualityMuteRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+    expiresAt: Optional[str] = None
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Mute reason is required")
+        return value
+
+    @field_validator("expiresAt")
+    @classmethod
+    def validate_expiry(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            raise ValueError("expiresAt must be an ISO-8601 timestamp")
+        if parsed.tzinfo is None:
+            raise ValueError("expiresAt must include a timezone")
+        if parsed <= datetime.now(timezone.utc):
+            raise ValueError("expiresAt must be in the future")
+        return parsed.astimezone(timezone.utc).isoformat()
 
 
 class MisplacedAddressEntry(BaseModel):

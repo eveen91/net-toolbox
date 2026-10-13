@@ -1,0 +1,66 @@
+import React,{useEffect,useState} from 'react';
+import { createDevice,previewDeviceUpdate,updateDevice } from './api.js';
+import { PORT_NAMING,FAMILIES,FAMILY_NAMES,SPEEDS,limitsForType,VENDORS,newCard,initialDraft,payload,validateDraft,removedPorts } from './logic.js';
+import NetworkCardFields from './NetworkCardFields.jsx';
+export default function DeviceForm({device,onSaved,onCancel,onDirty,onBusy,onReload}) {
+  const [draft,setDraft]=useState(()=>initialDraft(device));
+  const [baseline]=useState(()=>JSON.stringify(initialDraft(device)));
+  const [preview,setPreview]=useState(null),[error,setError]=useState(null),[stale,setStale]=useState(false),[busy,setBusy]=useState(false);
+  useEffect(()=>{onDirty(JSON.stringify(draft)!==baseline);},[draft,baseline,onDirty]);
+  const change=patch=>{setDraft(d=>({...d,...patch}));setPreview(null);setError(null);setStale(false);};
+  const total=(draft.networkCards||draft.portGroups).reduce((n,g)=>n+g.count,0);
+  const lost=removedPorts(device,draft).filter(p=>p.label||p.leadsTo||p.portMode);
+  const perform=async(confirm=false)=>{
+    setError(null);setBusy(true);onBusy(true);
+    try {
+      validateDraft(draft);
+      const data=payload(draft,device?.version);
+      if(!device) {onSaved(await createDevice(data));return;}
+      if(!confirm) {
+        const review=await previewDeviceUpdate(device.id,data);
+        if(review.removedAssignedPortCount||review.removedLabelledPortCount||review.removedConfiguredPortCount) {setPreview(review);return;}
+      }
+      onSaved(await updateDevice(device.id,{...data,confirmPortDataRemoval:confirm}));
+    } catch(e) {setError(e.message);setPreview(null);setStale(e.detail?.code==='stale_version');}
+    finally {setBusy(false);onBusy(false);}
+  };
+  const typeChange=type=>{
+    const next={...draft,deviceType:type,vendor:type==='firewall'?'checkpoint':null};
+    if(type==='switch')Object.assign(next,{portNaming:'family',portUnit:1,portSlot:1});
+    else {delete next.portNaming;delete next.portUnit;delete next.portSlot;}
+    if(type==='server'){delete next.portGroups;next.networkCards=[newCard()];}
+    else {delete next.networkCards;next.portGroups=initialDraft().portGroups;}
+    setDraft(next);setPreview(null);
+  };
+  return <form className="sv-form" onSubmit={e=>{e.preventDefault();perform(false);}}>
+    <h3>{device?'Edit device':'New device'}</h3>
+    <fieldset disabled={busy} className="sv-form-fields">
+      <div className="sv-fields">
+        <label>Device type<select aria-label="Device type" className="tool-input" value={draft.deviceType} disabled={!!device} onChange={e=>typeChange(e.target.value)}><option value="switch">Switch</option><option value="firewall">Firewall</option><option value="server">Server</option></select></label>
+        {draft.deviceType==='firewall'&&<label>Vendor<select aria-label="Vendor" className="tool-input" value={draft.vendor} onChange={e=>change({vendor:e.target.value})}>{Object.entries(VENDORS).map(([v,n])=><option key={v} value={v}>{n}</option>)}</select></label>}
+        <label>Name<input className="tool-input" required maxLength={100} value={draft.name} onChange={e=>change({name:e.target.value})}/></label>
+        <label>Model (optional)<input className="tool-input" maxLength={100} value={draft.model} onChange={e=>change({model:e.target.value})}/></label>
+      </div>
+      {draft.deviceType==='switch'&&<fieldset className="sv-nic-form"><legend>Port naming</legend>
+        <label>Naming convention<select aria-label="Naming convention" className="tool-input" value={draft.portNaming} onChange={e=>change({portNaming:e.target.value})}>{Object.entries(PORT_NAMING).map(([value,text])=><option key={value} value={value}>{text}</option>)}</select></label>
+        {draft.portNaming!=='family'&&draft.portNaming!=='port'&&<label>Unit / stack member<input className="tool-input" type="number" min={1} max={16} step={1} value={draft.portUnit} onChange={e=>change({portUnit:Number(e.target.value)})}/></label>}
+        {draft.portNaming==='unit-slot-port'&&<label>Slot<input className="tool-input" type="number" min={0} max={16} step={1} value={draft.portSlot} onChange={e=>change({portSlot:Number(e.target.value)})}/></label>}
+        <p className="tool-hint">Numeric formats count Ethernet, then SFP, then QSFP continuously. Adding earlier ports renumbers later display names; IDs and configuration stay intact.</p>
+      </fieldset>}
+      <label>Description<textarea className="tool-textarea" maxLength={500} value={draft.description} onChange={e=>change({description:e.target.value})}/></label>
+      {draft.deviceType==='server'?<NetworkCardFields cards={draft.networkCards} onChange={cards=>change({networkCards:cards})}/>:<div className="sv-group-fields">{draft.portGroups.map((g,index)=><fieldset key={g.family}><legend>{FAMILY_NAMES[g.family]}</legend>
+        <label>Sockets (0–{limitsForType(draft.deviceType)[g.family]})<input className="tool-input" type="number" min={0} max={limitsForType(draft.deviceType)[g.family]} step={1} value={g.count} onChange={e=>change({portGroups:draft.portGroups.map((item,i)=>i===index?{...item,count:Number(e.target.value)}:item)})}/></label>
+        <label>Speed<select aria-label="Speed" className="tool-input" value={g.speedGbps} onChange={e=>change({portGroups:draft.portGroups.map((item,i)=>i===index?{...item,speedGbps:Number(e.target.value)}:item)})}>{SPEEDS[g.family].map(s=><option key={s} value={s}>{s}G</option>)}</select></label>
+      </fieldset>)}</div>}
+      <p className={total<1||total>128?'tool-error':'tool-hint'}>{total} / 128 sockets · minimum 1</p>
+      {lost.length>0&&!preview&&<p className="tool-hint">This draft removes data on {lost.length} ports. Review is required before saving.</p>}
+      {preview&&<div className="sv-review" role="region" aria-label="Port removal review"><h4>Review removed port data</h4><p>{preview.removedPortCount} sockets removed, {preview.removedAssignedPortCount} destinations and {preview.removedLabelledPortCount} labels lost, {preview.removedConfiguredPortCount} VLAN configurations lost.</p><ul>{preview.removedPorts.filter(p=>p.label||p.leadsTo||p.portMode).map(p=><li key={p.id}><strong>{p.name}</strong> · {p.label||'no label'} · {p.leadsTo||'unassigned'}{p.portMode?` · ${p.portMode} VLAN ${p.accessVlan||p.trunkVlans}`:''}</li>)}</ul>
+        <button className="tool-btn tool-btn-primary" type="button" onClick={()=>perform(true)}>Confirm removal and save</button><button className="tool-btn tool-btn-ghost" type="button" onClick={()=>setPreview(null)}>Cancel review</button>
+      </div>}
+      {!preview&&<button className="tool-btn tool-btn-primary" type="submit">{busy?'Saving…':'Save device'}</button>}
+      <button className="tool-btn tool-btn-ghost" type="button" onClick={onCancel}>Cancel</button>
+    </fieldset>
+    {error&&<p className="tool-error" role="alert">{error}{stale&&<button className="tool-btn tool-btn-ghost" type="button" onClick={onReload}>Reload current device</button>}</p>}
+    <span role="status" className="sv-sr-only">{busy?'Saving device…':''}</span>
+  </form>;
+}

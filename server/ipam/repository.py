@@ -161,6 +161,15 @@ class IpamRepository:
     def list_due_scan_schedules(self, *args, **kwargs):
         return self._db.list_due_scan_schedules(*args, **kwargs)
 
+    def list_data_quality_violations(self, *args, **kwargs):
+        return self._db.list_data_quality_violations(*args, **kwargs)
+
+    def import_ipam_records(self, *args, **kwargs):
+        return self._db.import_ipam_records(*args, **kwargs)
+
+    def list_archives(self, *args, **kwargs):
+        return self._db.list_archives(*args, **kwargs)
+
     def list_misplaced_addresses(self, *args, **kwargs):
         return self._db.list_misplaced_addresses(*args, **kwargs)
 
@@ -188,6 +197,9 @@ class IpamRepository:
     def move_address(self, *args, **kwargs):
         return self._db.move_address(*args, **kwargs)
 
+    def mute_data_quality_violation(self, *args, **kwargs):
+        return self._db.mute_data_quality_violation(*args, **kwargs)
+
     def move_dhcp_pool(self, *args, **kwargs):
         return self._db.move_dhcp_pool(*args, **kwargs)
 
@@ -202,6 +214,9 @@ class IpamRepository:
 
     def remove_subnet_tag(self, *args, **kwargs):
         return self._db.remove_subnet_tag(*args, **kwargs)
+
+    def restore_archive(self, *args, **kwargs):
+        return self._db.restore_archive(*args, **kwargs)
 
     def request_scan_job_cancel(self, *args, **kwargs):
         return self._db.request_scan_job_cancel(*args, **kwargs)

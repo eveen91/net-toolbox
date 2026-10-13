@@ -1,0 +1,12 @@
+.nt-tenant-selector { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.nt-tenant-selector .tool-input { width: auto; max-width: 180px; }
+.nt-tenant-form { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 20px 0; }
+.nt-tenant-form label { display: grid; gap: 6px; min-width: 180px; }
+.nt-tenant-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.nt-tenants-panel h3 { margin-top: 24px; }
+.nt-tenants-panel td { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .nt-tenant-form label { width: 100%; }
+  .nt-tenant-selector .tool-input { max-width: 130px; }
+}
+

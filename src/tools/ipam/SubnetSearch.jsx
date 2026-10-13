@@ -8,6 +8,17 @@ import TagSelector from "./TagSelector.jsx";
  * Global Search box for finding subnets (by CIDR / description / VLAN)
  * and searching hostnames (or IP addresses / partial matches) across all tracked subnets.
  */
+export function filterSubnetsByTags(subnets, selectedTagIds) {
+  if (selectedTagIds.length === 0) return subnets;
+  return subnets.filter((subnet) => selectedTagIds.every((tagId) => (subnet.tagIds || []).includes(tagId)));
+}
+
+export function searchSubnets(subnets, query) {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return subnets;
+  return subnets.filter((subnet) => subnet.cidr.toLowerCase().includes(normalizedQuery) || (subnet.description && subnet.description.toLowerCase().includes(normalizedQuery)) || (subnet.vlan != null && String(subnet.vlan).includes(normalizedQuery)));
+}
+
 export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus, tags = [], selectedTagIds = [], onTagFilterChange }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -19,24 +30,8 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus,
   const inputRef = useRef(null);
 
   const subnetMatches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let filtered = subnets;
-
-    if (selectedTagIds.length > 0) {
-      // Filter subnets that have ALL selected tags
-      filtered = filtered.filter((s) => {
-        const tagIds = s.tagIds || [];
-        return selectedTagIds.every((tid) => tagIds.includes(tid));
-      });
-    }
-
-    if (!q) return filtered;
-    return filtered.filter(
-      (s) =>
-        s.cidr.toLowerCase().includes(q) ||
-        (s.description && s.description.toLowerCase().includes(q)) ||
-        (s.vlan != null && String(s.vlan).includes(q))
-    );
+    const q = query.trim();
+    return searchSubnets(filterSubnetsByTags(subnets, selectedTagIds), q);
   }, [subnets, query, selectedTagIds]);
 
   useEffect(() => {
@@ -208,6 +203,7 @@ export default function SubnetSearch({ subnets, selectedId, onSelect, autoFocus,
       <div className="ip-tag-filter-bar" style={{ borderBottom: "none", marginBottom: 0 }}>
         <span className="ip-tag-filter-bar-label">Add tag filter:</span>
         <TagSelector
+          canCreate={false}
           value={selectedTagIds}
           onChange={handleTagFilterChange}
           allTags={tags}

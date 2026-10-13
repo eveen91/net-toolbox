@@ -1,3 +1,6 @@
+import ViewTabs from "../components/ViewTabs.jsx";
+import { canLeaveWorkspace } from "../components/navigation.js";
+import TenantsPanel from "../tenants/TenantsPanel.jsx";
 import React, { useState } from "react";
 import UsersPanel from "./UsersPanel.jsx";
 import RolesPanel from "./RolesPanel.jsx";
@@ -6,6 +9,7 @@ import AuditLogPanel from "./AuditLogPanel.jsx";
 import "./admin.css";
 
 const SUBTABS = [
+  { id: "tenants", label: "Tenants", Component: TenantsPanel },
   { id: "users", label: "Users", Component: UsersPanel },
   { id: "roles", label: "Roles", Component: RolesPanel },
   { id: "ad", label: "Active Directory", Component: ActiveDirectoryPanel },
@@ -19,17 +23,7 @@ export default function AdminPanel() {
 return (
     <div className="nt-admin-panel">
       <h2>Admin</h2>
-      <div className="nt-admin-subtabs">
-        {SUBTABS.map((t) => (
-          <button
-            key={t.id}
-            className={`nt-admin-subtab ${activeSub === t.id ? "active" : ""}`}
-            onClick={() => setActiveSub(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <ViewTabs items={SUBTABS} value={activeSub} onChange={(id) => { if (canLeaveWorkspace()) setActiveSub(id); }} label="Module views" />
       {ActiveComponent && <ActiveComponent />}
     </div>
   );

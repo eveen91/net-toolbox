@@ -14,6 +14,10 @@ export function scanAddressLabel(address) {
   return address.alive ? "used" : "free";
 }
 
+export function shouldRecoverScanStream(payload) {
+  return !payload || payload.status === "running";
+}
+
 export function openAutodiscoverStream(subnetId, jobId) {
   return new EventSource(autodiscoverStreamUrl(subnetId, jobId), { withCredentials: true });
 }
@@ -85,7 +89,7 @@ export function useIpamScan(subnetId, onDetailUpdated, onScanCompleted) {
       try {
         const payload = await getAutodiscoverJob(subnetId, jobId);
         setScanProgress({ completed: payload.completed, total: payload.total });
-        if (payload.status !== "running") {
+        if (!shouldRecoverScanStream(payload)) {
           await finish(payload);
           return;
         }

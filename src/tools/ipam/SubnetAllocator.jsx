@@ -3,7 +3,7 @@ import { createAllocatedSubnet, fetchAllocationPlan } from "./api.js";
 import TagSelector from "./TagSelector.jsx";
 import { allocationDraftToRequest, prefixBounds } from "./allocation.js";
 
-export default function SubnetAllocator({ subnets, tags, onTagCreated, onCreate }) {
+export default function SubnetAllocator({ subnets, tags, onTagCreated, onCreate, canAdmin = true }) {
   const [parent, setParent] = useState("");
   const [prefix, setPrefix] = useState(24);
   const [plan, setPlan] = useState(null);
@@ -84,7 +84,7 @@ export default function SubnetAllocator({ subnets, tags, onTagCreated, onCreate 
         <h4>Create {selectedCidr}</h4>
         <label className="tool-field">VLAN<input className="tool-input" type="number" inputMode="numeric" min="1" max="4094" value={vlan} onChange={(event) => setVlan(event.target.value)} /></label>
         <label className="tool-field">Description<textarea className="tool-input" maxLength="500" value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-        <div className="tool-field"><span>Tags</span><TagSelector value={tagIds} onChange={setTagIds} allTags={tags} placeholder="Select existing tags" disabled={creating} onTagCreated={onTagCreated} /></div>
+        <div className="tool-field"><span>Tags</span><TagSelector canCreate={canAdmin} value={tagIds} onChange={setTagIds} allTags={tags} placeholder="Select existing tags" disabled={creating} onTagCreated={onTagCreated} /></div>
         <button className="tool-btn" disabled={creating}>{creating ? "Creating subnet…" : "Create subnet"}</button>
       </form>}
     </div>}

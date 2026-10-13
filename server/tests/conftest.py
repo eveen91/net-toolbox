@@ -16,7 +16,8 @@ os.environ.setdefault("IGNORE_PW_STRENGTH", "1")
 
 
 @pytest.fixture
-def client(monkeypatch):
+def client(monkeypatch, tmp_path):
+    monkeypatch.setenv("TENANT_DATA_ROOT", str(tmp_path / "tenants"))
     fd, temp_db_path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
 

@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<title id="title">Routing Map — proposed net::toolbox GUI</title>
+<desc id="desc">Static desktop design proposal with illustrative data. Shared navigation, aligned toolbars and object inspector. Not a working application.</desc>
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#11161D"/>
+<rect x="0" y="0" width="216" height="900" rx="0" fill="#181F28"/>
+<path d="M216 0L216 900" stroke="#344252"/>
+<text x="22" y="38" font-family="DejaVu Sans Mono, monospace" font-size="19" font-weight="600" fill="#E8EDF3">net::toolbox</text>
+<text x="22" y="69" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">Network operations workspace</text>
+<text x="22" y="110" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Workspace</text>
+<text x="22" y="168" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Infrastructure</text>
+<path transform="translate(22 191)" d="M1 2H15V14H1ZM5 2V14M1 6H15" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="206" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">IPAM</text>
+<path transform="translate(22 233)" d="M1 4H15V12H1ZM4 8H6M10 8H12" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="248" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Device Visualization</text>
+<rect x="12" y="265" width="192" height="38" rx="6" fill="#203D3A"/>
+<path transform="translate(22 275)" d="M2 2H6V6H2ZM10 10H14V14H10ZM6 4H12V10" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="290" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#72D6C3">Routing Map</text>
+<text x="22" y="354" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Diagnostics</text>
+<path transform="translate(22 377)" d="M2 8H5L7 3L10 13L12 8H15" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="392" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Troubleshoot</text>
+<path transform="translate(22 419)" d="M2 3H14V13H2ZM5 6H11M5 10H9" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="434" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Connection Test</text>
+<path transform="translate(22 461)" d="M2 2H14V14H2ZM5 8L7 10L12 5" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="476" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Post-Change Validation</text>
+<text x="22" y="540" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Utilities</text>
+<path transform="translate(22 563)" d="M2 2H14V14H2ZM5 5H11M5 9H7M10 9H12" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="578" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">IP Calculator</text>
+<path transform="translate(22 605)" d="M1 8H6M6 8L11 3M6 8L11 13M11 3H15M11 13H15" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="620" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Subnet Splitter</text>
+<path d="M16 796H200" stroke="#344252"/>
+<text x="22" y="827" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Administration</text>
+<text x="22" y="858" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">Self-hosted workspace</text>
+<rect x="216" y="0" width="1224" height="60" rx="0" fill="#181F28"/>
+<path d="M216 60H1440" stroke="#344252"/>
+<text x="240" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Tenant</text>
+<rect x="294" y="12" width="158" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="306" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Example tenant</text>
+<text x="490" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Tenant-scoped data</text>
+<text x="1180" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">network.admin</text>
+<rect x="1312" y="12" width="104" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="1324" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Account</text>
+<text x="240" y="108" font-family="Inter, DejaVu Sans, sans-serif" font-size="26" font-weight="600" fill="#E8EDF3">Routing Map</text>
+<text x="240" y="136" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Browse saved hosts, interfaces and routing tables.</text>
+<rect x="1270" y="88" width="146" height="36" rx="6" fill="#72D6C3"/>
+<text x="1282" y="111" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#10231F">Import routes</text>
+<text x="240" y="185" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Hosts</text>
+<path d="M240 200H292" stroke="#72D6C3"/>
+<text x="310" y="185" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Routing test</text>
+<text x="426" y="185" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Topology</text>
+<path d="M240 202H1416" stroke="#344252"/>
+<rect x="216" y="874" width="1224" height="26" rx="0" fill="#202A35"/>
+<text x="240" y="892" font-family="Inter, DejaVu Sans, sans-serif" font-size="10" font-weight="400" fill="#A5B2C2">DESIGN PROPOSAL · ILLUSTRATIVE DATA · 1440 × 900 · NOT A LIVE SYSTEM</text>
+<rect x="240" y="220" width="191" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="252" y="243" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Hosts: edge-fw-01</text>
+<text x="455" y="244" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Shared column preset: 220 px / 240 px / remaining width</text>
+<rect x="240" y="272" width="1176" height="574" rx="8" fill="#181F28" stroke="#344252"/>
+<text x="260" y="310" font-family="Inter, DejaVu Sans, sans-serif" font-size="24" font-weight="600" fill="#E8EDF3">edge-fw-01</text>
+<text x="260" y="338" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Saved routing data · Illustrative host</text>
+<rect x="1198" y="290" width="194" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="1210" y="313" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">More host actions</text>
+<text x="260" y="389" font-family="Inter, DejaVu Sans, sans-serif" font-size="17" font-weight="600" fill="#E8EDF3">Interfaces</text>
+<rect x="260" y="407" width="1132" height="36" rx="0" fill="#202A35"/>
+<text x="272" y="430" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Name</text>
+<text x="492" y="430" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Address</text>
+<text x="732" y="430" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Description</text>
+<path d="M260 485H1392" stroke="#344252"/>
+<text x="272" y="469" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">eth0</text>
+<text x="492" y="469" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">10.20.0.1/24</text>
+<text x="732" y="469" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Application network</text>
+<path d="M260 527H1392" stroke="#344252"/>
+<text x="272" y="511" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">eth1</text>
+<text x="492" y="511" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">10.30.0.1/24</text>
+<text x="732" y="511" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Management network</text>
+<path d="M260 569H1392" stroke="#344252"/>
+<text x="272" y="553" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">eth2</text>
+<text x="492" y="553" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">192.0.2.2/30</text>
+<text x="732" y="553" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Transit uplink</text>
+<path d="M480 407L480 569" stroke="#344252"/>
+<path d="M720 407L720 569" stroke="#344252"/>
+<text x="260" y="628" font-family="Inter, DejaVu Sans, sans-serif" font-size="17" font-weight="600" fill="#E8EDF3">Routes</text>
+<rect x="260" y="646" width="1132" height="36" rx="0" fill="#202A35"/>
+<text x="272" y="669" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Network</text>
+<text x="492" y="669" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Next hop</text>
+<text x="732" y="669" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Interface</text>
+<path d="M260 724H1392" stroke="#344252"/>
+<text x="272" y="708" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">0.0.0.0/0</text>
+<text x="492" y="708" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">192.0.2.1</text>
+<text x="732" y="708" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">eth2</text>
+<path d="M260 766H1392" stroke="#344252"/>
+<text x="272" y="750" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">10.20.0.0/24</text>
+<text x="492" y="750" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">Connected</text>
+<text x="732" y="750" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">eth0</text>
+<path d="M260 808H1392" stroke="#344252"/>
+<text x="272" y="792" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">10.30.0.0/24</text>
+<text x="492" y="792" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">Connected</text>
+<text x="732" y="792" font-family="DejaVu Sans Mono, monospace" font-size="13" font-weight="400" fill="#E8EDF3">eth1</text>
+<path d="M480 646L480 808" stroke="#344252"/>
+<path d="M720 646L720 808" stroke="#344252"/>
+</svg>

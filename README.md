@@ -11,6 +11,7 @@ The application features a clean, modular shell (top toolbar + card grid home pa
 2. [Features & Core Tools](#features--core-tools)
    - [Subnet Splitter](#subnet-splitter)
    - [Connection Test](#connection-test)
+   - [Device Visualization](#device-visualization)
    - [Routing Map](#routing-map)
    - [IP Calculator](#ip-calculator)
    - [IPAM (IP Address Management)](#ipam-ip-address-management)
@@ -25,6 +26,7 @@ The application features a clean, modular shell (top toolbar + card grid home pa
    - [Local Development](#local-development)
    - [Docker & Docker Compose](#docker--docker-compose)
    - [Automated Scanning (Systemd)](#automated-scanning-systemd)
+   - [Server Maintenance](#server-maintenance)
 6. [API Reference Catalog](#api-reference-catalog)
 7. [Database Schemas](#database-schemas)
 8. [Environment Variables](#environment-variables)
@@ -64,8 +66,23 @@ Test TCP port connectivity from remote Linux or Windows source hosts to target d
   - **Windows Sources**: Backend connects via WinRM (`pywinrm`) using session credentials and runs PowerShell `TcpClient.BeginConnect`/`EndConnect` checks.
 - **Configuration & Settings**:
   - Configurable WinRM transport (`NTLM`, `Kerberos`, `Basic`, `CredSSP`), scheme (`http`/`https`), and WinRM port.
-  - Results returned directly with JSON rows and CSV export.
+  - Results returned directly with JSON rows and escaped CSV export.
+  - Maximum 16 sources, 64 destinations, 32 ports and 1024 source × destination × port combinations per run.
+  - Separate 8-worker executor and two concurrent runs per backend process; busy requests receive HTTP 503 with `Retry-After`.
+  - Basic WinRM authentication requires HTTPS; certificate verification stays enabled.
+  - Accessible field labels, announced run status, locked controls during execution, and responsive mobile forms.
 - **Security**: Credentials are provided per session and are never logged or persisted.
+
+### Device Visualization
+Manually map physical ports on switches, Check Point/FortiGate firewalls, and generic servers.
+- Tenant-scoped saved devices, searchable/filterable paginated list, port labels and destinations.
+- Per-port access VLAN or trunk VLAN list/ranges/`all`, with optional native VLAN; documentation only.
+- Server rear panels with 1–16 independently configured NICs and 1–8 sockets per card.
+- Ethernet 1/10G, SFP 10/25G and QSFP 40/100G, up to 128 sockets per device.
+- Versioned updates, reviewed removal of port data, and transactional audit surviving deletion.
+- Requires `device-visualization`; existing non-admin roles need an explicit grant.
+- Generic configurable appearance; no hardware discovery or live link state.
+See [usage, permissions and API](docs/device-visualization.md).
 
 ### Routing Map
 Store, view, and organize routing tables across infrastructure hosts.
@@ -214,8 +231,9 @@ The Vite development server runs on `http://localhost:5173`. Proxies `/api` call
 #### 2. Backend Setup
 ```bash
 cd server
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000
+python3 -m venv venv
+./venv/bin/python3 -m pip install -r requirements.txt
+./venv/bin/python3 -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 The backend initializes `server/toolbox.db` and `server/auth.db` automatically on first launch.
 
@@ -227,10 +245,10 @@ Full containerized setup suitable for Docker Desktop (Windows/Linux/macOS).
 
 #### Architecture
 The setup runs two containers configured via `docker/docker-compose.yml`:
-- **`backend`**: Python 3.12 container running FastAPI on port `8000`. Includes `iputils-ping` for IPAM sweeps. Mounts persistent named volume `net-toolbox-data` to `/data` (persisting `toolbox.db` and `auth.db`).
+- **`backend`**: Python 3.12 container running FastAPI on port `8000`. Includes `iputils-ping` for IPAM sweeps. Mounts persistent named volume `net-toolbox-data` to `/data` (persisting `toolbox.db`, `auth.db`, and `tenants/<UUID>/toolbox.db`).
 - **`frontend`**: Static file server (`serve`) on port `3000` serving Vite production bundle.
 
-The Docker containers clone the repository dynamically on container start, allowing `docker compose restart` to fetch the latest commits without rebuilding images.
+Application code is baked into the image. To update it, rebuild and recreate containers with `docker compose up -d --build`; restarting existing containers does not fetch new commits.
 
 #### Deploying with Docker
 ```bash
@@ -262,6 +280,12 @@ To schedule periodic IPAM autodiscovery scans across all subnets:
    sudo systemctl daemon-reload
    sudo systemctl enable --now ipam-scan-all.timer
    ```
+
+---
+
+### Server Maintenance
+
+See [server upgrades, backup and restore, restart procedure, and post-upgrade checks](docs/maintenance.md) before updating the host or application. Back up the identity database, default application database, and all tenant databases as one consistent set. Tenant selection, permissions, and transfers are described in [tenant documentation](docs/tenants.md).
 
 ---
 
@@ -601,6 +625,7 @@ net-toolbox/
 │   └── README.md               # Detailed Docker Desktop guide
 ├── server/                     # FastAPI backend
 │   ├── main.py                 # Core API endpoints & auth dependencies
+│   ├── connection_test/        # Validated request models, bounded execution, CSV export
 │   ├── db.py                   # Application SQLite database (toolbox.db)
 │   ├── auth_db.py              # Auth SQLite database (auth.db)
 │   ├── auth.py                 # Bcrypt password hashing & session management
@@ -692,3 +717,11 @@ cd server
 pytest
 ```
 Tests automatically execute in an isolated environment using temporary in-memory/file-backed SQLite databases (`conftest.py`) without affecting production `toolbox.db` or `auth.db` files.
+
+### Tenant workspaces
+
+The application supports shared user accounts with separate tenant memberships
+and tool permissions. Each tenant has its own application SQLite database;
+existing data stays in the default tenant. Manage access in **Config Panel →
+Tenants** and select the active tenant in the toolbar. See [tenant setup,
+API scope and backups](docs/tenants.md).

@@ -43,7 +43,7 @@
   padding: 14px 8px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #0a121e;
+  background: var(--input-bg);
   text-align: center;
 }
 .rm-node-icon {
@@ -86,7 +86,7 @@
 .rm-graph-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
-  background: #0a121e;
+  background: var(--input-bg);
   border: 1px solid var(--border-soft);
   border-radius: 4px;
   padding: 1px 6px;
@@ -128,7 +128,7 @@
   z-index: 30;
   min-width: 180px;
   max-width: 260px;
-  background: #0a121e;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
@@ -184,7 +184,7 @@
   margin-bottom: 6px;
   z-index: 20;
   min-width: 190px;
-  background: #0a121e;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;
@@ -251,8 +251,8 @@
 }
 .rm-notice-ok {
   border: 1px solid var(--accent-dim);
-  background: #123a2e;
-  color: #6ee7b7;
+  background: var(--success-bg);
+  color: var(--success);
 }
 
 .rm-delete-btn {
@@ -299,11 +299,11 @@
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 .rm-host-item:hover {
-  background: #17233688;
+  background: var(--bg-hover);
 }
 .rm-host-item.active {
   background: var(--accent);
-  color: #06211f;
+  color: var(--primary-text);
 }
 .rm-host-item.active .rm-host-count {
   color: #06211f99;
@@ -339,7 +339,7 @@
   margin: -1px -4px;
 }
 .rm-editable-desc:hover:not(.is-disabled) {
-  background: #17233688;
+  background: var(--bg-hover);
 }
 .rm-editable-desc.is-disabled {
   cursor: default;
@@ -378,8 +378,8 @@
 }
 .rm-trace-hop-ok {
   border-color: var(--accent-dim);
-  background: #123a2e;
-  color: #6ee7b7;
+  background: var(--success-bg);
+  color: var(--success);
 }
 .rm-trace-hop-error {
   border-color: var(--danger);
@@ -414,3 +414,7 @@
   padding: 2px 6px;
   outline: none;
 }
+.rm-move-host { margin-bottom: 20px; }
+.rm-move-host fieldset { border: 0; padding: 12px 0; margin: 0; min-width: 0; }
+.rm-move-host select { max-width: 100%; margin: 0 12px 12px 8px; padding: 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+.rm-move-host p { overflow-wrap: anywhere; }

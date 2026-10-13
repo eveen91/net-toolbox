@@ -19,7 +19,7 @@ export default function PirReportTab() {
 
       {signed ? (
         <div className="tool-error" style={{ borderColor: "#166534", backgroundColor: "#123a2e", color: "#6ee7b7" }}>
-          PIR Package signed off by <strong>{signoffUser}</strong>. Complete evidence Markdown exported.
+          PIR Package signed off by <strong>{signoffUser}</strong>. Demonstration only; no approval was persisted and no file was exported.
         </div>
       ) : (
         <form onSubmit={handleSignoff}>
@@ -47,7 +47,7 @@ export default function PirReportTab() {
 
           <div className="tool-actions">
             <button type="submit" className="tool-btn tool-btn-primary">
-              Sign off & Export PIR Package
+              Preview sign-off
             </button>
           </div>
         </form>

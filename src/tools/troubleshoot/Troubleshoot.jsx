@@ -1,3 +1,5 @@
+import ViewTabs from "../../components/ViewTabs.jsx";
+import { canLeaveWorkspace } from "../../components/navigation.js";
 import React, { useState } from "react";
 import "./troubleshoot.css";
 import DiagnosticsTab from "./DiagnosticsTab.jsx";
@@ -30,17 +32,7 @@ export default function Troubleshoot() {
         <p>Look up a device on the network and check its health.</p>
       </div>
 
-      <div className="ts-subtabs">
-        {SUBTABS.map((t) => (
-          <button
-            key={t.id}
-            className={`ts-subtab ${activeSub === t.id ? "active" : ""}`}
-            onClick={() => setActiveSub(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <ViewTabs items={SUBTABS} value={activeSub} onChange={(id) => { if (canLeaveWorkspace()) setActiveSub(id); }} label="Module views" />
 
       {ActiveComponent && (
         <ActiveComponent locateForm={locateForm} setLocateForm={setLocateForm} />

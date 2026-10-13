@@ -20,7 +20,8 @@ import ipaddress
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from tenancy.context import database_path
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -34,13 +35,14 @@ def _ipv4_to_int(value: str) -> int:
 
 
 DIRECTLY_CONNECTED = "directly connected"
-IPAM_SCHEMA_VERSION = 8
+IPAM_SCHEMA_VERSION = 10
+DATA_QUALITY_SCAN_MAX_AGE_DAYS = 30
 # A scan's database heartbeat must be refreshed before this duration expires.
 SCAN_JOB_TIMEOUT_SECONDS = 300
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(database_path(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.create_function("ipv4_to_int", 1, _ipv4_to_int, deterministic=True)
     conn.execute("PRAGMA foreign_keys = ON")
@@ -368,6 +370,33 @@ def init_db() -> None:
             """
         )
 
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_archives (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('subnet', 'address', 'dhcp_pool')),
+                resource_id INTEGER NOT NULL,
+                subnet_id INTEGER,
+                snapshot_json TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                archived_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                archived_by INTEGER
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_data_quality_mutes (
+                violation_id TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                expires_at TEXT,
+                created_at TEXT NOT NULL,
+                user_id INTEGER
+            )
+            """
+        )
+
         # Audit Log Table
         conn.execute(
             """
@@ -525,6 +554,39 @@ def _apply_ipam_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ipam_scan_jobs_one_running_per_subnet ON ipam_scan_jobs(subnet_id) WHERE status = 'running'")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_scan_jobs_subnet_created ON ipam_scan_jobs(subnet_id, created_at DESC)")
 
+    if 9 not in applied:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_data_quality_mutes (
+                violation_id TEXT PRIMARY KEY,
+                reason TEXT NOT NULL,
+                expires_at TEXT,
+                created_at TEXT NOT NULL,
+                user_id INTEGER
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_data_quality_mutes_expiry ON ipam_data_quality_mutes(expires_at)")
+
+    if 10 not in applied:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS ipam_archives (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                resource_type TEXT NOT NULL CHECK(resource_type IN ('subnet', 'address', 'dhcp_pool')),
+                resource_id INTEGER NOT NULL,
+                subnet_id INTEGER,
+                snapshot_json TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                archived_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                archived_by INTEGER
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_archives_resource ON ipam_archives(resource_type, resource_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_ipam_archives_expiry ON ipam_archives(expires_at)")
+
     for version in range(1, IPAM_SCHEMA_VERSION + 1):
         conn.execute(
             "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?)",
@@ -533,18 +595,19 @@ def _apply_ipam_migrations(conn: sqlite3.Connection) -> None:
 
 
 def recover_interrupted_scan_jobs() -> None:
-    """Mark jobs left running by a process restart as failed."""
+    """Recover stale jobs without invalidating another worker's live scan."""
     conn = get_connection()
     try:
         now = _now()
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=SCAN_JOB_TIMEOUT_SECONDS)).isoformat()
         conn.execute(
             """
             UPDATE ipam_scan_jobs
             SET status = 'error', error_message = 'Scan interrupted by server restart',
                 finished_at = ?, updated_at = ?
-            WHERE status = 'running'
+            WHERE status = 'running' AND updated_at < ?
             """,
-            (now, now),
+            (now, now, cutoff),
         )
         conn.commit()
     finally:
@@ -1199,6 +1262,202 @@ def move_address(from_subnet_id: int, address_id: int, to_subnet_id: int, user_i
     return {"fromSubnet": get_subnet(from_subnet_id), "toSubnet": get_subnet(to_subnet_id)}
 
 
+def import_ipam_records(records: List[Dict], confirm: bool = False, user_id: Optional[int] = None) -> Dict:
+    if len(records) > 1000:
+        raise ValueError("Import may contain at most 1000 records")
+    conn = get_connection()
+    try:
+        existing_subnets = {row["cidr"]: row for row in conn.execute("SELECT * FROM ipam_subnets").fetchall()}
+        planned_subnets = dict(existing_subnets)
+        subnet_ids = {row["cidr"]: row["id"] for row in existing_subnets.values()}
+        planned_addresses = {
+            (row["cidr"], row["address"])
+            for row in conn.execute("SELECT s.cidr, a.address FROM ipam_addresses a JOIN ipam_subnets s ON s.id = a.subnet_id").fetchall()
+        }
+        planned_pools = [
+            (row["cidr"], ipaddress.IPv4Address(row["start_ip"]), ipaddress.IPv4Address(row["end_ip"]))
+            for row in conn.execute("SELECT s.cidr, p.start_ip, p.end_ip FROM ipam_dhcp_pools p JOIN ipam_subnets s ON s.id = p.subnet_id").fetchall()
+        ]
+        report = {"create": [], "update": [], "skip": [], "error": []}
+        actions = []
+        for index, record in enumerate(records, start=1):
+            resource_type = record["resourceType"]
+            try:
+                if resource_type == "subnet":
+                    cidr = validate_cidr(record.get("cidr") or "")
+                    if cidr in planned_subnets:
+                        report["skip"].append({"row": index, "message": f"Subnet {cidr} already exists"})
+                    else:
+                        planned_subnets[cidr] = {"cidr": cidr}
+                        subnet_ids[cidr] = None
+                        actions.append(("subnet", {"cidr": cidr, "vlan": record.get("vlan"), "description": record.get("description")}))
+                        report["create"].append({"row": index, "resourceType": "subnet", "cidr": cidr})
+                elif resource_type == "address":
+                    subnet_cidr = validate_cidr(record.get("subnetCidr") or "")
+                    subnet = planned_subnets.get(subnet_cidr)
+                    if subnet is None:
+                        raise ValueError(f"Subnet {subnet_cidr} does not exist")
+                    address = str(ipaddress.IPv4Address(record.get("address") or ""))
+                    validate_address_in_subnet(address, subnet_cidr)
+                    if (subnet_cidr, address) in planned_addresses:
+                        report["skip"].append({"row": index, "message": f"Address {address} already exists in {subnet_cidr}"})
+                        continue
+                    if any(pool_cidr == subnet_cidr and start <= ipaddress.IPv4Address(address) <= end for pool_cidr, start, end in planned_pools):
+                        raise ValueError(f"Address {address} conflicts with a DHCP pool")
+                    planned_addresses.add((subnet_cidr, address))
+                    actions.append(("address", {**record, "address": address, "subnetCidr": subnet_cidr}))
+                    report["create"].append({"row": index, "resourceType": "address", "address": address, "subnetCidr": subnet_cidr})
+                else:
+                    subnet_cidr = validate_cidr(record.get("subnetCidr") or "")
+                    if subnet_cidr not in planned_subnets:
+                        raise ValueError(f"Subnet {subnet_cidr} does not exist")
+                    start_ip = str(ipaddress.IPv4Address(record.get("startIp") or ""))
+                    end_ip = str(ipaddress.IPv4Address(record.get("endIp") or ""))
+                    if ipaddress.IPv4Address(start_ip) > ipaddress.IPv4Address(end_ip):
+                        raise ValueError("DHCP pool start IP must not exceed end IP")
+                    validate_address_in_subnet(start_ip, subnet_cidr)
+                    validate_address_in_subnet(end_ip, subnet_cidr)
+                    start_address, end_address = ipaddress.IPv4Address(start_ip), ipaddress.IPv4Address(end_ip)
+                    if any(pool_cidr == subnet_cidr and not (end_address < pool_start or start_address > pool_end) for pool_cidr, pool_start, pool_end in planned_pools):
+                        raise ValueError(f"DHCP pool {start_ip}-{end_ip} overlaps an existing pool")
+                    if any(address_cidr == subnet_cidr and start_address <= ipaddress.IPv4Address(address) <= end_address for address_cidr, address in planned_addresses):
+                        raise ValueError(f"DHCP pool {start_ip}-{end_ip} conflicts with an address")
+                    planned_pools.append((subnet_cidr, start_address, end_address))
+                    actions.append(("dhcp_pool", {**record, "startIp": start_ip, "endIp": end_ip, "subnetCidr": subnet_cidr}))
+                    report["create"].append({"row": index, "resourceType": "dhcp_pool", "startIp": start_ip, "endIp": end_ip})
+            except (ValueError, KeyError) as exc:
+                report["error"].append({"row": index, "message": str(exc)})
+        report["summary"] = {key: len(value) for key, value in report.items() if key != "summary"}
+        report["ready"] = not report["error"]
+        if not confirm:
+            return report
+        if report["error"]:
+            raise ValueError("Import validation failed")
+        conn.execute("BEGIN")
+        try:
+            for action, data in actions:
+                if action == "subnet":
+                    conn.execute("INSERT INTO ipam_subnets (cidr, vlan, description, updated_at) VALUES (?, ?, ?, ?)", (data["cidr"], data["vlan"], data["description"], _now()))
+                elif action == "address":
+                    subnet_id = conn.execute("SELECT id FROM ipam_subnets WHERE cidr = ?", (data["subnetCidr"],)).fetchone()["id"]
+                    conn.execute("INSERT INTO ipam_addresses (subnet_id, address, status, allocation_type, hostname, description, team, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (subnet_id, data["address"], data.get("status") or "used", data.get("allocationType") or "static", data.get("hostname"), data.get("description"), data.get("team"), _now()))
+                else:
+                    subnet_id = conn.execute("SELECT id FROM ipam_subnets WHERE cidr = ?", (data["subnetCidr"],)).fetchone()["id"]
+                    conn.execute("INSERT INTO ipam_dhcp_pools (subnet_id, start_ip, end_ip, name, description, updated_at) VALUES (?, ?, ?, ?, ?, ?)", (subnet_id, data["startIp"], data["endIp"], data.get("name"), data.get("description"), _now()))
+            recompute_subnet_hierarchy(conn)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        return report
+    finally:
+        conn.close()
+
+
+def list_data_quality_violations() -> List[Dict]:
+    conn = get_connection()
+    try:
+        now = datetime.now(timezone.utc)
+        stale_before = now - timedelta(days=DATA_QUALITY_SCAN_MAX_AGE_DAYS)
+        conn.execute(
+            "DELETE FROM ipam_data_quality_mutes WHERE expires_at IS NOT NULL AND expires_at <= ?",
+            (_now(),),
+        )
+        muted = {
+            row["violation_id"]
+            for row in conn.execute("SELECT violation_id FROM ipam_data_quality_mutes").fetchall()
+        }
+        rows = conn.execute(
+            """
+            WITH address_tags AS (
+                SELECT address_id, COUNT(*) AS tag_count FROM ipam_tag_addresses GROUP BY address_id
+            ), subnet_tags AS (
+                SELECT subnet_id, COUNT(*) AS tag_count FROM ipam_tag_subnets GROUP BY subnet_id
+            ), latest_scans AS (
+                SELECT subnet_id, MAX(finished_at) AS finished_at FROM ipam_scans GROUP BY subnet_id
+            )
+            SELECT s.id AS subnet_id, s.cidr, s.description AS subnet_description,
+                   s.parent_id, ls.finished_at AS last_scanned_at,
+                   COALESCE(st.tag_count, 0) AS subnet_tag_count,
+                   a.id AS address_id, a.address, a.hostname, a.description AS address_description,
+                   a.team, a.allocation_type, COALESCE(at.tag_count, 0) AS address_tag_count
+            FROM ipam_subnets s
+            LEFT JOIN latest_scans ls ON ls.subnet_id = s.id
+            LEFT JOIN subnet_tags st ON st.subnet_id = s.id
+            LEFT JOIN ipam_addresses a ON a.subnet_id = s.id
+            LEFT JOIN address_tags at ON at.address_id = a.id
+            ORDER BY s.id, a.id
+            """
+        ).fetchall()
+        subnets = list_subnets()
+        violations = []
+
+        def append(rule, severity, resource_type, resource_id, subnet_id, cidr, message, **extra):
+            violation_id = f"{rule}:{resource_type}:{resource_id}"
+            if violation_id not in muted:
+                violations.append({
+                    "id": violation_id, "rule": rule, "severity": severity,
+                    "resourceType": resource_type, "resourceId": resource_id,
+                    "subnetId": subnet_id, "subnetCidr": cidr, "message": message,
+                    **extra,
+                })
+
+        seen_subnets = set()
+        hostname_rows = {}
+        for row in rows:
+            subnet_id, cidr = row["subnet_id"], row["cidr"]
+            if subnet_id not in seen_subnets:
+                seen_subnets.add(subnet_id)
+                network = ipaddress.ip_network(cidr)
+                usable_addresses = network.num_addresses - (2 if network.prefixlen <= 30 else 0)
+                utilization = next(item for item in subnets if item["id"] == subnet_id)["recordedCount"] / max(1, usable_addresses)
+                if utilization >= 0.9:
+                    append("utilization_90", "critical", "subnet", subnet_id, subnet_id, cidr, f"Subnet utilization is {utilization:.0%} (threshold: 90%)")
+                elif utilization >= 0.8:
+                    append("utilization_80", "warning", "subnet", subnet_id, subnet_id, cidr, f"Subnet utilization is {utilization:.0%} (threshold: 80%)")
+                if row["last_scanned_at"] is None:
+                    append("never_scanned", "warning", "subnet", subnet_id, subnet_id, cidr, "Subnet has never been scanned")
+                elif datetime.fromisoformat(row["last_scanned_at"]).astimezone(timezone.utc) < stale_before:
+                    append("stale_scan", "warning", "subnet", subnet_id, subnet_id, cidr, f"Last scan is older than {DATA_QUALITY_SCAN_MAX_AGE_DAYS} days")
+                if not (row["subnet_description"] or "").strip() or row["subnet_tag_count"] == 0:
+                    missing = "description and tags" if not (row["subnet_description"] or "").strip() and row["subnet_tag_count"] == 0 else ("description" if not (row["subnet_description"] or "").strip() else "tags")
+                    append("critical_subnet_metadata", "critical", "subnet", subnet_id, subnet_id, cidr, f"Critical subnet is missing {missing}")
+            if row["address_id"] is None:
+                continue
+            address_id, address = row["address_id"], row["address"]
+            if not (row["team"] or "").strip():
+                append("missing_owner_team", "warning", "address", address_id, subnet_id, cidr, "Address has no owner or team", addressId=address_id, address=address, hostname=row["hostname"])
+            if row["hostname"] and row["hostname"].strip():
+                hostname_rows.setdefault(row["hostname"].strip().lower(), []).append(row)
+            best = find_best_subnet_for_address(address, subnets)
+            if best and best["id"] != subnet_id:
+                append("misplaced_subnet", "critical", "address", address_id, subnet_id, cidr, "Address belongs to a more specific subnet", addressId=address_id, address=address, hostname=row["hostname"], proposedSubnetId=best["id"], proposedSubnetCidr=best["cidr"])
+            if row["allocation_type"] == "static":
+                pool = conn.execute("SELECT 1 FROM ipam_dhcp_pools WHERE subnet_id = ? AND ipv4_to_int(?) BETWEEN ipv4_to_int(start_ip) AND ipv4_to_int(end_ip)", (subnet_id, address)).fetchone()
+                if pool:
+                    append("static_in_dhcp", "critical", "address", address_id, subnet_id, cidr, "Static address falls within a DHCP pool", addressId=address_id, address=address, hostname=row["hostname"])
+        for hostname, matched_rows in hostname_rows.items():
+            if len(matched_rows) > 1:
+                for row in matched_rows:
+                    append("duplicate_hostname", "warning", "address", row["address_id"], row["subnet_id"], row["cidr"], f"Hostname '{hostname}' is used by {len(matched_rows)} addresses", addressId=row["address_id"], address=row["address"], hostname=row["hostname"])
+        conn.commit()
+        return violations
+    finally:
+        conn.close()
+
+
+def mute_data_quality_violation(violation_id: str, reason: str, expires_at: Optional[str], user_id: Optional[int] = None) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO ipam_data_quality_mutes (violation_id, reason, expires_at, created_at, user_id) VALUES (?, ?, ?, ?, ?) ON CONFLICT(violation_id) DO UPDATE SET reason = excluded.reason, expires_at = excluded.expires_at, created_at = excluded.created_at, user_id = excluded.user_id",
+            (violation_id, reason, expires_at, _now(), user_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _subnet_summary(row: sqlite3.Row) -> Dict:
     counts = {
         "used": row["used_count"] if "used_count" in row.keys() else 0,
@@ -1513,14 +1772,17 @@ def create_subnet(
     return get_subnet(subnet_id)
 
 
-def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, description: Optional[str] = None, user_id: Optional[int] = None) -> Dict:
+def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, description: Optional[str] = None, expected_updated_at: Optional[str] = None, user_id: Optional[int] = None) -> Dict:
     cidr = validate_cidr(cidr)
     validate_vlan(vlan)
     conn = get_connection()
     try:
-        existing = conn.execute("SELECT id, cidr, vlan, description FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute("SELECT id, cidr, vlan, description, updated_at FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         if existing is None:
             raise ValueError("Subnet not found")
+        if expected_updated_at is not None and expected_updated_at != existing["updated_at"]:
+            raise ValueError("Record was modified by another user")
         network = ipaddress.ip_network(cidr)
 
         # If the range is shrinking, refuse to silently orphan addresses that
@@ -1586,7 +1848,27 @@ def update_subnet(subnet_id: int, cidr: str, vlan: Optional[int] = None, descrip
     return get_subnet(subnet_id)
 
 
-def delete_subnet(subnet_id: int, user_id: Optional[int] = None) -> bool:
+ARCHIVE_RETENTION_DAYS = 30
+
+
+def _archive_resource(conn, resource_type: str, resource_id: int, subnet_id: Optional[int], snapshot: Dict, reason: str, user_id: Optional[int]) -> None:
+    # Preserve associations that would otherwise disappear through cascades.
+    snapshot = dict(snapshot)
+    if resource_type == "subnet":
+        for key, table in (("tags", "ipam_tag_subnets"), ("rangeReservations", "ipam_range_reservations"), ("scanExcludes", "ipam_scan_excludes"), ("scanSchedule", "ipam_scan_schedules")):
+            snapshot[key] = [dict(row) for row in conn.execute(f"SELECT * FROM {table} WHERE subnet_id = ?", (resource_id,))]
+        snapshot["addressTags"] = [dict(row) for row in conn.execute("SELECT t.* FROM ipam_tag_addresses t JOIN ipam_addresses a ON a.id = t.address_id WHERE a.subnet_id = ?", (resource_id,))]
+    elif resource_type == "address":
+        snapshot["tags"] = [dict(row) for row in conn.execute("SELECT * FROM ipam_tag_addresses WHERE address_id = ?", (resource_id,))]
+    archived_at = _now()
+    expires_at = (datetime.now(timezone.utc) + timedelta(days=ARCHIVE_RETENTION_DAYS)).isoformat()
+    conn.execute(
+        "INSERT INTO ipam_archives (resource_type, resource_id, subnet_id, snapshot_json, reason, archived_at, expires_at, archived_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (resource_type, resource_id, subnet_id, json.dumps(snapshot), reason, archived_at, expires_at, user_id),
+    )
+
+
+def delete_subnet(subnet_id: int, reason: str, user_id: Optional[int] = None) -> bool:
     conn = get_connection()
     try:
         subnet_row = conn.execute(
@@ -1596,10 +1878,14 @@ def delete_subnet(subnet_id: int, user_id: Optional[int] = None) -> bool:
         if subnet_row is None:
             return False
         old_state = {
+            "id": subnet_id,
             "cidr": subnet_row["cidr"],
             "vlan": subnet_row["vlan"],
             "description": subnet_row["description"],
+            "addresses": [dict(row) for row in conn.execute("SELECT * FROM ipam_addresses WHERE subnet_id = ?", (subnet_id,)).fetchall()],
+            "dhcpPools": [dict(row) for row in conn.execute("SELECT * FROM ipam_dhcp_pools WHERE subnet_id = ?", (subnet_id,)).fetchall()],
         }
+        _archive_resource(conn, "subnet", subnet_id, subnet_id, old_state, reason, user_id)
         conn.execute("UPDATE ipam_subnets SET parent_id = NULL WHERE parent_id = ?", (subnet_id,))
         conn.execute("DELETE FROM ipam_subnets WHERE id = ?", (subnet_id,))
         _log_subnet_change(
@@ -1609,7 +1895,7 @@ def delete_subnet(subnet_id: int, user_id: Optional[int] = None) -> bool:
             change_type="subnet_delete",
             old_value=json.dumps(old_state),
             new_value=None,
-            description="Subnet deleted",
+            description=f"Subnet archived: {reason}",
             subnet_cidr=subnet_row["cidr"],
         )
         recompute_subnet_hierarchy(conn)
@@ -1710,10 +1996,12 @@ def update_address(
     environment: Optional[str] = None,
     locked: bool = False,
     allocation_type: str = "static",
+    expected_updated_at: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> Dict:
     conn = get_connection()
     try:
+        conn.execute("BEGIN IMMEDIATE")
         subnet_row = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         if subnet_row is None:
             raise ValueError("Subnet not found")
@@ -1722,6 +2010,8 @@ def update_address(
         ).fetchone()
         if existing is None:
             raise ValueError("Address not found")
+        if expected_updated_at is not None and expected_updated_at != existing["updated_at"]:
+            raise ValueError("Record was modified by another user")
         validate_address_in_subnet(address, subnet_row["cidr"])
         validate_status(status)
         validate_allocation_type(allocation_type)
@@ -1867,7 +2157,7 @@ def release_address(subnet_id: int, address_id: int, user_id: Optional[int] = No
     return get_subnet(subnet_id)
 
 
-def delete_address(subnet_id: int, address_id: int, user_id: Optional[int] = None) -> Dict:
+def delete_address(subnet_id: int, address_id: int, reason: str, user_id: Optional[int] = None) -> Dict:
     conn = get_connection()
     try:
         subnet_row = conn.execute("SELECT id, cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
@@ -1879,6 +2169,10 @@ def delete_address(subnet_id: int, address_id: int, user_id: Optional[int] = Non
             "SELECT * FROM ipam_addresses WHERE id = ? AND subnet_id = ?", (address_id, subnet_id)
         ).fetchone()
         
+        if addr_row is None:
+            raise ValueError("Address not found")
+        snapshot = dict(addr_row)
+        _archive_resource(conn, "address", address_id, subnet_id, snapshot, reason, user_id)
         # Log the delete event BEFORE deleting the address
         if addr_row:
             _log_address_change(
@@ -1898,7 +2192,7 @@ def delete_address(subnet_id: int, address_id: int, user_id: Optional[int] = Non
                     "locked": addr_row["locked"],
                 }),
                 new_value=None,
-                description=f"Address deleted: {addr_row['address']}",
+                description=f"Address archived: {reason}",
                 ip_address=addr_row["address"],
                 subnet_cidr=subnet_row["cidr"],
             )
@@ -1965,12 +2259,15 @@ def bulk_update_addresses(subnet_id: int, address_ids: List[int], fields: Dict) 
             (*params, subnet_id, *address_ids),
         )
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     return get_subnet(subnet_id)
 
 
-def bulk_delete_addresses(subnet_id: int, address_ids: List[int]) -> Dict:
+def bulk_delete_addresses(subnet_id: int, address_ids: List[int], reason: str, user_id: Optional[int] = None) -> Dict:
     """
     Delete many addresses within one subnet in a single transaction.
 
@@ -1985,11 +2282,17 @@ def bulk_delete_addresses(subnet_id: int, address_ids: List[int]) -> Dict:
             raise ValueError("Subnet not found")
 
         placeholders = ",".join("?" for _ in address_ids)
+        rows = conn.execute(f"SELECT * FROM ipam_addresses WHERE subnet_id = ? AND id IN ({placeholders})", (subnet_id, *address_ids)).fetchall()
+        for row in rows:
+            _archive_resource(conn, "address", row["id"], subnet_id, dict(row), reason, user_id)
         conn.execute(
             f"DELETE FROM ipam_addresses WHERE subnet_id = ? AND id IN ({placeholders})",
             (subnet_id, *address_ids),
         )
         conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
     return get_subnet(subnet_id)
@@ -2391,7 +2694,7 @@ def update_scan_job(job_id: str, *, completed: Optional[int] = None, total: Opti
     values.extend([_now(), job_id])
     conn = get_connection()
     try:
-        conn.execute(f"UPDATE ipam_scan_jobs SET {', '.join(fields)} WHERE id = ?", values)
+        conn.execute(f"UPDATE ipam_scan_jobs SET {', '.join(fields)} WHERE id = ? AND status = 'running'", values)
         conn.commit()
     finally:
         conn.close()
@@ -2818,7 +3121,7 @@ def get_dhcp_pools(subnet_id: int) -> List[Dict]:
         conn.close()
 
 
-def delete_dhcp_pool(subnet_id: int, pool_id: int, user_id: Optional[int] = None) -> bool:
+def delete_dhcp_pool(subnet_id: int, pool_id: int, reason: str, user_id: Optional[int] = None) -> bool:
     conn = get_connection()
     try:
         row = conn.execute(
@@ -2829,6 +3132,7 @@ def delete_dhcp_pool(subnet_id: int, pool_id: int, user_id: Optional[int] = None
             return False
         subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (subnet_id,)).fetchone()
         snapshot = dict(row)
+        _archive_resource(conn, "dhcp_pool", pool_id, subnet_id, snapshot, reason, user_id)
         conn.execute("DELETE FROM ipam_dhcp_pools WHERE id = ?", (pool_id,))
         _log_entity_change(
             conn,
@@ -2837,11 +3141,113 @@ def delete_dhcp_pool(subnet_id: int, pool_id: int, user_id: Optional[int] = None
             subnet_id=subnet_id,
             dhcp_pool_id=pool_id,
             old_value=snapshot,
-            description=f"DHCP pool deleted: {row['start_ip']}-{row['end_ip']}",
+            description=f"DHCP pool archived: {reason}",
             subnet_cidr=subnet["cidr"] if subnet else None,
         )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+def list_archives(resource_type: Optional[str] = None) -> List[Dict]:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM ipam_archives WHERE expires_at <= ?", (_now(),))
+        params = []
+        where = ""
+        if resource_type:
+            where = " WHERE resource_type = ?"
+            params.append(resource_type)
+        rows = conn.execute(f"SELECT * FROM ipam_archives{where} ORDER BY archived_at DESC", params).fetchall()
+        return [{**dict(row), "snapshot": json.loads(row["snapshot_json"])} for row in rows]
+    finally:
+        conn.commit()
+        conn.close()
+
+
+def restore_archive(archive_id: int, user_id: Optional[int] = None) -> Dict:
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        archive = conn.execute("SELECT * FROM ipam_archives WHERE id = ? AND expires_at > ?", (archive_id, _now())).fetchone()
+        if archive is None:
+            raise ValueError("Archive not found or retention period expired")
+        snapshot = json.loads(archive["snapshot_json"])
+        resource_type = archive["resource_type"]
+
+        def insert_snapshot(table, row, *, timestamp=True):
+            # Table names are internal constants; use schema columns to exclude
+            # embedded archive metadata and remain compatible with old snapshots.
+            row = dict(row)
+            if timestamp:
+                row["updated_at"] = _now()
+            columns = [column["name"] for column in conn.execute(f"PRAGMA table_info({table})") if column["name"] in row]
+            values = [_now() if timestamp and key == "updated_at" else row[key] for key in columns]
+            conn.execute(f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})", values)
+
+        if resource_type == "subnet":
+            insert_snapshot("ipam_subnets", snapshot)
+            for row in snapshot.get("addresses", []):
+                insert_snapshot("ipam_addresses", row)
+            for row in snapshot.get("dhcpPools", []):
+                insert_snapshot("ipam_dhcp_pools", row)
+            for key, table in (("rangeReservations", "ipam_range_reservations"), ("scanExcludes", "ipam_scan_excludes"), ("scanSchedule", "ipam_scan_schedules")):
+                for row in snapshot.get(key, []):
+                    insert_snapshot(table, row)
+        elif resource_type == "address":
+            insert_snapshot("ipam_addresses", snapshot)
+        elif resource_type == "dhcp_pool":
+            insert_snapshot("ipam_dhcp_pools", snapshot)
+        else:
+            raise ValueError("Unsupported archive resource type")
+
+        address_rows = snapshot.get("addresses", []) if resource_type == "subnet" else [snapshot] if resource_type == "address" else []
+        pool_rows = snapshot.get("dhcpPools", []) if resource_type == "subnet" else [snapshot] if resource_type == "dhcp_pool" else []
+        for row in address_rows:
+            subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (row["subnet_id"],)).fetchone()
+            if subnet is None:
+                raise ValueError("Parent subnet no longer exists")
+            validate_address_in_subnet(row["address"], subnet["cidr"])
+            validate_address_not_in_dhcp_pool(conn, row["address"], row["subnet_id"])
+            validate_address_not_in_active_range_reservation(conn, row["address"], row["subnet_id"])
+        for row in pool_rows:
+            subnet = conn.execute("SELECT cidr FROM ipam_subnets WHERE id = ?", (row["subnet_id"],)).fetchone()
+            if subnet is None:
+                raise ValueError("Parent subnet no longer exists")
+            start, end = ipaddress.IPv4Address(row["start_ip"]), ipaddress.IPv4Address(row["end_ip"])
+            network = ipaddress.IPv4Network(subnet["cidr"])
+            if start > end or start not in network or end not in network:
+                raise ValueError("Archived DHCP range is no longer within parent subnet")
+            validate_dhcp_pool_has_no_addresses(conn, row["subnet_id"], start, end)
+            for other in conn.execute("SELECT start_ip, end_ip FROM ipam_dhcp_pools WHERE subnet_id = ? AND id != ?", (row["subnet_id"], row["id"])):
+                if int(start) <= ip_to_int(other["end_ip"]) and int(end) >= ip_to_int(other["start_ip"]):
+                    raise ValueError("Archived DHCP range overlaps an existing pool")
+            for other in conn.execute("SELECT start_ip, end_ip FROM ipam_range_reservations WHERE subnet_id = ? AND status = 'active'", (row["subnet_id"],)):
+                if int(start) <= ip_to_int(other["end_ip"]) and int(end) >= ip_to_int(other["start_ip"]):
+                    raise ValueError("Archived DHCP range overlaps an active reservation")
+        if resource_type == "subnet":
+            for row in snapshot.get("rangeReservations", []):
+                _validate_range_reservation(conn, row["subnet_id"], row["start_ip"], row["end_ip"], row["status"], row["id"])
+        tag_groups = [("tags", "ipam_tag_subnets")] if resource_type == "subnet" else [("tags", "ipam_tag_addresses")] if resource_type == "address" else []
+        if resource_type == "subnet":
+            tag_groups.append(("addressTags", "ipam_tag_addresses"))
+        for key, table in tag_groups:
+            for row in snapshot.get(key, []):
+                # A tag may have been deliberately removed during retention.
+                if conn.execute("SELECT 1 FROM ipam_tags WHERE id = ?", (row["tag_id"],)).fetchone():
+                    insert_snapshot(table, row, timestamp=False)
+        conn.execute("DELETE FROM ipam_archives WHERE id = ?", (archive_id,))
+        _log_entity_change(conn, "archive_restore", user_id, subnet_id=archive["subnet_id"], old_value={"archiveId": archive_id, "snapshot": snapshot}, new_value=snapshot, description=f"{resource_type} restored from archive", subnet_cidr=snapshot.get("cidr"))
+        recompute_subnet_hierarchy(conn)
+        conn.commit()
+        return snapshot
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()
+        raise ValueError("Archive conflicts with existing records or its parent no longer exists") from exc
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
@@ -2853,6 +3259,7 @@ def update_dhcp_pool(
     end_ip: str,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    expected_updated_at: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> Dict:
     try:
@@ -2866,12 +3273,15 @@ def update_dhcp_pool(
 
     conn = get_connection()
     try:
+        conn.execute("BEGIN IMMEDIATE")
         pool_row = conn.execute(
             "SELECT * FROM ipam_dhcp_pools WHERE id = ? AND subnet_id = ?",
             (pool_id, subnet_id),
         ).fetchone()
         if pool_row is None:
             raise ValueError("DHCP pool not found")
+        if expected_updated_at is not None and expected_updated_at != pool_row["updated_at"]:
+            raise ValueError("Record was modified by another user")
 
         subnet_row = conn.execute(
             "SELECT cidr FROM ipam_subnets WHERE id = ?", (pool_row["subnet_id"],)
@@ -3029,6 +3439,9 @@ def bulk_move_dhcp_pools(pool_ids: List[int], to_subnet_id: int, user_id: Option
             "fromSubnet": None,
             "toSubnet": get_subnet(to_subnet_id),
         }
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 

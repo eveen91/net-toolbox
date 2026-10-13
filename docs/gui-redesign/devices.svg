@@ -1,0 +1,271 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+<title id="title">Device Visualization — proposed net::toolbox GUI</title>
+<desc id="desc">Static desktop design proposal with illustrative data. Shared navigation, aligned toolbars and object inspector. Not a working application.</desc>
+<rect x="0" y="0" width="1440" height="900" rx="0" fill="#11161D"/>
+<rect x="0" y="0" width="216" height="900" rx="0" fill="#181F28"/>
+<path d="M216 0L216 900" stroke="#344252"/>
+<text x="22" y="38" font-family="DejaVu Sans Mono, monospace" font-size="19" font-weight="600" fill="#E8EDF3">net::toolbox</text>
+<text x="22" y="69" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">Network operations workspace</text>
+<text x="22" y="110" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Workspace</text>
+<text x="22" y="168" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Infrastructure</text>
+<path transform="translate(22 191)" d="M1 2H15V14H1ZM5 2V14M1 6H15" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="206" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">IPAM</text>
+<rect x="12" y="223" width="192" height="38" rx="6" fill="#203D3A"/>
+<path transform="translate(22 233)" d="M1 4H15V12H1ZM4 8H6M10 8H12" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="248" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#72D6C3">Device Visualization</text>
+<path transform="translate(22 275)" d="M2 2H6V6H2ZM10 10H14V14H10ZM6 4H12V10" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="290" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Routing Map</text>
+<text x="22" y="354" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Diagnostics</text>
+<path transform="translate(22 377)" d="M2 8H5L7 3L10 13L12 8H15" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="392" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Troubleshoot</text>
+<path transform="translate(22 419)" d="M2 3H14V13H2ZM5 6H11M5 10H9" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="434" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Connection Test</text>
+<path transform="translate(22 461)" d="M2 2H14V14H2ZM5 8L7 10L12 5" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="476" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Post-Change Validation</text>
+<text x="22" y="540" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="600" fill="#A5B2C2">Utilities</text>
+<path transform="translate(22 563)" d="M2 2H14V14H2ZM5 5H11M5 9H7M10 9H12" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="578" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">IP Calculator</text>
+<path transform="translate(22 605)" d="M1 8H6M6 8L11 3M6 8L11 13M11 3H15M11 13H15" stroke="#A5B2C2" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+<text x="48" y="620" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Subnet Splitter</text>
+<path d="M16 796H200" stroke="#344252"/>
+<text x="22" y="827" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Administration</text>
+<text x="22" y="858" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">Self-hosted workspace</text>
+<rect x="216" y="0" width="1224" height="60" rx="0" fill="#181F28"/>
+<path d="M216 60H1440" stroke="#344252"/>
+<text x="240" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Tenant</text>
+<rect x="294" y="12" width="158" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="306" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Example tenant</text>
+<text x="490" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Tenant-scoped data</text>
+<text x="1180" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">network.admin</text>
+<rect x="1312" y="12" width="104" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="1324" y="35" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Account</text>
+<text x="240" y="108" font-family="Inter, DejaVu Sans, sans-serif" font-size="26" font-weight="600" fill="#E8EDF3">Device Visualization</text>
+<text x="240" y="136" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Document physical ports, destinations and VLAN assignments.</text>
+<rect x="1270" y="88" width="146" height="36" rx="6" fill="#72D6C3"/>
+<text x="1282" y="111" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#10231F">Add device</text>
+<text x="240" y="185" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Devices</text>
+<path d="M240 200H298" stroke="#72D6C3"/>
+<text x="316" y="185" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">History lookup</text>
+<path d="M240 202H1416" stroke="#344252"/>
+<rect x="216" y="874" width="1224" height="26" rx="0" fill="#202A35"/>
+<text x="240" y="892" font-family="Inter, DejaVu Sans, sans-serif" font-size="10" font-weight="400" fill="#A5B2C2">DESIGN PROPOSAL · ILLUSTRATIVE DATA · 1440 × 900 · NOT A LIVE SYSTEM</text>
+<rect x="240" y="220" width="170" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="252" y="243" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Devices: sw-core-01</text>
+<text x="434" y="244" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Device list collapsed while editing a port</text>
+<rect x="240" y="272" width="826" height="574" rx="8" fill="#181F28" stroke="#344252"/>
+<text x="260" y="310" font-family="Inter, DejaVu Sans, sans-serif" font-size="24" font-weight="600" fill="#E8EDF3">sw-core-01</text>
+<text x="260" y="338" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Switch · Example chassis · 56 ports · 32 assigned</text>
+<rect x="872" y="290" width="172" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="884" y="313" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Edit device</text>
+<text x="260" y="382" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Panel</text>
+<text x="340" y="382" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Port table</text>
+<text x="454" y="382" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">History</text>
+<path d="M260 396H1044" stroke="#344252"/>
+<path d="M260 396H302" stroke="#72D6C3"/>
+<rect x="260" y="412" width="206" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="272" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Find port by name</text>
+<rect x="570" y="412" width="66" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="582" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Fit</text>
+<rect x="646" y="412" width="40" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="658" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">−</text>
+<text x="703" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#A5B2C2">Fit</text>
+<rect x="742" y="412" width="40" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="754" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">+</text>
+<rect x="794" y="412" width="116" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="806" y="435" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Fullscreen</text>
+<text x="260" y="481" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#F1C277">Saved documentation · No live link status</text>
+<rect x="260" y="504" width="784" height="196" rx="6" fill="#11161D" stroke="#344252"/>
+<text x="278" y="529" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">FRONT PANEL · ALL GROUPS VISIBLE</text>
+<text x="278" y="559" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Ethernet · 48 ports · 1G</text>
+<rect x="278" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="282" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="281" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">1</text>
+<rect x="278" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="282" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="281" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">2</text>
+<rect x="301" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="305" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="304" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">3</text>
+<rect x="301" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="305" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="304" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">4</text>
+<rect x="324" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="328" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="327" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">5</text>
+<rect x="324" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="328" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="327" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">6</text>
+<rect x="347" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="351" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="350" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">7</text>
+<rect x="347" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="351" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="350" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">8</text>
+<rect x="370" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="374" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="373" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">9</text>
+<rect x="370" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="374" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="373" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">10</text>
+<rect x="393" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="397" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="396" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">11</text>
+<rect x="393" y="620" width="19" height="24" rx="2" fill="#203D3A" stroke="#72D6C3"/>
+<rect x="397" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="396" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">12</text>
+<rect x="416" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="420" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="419" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">13</text>
+<rect x="416" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="420" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="419" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">14</text>
+<rect x="439" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="443" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="442" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">15</text>
+<rect x="439" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="443" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="442" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">16</text>
+<rect x="462" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="466" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="465" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">17</text>
+<rect x="462" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="466" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="465" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">18</text>
+<rect x="485" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="489" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="488" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">19</text>
+<rect x="485" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="489" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="488" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">20</text>
+<rect x="508" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="512" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="511" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">21</text>
+<rect x="508" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="512" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="511" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">22</text>
+<rect x="531" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="535" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="534" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">23</text>
+<rect x="531" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="535" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="534" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">24</text>
+<rect x="554" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="558" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="557" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">25</text>
+<rect x="554" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="558" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="557" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">26</text>
+<rect x="577" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="581" y="582" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="580" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">27</text>
+<rect x="577" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="581" y="624" width="11" height="7" rx="1" fill="#72D6C3"/>
+<text x="580" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">28</text>
+<rect x="600" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="604" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="603" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">29</text>
+<rect x="600" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="604" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="603" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">30</text>
+<rect x="623" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="627" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="626" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">31</text>
+<rect x="623" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="627" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="626" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">32</text>
+<rect x="646" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="650" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="649" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">33</text>
+<rect x="646" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="650" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="649" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">34</text>
+<rect x="669" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="673" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="672" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">35</text>
+<rect x="669" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="673" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="672" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">36</text>
+<rect x="692" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="696" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="695" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">37</text>
+<rect x="692" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="696" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="695" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">38</text>
+<rect x="715" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="719" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="718" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">39</text>
+<rect x="715" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="719" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="718" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">40</text>
+<rect x="738" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="742" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="741" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">41</text>
+<rect x="738" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="742" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="741" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">42</text>
+<rect x="761" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="765" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="764" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">43</text>
+<rect x="761" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="765" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="764" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">44</text>
+<rect x="784" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="788" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="787" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">45</text>
+<rect x="784" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="788" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="787" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">46</text>
+<rect x="807" y="578" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="811" y="582" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="810" y="599" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">47</text>
+<rect x="807" y="620" width="19" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<rect x="811" y="624" width="11" height="7" rx="1" fill="#A5B2C2"/>
+<text x="810" y="641" font-family="DejaVu Sans Mono, monospace" font-size="8" font-weight="400" fill="#E8EDF3">48</text>
+<text x="848" y="559" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#E8EDF3">SFP · 4 × 10G</text>
+<rect x="848" y="578" width="28" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="853" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">49</text>
+<rect x="848" y="620" width="28" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="853" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">50</text>
+<rect x="880" y="578" width="28" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="885" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">51</text>
+<rect x="880" y="620" width="28" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="885" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">52</text>
+<text x="930" y="559" font-family="Inter, DejaVu Sans, sans-serif" font-size="10" font-weight="400" fill="#E8EDF3">QSFP · 4 × 40G</text>
+<rect x="930" y="578" width="34" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="938" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">53</text>
+<rect x="930" y="620" width="34" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="938" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">54</text>
+<rect x="968" y="578" width="34" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="976" y="595" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">55</text>
+<rect x="968" y="620" width="34" height="24" rx="2" fill="#202A35" stroke="#344252"/>
+<text x="976" y="637" font-family="DejaVu Sans Mono, monospace" font-size="10" font-weight="400" fill="#E8EDF3">56</text>
+<text x="278" y="680" font-family="Inter, DejaVu Sans, sans-serif" font-size="11" font-weight="400" fill="#A5B2C2">Compact overview. Full names and editable data remain in the inspector.</text>
+<text x="260" y="728" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#72D6C3">Assigned</text>
+<text x="362" y="728" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Unassigned</text>
+<text x="488" y="728" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#E8EDF3">Outline: selected port</text>
+<text x="260" y="778" font-family="DejaVu Sans Mono, monospace" font-size="15" font-weight="600" fill="#E8EDF3">Selected: 1/1/12 · Ethernet · 1G</text>
+<text x="260" y="805" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">For dense panels, use Port table or zoom to select precisely.</text>
+<rect x="1082" y="220" width="334" height="626" rx="8" fill="#181F28" stroke="#344252"/>
+<text x="1102" y="255" font-family="DejaVu Sans Mono, monospace" font-size="22" font-weight="600" fill="#E8EDF3">1/1/12</text>
+<text x="1102" y="280" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Ethernet · 1G · Saved assignment</text>
+<text x="1102" y="318" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Port label</text>
+<rect x="1102" y="328" width="294" height="38" rx="6" fill="#11161D" stroke="#344252"/>
+<text x="1112" y="353" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Application server 02</text>
+<text x="1102" y="388" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Leads to</text>
+<rect x="1102" y="398" width="294" height="38" rx="6" fill="#11161D" stroke="#344252"/>
+<text x="1112" y="423" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">app-prod-02 / NIC 1</text>
+<text x="1102" y="458" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Port mode</text>
+<rect x="1102" y="468" width="294" height="38" rx="6" fill="#11161D" stroke="#344252"/>
+<text x="1112" y="493" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">Access</text>
+<text x="1102" y="528" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">Access VLAN</text>
+<rect x="1102" y="538" width="294" height="38" rx="6" fill="#11161D" stroke="#344252"/>
+<text x="1112" y="563" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#E8EDF3">200</text>
+<text x="1102" y="610" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#F1C277">Documentation only.</text>
+<text x="1102" y="632" font-family="Inter, DejaVu Sans, sans-serif" font-size="12" font-weight="400" fill="#A5B2C2">No device configuration is applied.</text>
+<text x="1102" y="723" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="400" fill="#72D6C3">Open device history</text>
+<path d="M1102 780H1396" stroke="#344252"/>
+<rect x="1102" y="796" width="154" height="36" rx="6" fill="#72D6C3"/>
+<text x="1114" y="819" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#10231F">Save assignment</text>
+<rect x="1268" y="796" width="128" height="36" rx="6" fill="#202A35" stroke="#344252"/>
+<text x="1280" y="819" font-family="Inter, DejaVu Sans, sans-serif" font-size="13" font-weight="600" fill="#E8EDF3">Cancel</text>
+</svg>

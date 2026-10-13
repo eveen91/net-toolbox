@@ -1,4 +1,6 @@
-import React, { useState, useEffect } from "react";
+import "./tenants/tenants.css";
+import React, { useState, useEffect, useRef } from "react";
+import { canLeaveWorkspace, pageFromHash } from "./components/navigation.js";
 import Toolbar from "./components/Toolbar.jsx";
 import ErrorBoundary from "./components/ErrorBoundary.jsx";
 import HomePage from "./pages/HomePage.jsx";
@@ -10,8 +12,26 @@ import AdminGate from "./admin/AdminGate.jsx";
 import "./tools/shared.css";
 
 function AppShell() {
-  const [active, setActive] = useState("home");
-  const { loading, loginRequired, user, sessionExpired, refresh } = useAuth();
+  const [active, setActive] = useState(() => pageFromHash(window.location.hash));
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const navigate = (id) => {
+    if (id === activeRef.current) return;
+    window.history.pushState(null, "", `#/${id}`);
+    setActive(id);
+  };
+  useEffect(() => {
+    const readLocation = () => {
+      const id = pageFromHash(window.location.hash);
+      if (id === activeRef.current) return;
+      if (!canLeaveWorkspace()) { window.history.replaceState(null, "", `#/${activeRef.current}`); return; }
+      setActive(id);
+    };
+    window.addEventListener("popstate", readLocation);
+    window.addEventListener("hashchange", readLocation);
+    return () => { window.removeEventListener("popstate", readLocation); window.removeEventListener("hashchange", readLocation); };
+  }, []);
+  const { loading, loginRequired, user, sessionExpired, refresh, tenantId, tenantSwitchError } = useAuth();
 
   // Some tools (e.g. Connection Test) make no backend call until the user
   // submits something, so nothing would ever notice a dead session just
@@ -23,7 +43,7 @@ function AppShell() {
   // this is safe to call on every tool switch.
   useEffect(() => {
     if (active === "home") return;
-    refresh();
+    refresh().catch(() => {});
   }, [active, refresh]);
 
   // Only tools the current role has access to — a tool id left over in
@@ -32,7 +52,7 @@ function AppShell() {
   // case rather than rendering.
   const tools = visibleTools(user, loginRequired);
   const activeTool = tools.find((t) => t.id === active);
-  const canAccessAdmin = user?.role === "admin" || !loginRequired;
+  const canAccessAdmin = user?.role === "admin" || user?.tenantRole === "tenant-admin" || !loginRequired;
 
   // `active` is local state that survives a logout/login inside the same
   // tab (AppShell never unmounts — only `user` changes). Without this
@@ -48,6 +68,13 @@ function AppShell() {
     (active === "admin" ? canAccessAdmin : !!activeTool);
   const effectiveActive = isActiveAuthorized ? active : "home";
 
+  useEffect(() => {
+    if (loading || (loginRequired && !user)) return;
+    document.title = `${effectiveActive === "home" ? "Workspace" : effectiveActive === "admin" ? "Administration" : activeTool?.name || "Workspace"} · net::toolbox`;
+    const frame = requestAnimationFrame(() => document.getElementById("nt-main")?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [effectiveActive, activeTool?.name, loading, loginRequired, user?.id, tenantId]);
+
   if (loading) {
     return <div className="nt-auth-loading">Loading…</div>;
   }
@@ -58,16 +85,17 @@ function AppShell() {
         <LoginPage />
       ) : (
         <div>
-          <Toolbar active={effectiveActive} onNavigate={setActive} />
+          <a className="nt-skip-link" href="#nt-main" onClick={(event) => { event.preventDefault(); document.getElementById("nt-main")?.focus(); }}>Skip to content</a>
+          <Toolbar active={effectiveActive} onNavigate={navigate} />
 
-          <div className="nt-main">
-            {effectiveActive === "home" && <HomePage onOpen={setActive} />}
+          <main id="nt-main" tabIndex={-1} className="nt-main" key={`${user?.id || "anonymous"}:${tenantId || "none"}`}>
+            {tenantSwitchError ? <div className="tool-error" role="alert">{tenantSwitchError}
+              <button className="tool-btn" onClick={() => refresh().catch(() => {})}>Retry</button>
+            </div> : null}
+            {effectiveActive === "home" && <HomePage onOpen={navigate} />}
 
-            {effectiveActive !== "home" && activeTool && activeTool.Component && (
+            {!tenantSwitchError && effectiveActive !== "home" && activeTool && activeTool.Component && (
               <>
-                <button className="nt-back" onClick={() => setActive("home")}>
-                  ← All tools
-                </button>
                 <ErrorBoundary resetKey={effectiveActive}>
                   <activeTool.Component />
                 </ErrorBoundary>
@@ -76,15 +104,12 @@ function AppShell() {
 
             {effectiveActive === "admin" && canAccessAdmin && (
               <>
-                <button className="nt-back" onClick={() => setActive("home")}>
-                  ← All tools
-                </button>
                 <ErrorBoundary resetKey={effectiveActive}>
                   <AdminGate />
                 </ErrorBoundary>
               </>
             )}
-          </div>
+          </main>
         </div>
       )}
 

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./routing-map.css";
+import MoveHostForm from "./MoveHostForm.jsx";
+import { removeMovedHost } from "./transferDraft.js";
 import {
   parseRoutingData,
   serializeHosts,
@@ -162,7 +164,7 @@ function EditableField({ value, disabled, required, cidrHelper, onCommit }) {
   );
 }
 
-function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
+function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
   const ifaces = interfacesForDisplay(detail);
   const [ifaceError, setIfaceError] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -231,11 +233,13 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
         )}
       </div>
 
+      <MoveHostForm key={detail.host} host={detail.host} onMoved={onMoved} />
       <div style={{ marginBottom: 20 }}>
         <h3 className="rm-section-sub-title">Interfaces</h3>
         {ifaceError && <div className="tool-error">{ifaceError}</div>}
         <div className="tool-table-wrap rm-table-wrap-full">
-          <table className="tool-table">
+          <table className="tool-table rm-aligned-table">
+            <colgroup><col className="rm-column-a" /><col className="rm-column-b" /><col /></colgroup>
             <thead>
               <tr>
                 <th>Name</th>
@@ -253,8 +257,8 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
               )}
               {ifaces.map((i) => (
                 <tr key={i.name}>
-                  <td>{i.name}</td>
-                  <td>
+                  <td data-label="Name">{i.name}</td>
+                  <td data-label="Address">
                     <EditableField
                       value={i.ipAddress}
                       disabled={deleting}
@@ -270,7 +274,7 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
                       }}
                     />
                   </td>
-                  <td>
+                  <td data-label="Description">
                     <EditableField
                       value={i.description}
                       disabled={deleting}
@@ -294,7 +298,8 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
       <div>
         <h3 className="rm-section-sub-title">Routes</h3>
         <div className="tool-table-wrap rm-table-wrap-full">
-          <table className="tool-table">
+          <table className="tool-table rm-aligned-table">
+            <colgroup><col className="rm-column-a" /><col className="rm-column-b" /><col /></colgroup>
             <thead>
               <tr>
                 <th>Network</th>
@@ -312,11 +317,11 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated }) {
               )}
               {detail.routes.map((r, i) => (
                 <tr key={i}>
-                  <td>
+                  <td data-label="Network">
                     <CidrHelper cidr={r.network} />
                   </td>
-                  <td>{r.nextHop}</td>
-                  <td>{r.interface || "—"}</td>
+                  <td data-label="Next hop">{r.nextHop}</td>
+                  <td data-label="Interface">{r.interface || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -490,11 +495,12 @@ export default function RoutingTable() {
     <div>
       <div className="nt-tool-header">
         <h2>Routing map</h2>
-        <p>Paste routes by hand or import "show route" output, save to the database, then pick a host to view it.</p>
+        <p>Browse saved hosts and their interfaces and routes, or import CLI output.</p>
       </div>
 
-      <div className="tool-layout">
+      <div className="tool-layout rm-host-workspace">
         <div className="tool-panel">
+          <details className="rm-import-panel"><summary className="tool-btn tool-btn-ghost">Import routes</summary>
           <div className="tool-field">
             <div className="tool-label">
               <span>
@@ -575,6 +581,7 @@ export default function RoutingTable() {
           )}
 
           <div className="rm-divider" />
+          </details>
           <div className="rm-section-label">
             Saved hosts <span className="tool-hint">{savedHosts.length}</span>
             <button className="tool-btn tool-btn-ghost rm-refresh" onClick={refreshList} disabled={listLoading}>
@@ -584,7 +591,7 @@ export default function RoutingTable() {
           {listError && <div className="tool-error">{listError}</div>}
           <div className="rm-host-list">
             {!listLoading && savedHosts.length === 0 && !listError && (
-              <div className="tool-hint">Nothing saved yet — edit the draft above and click Save.</div>
+              <div className="tool-hint">No saved hosts. Open Import routes to add routing data.</div>
             )}
             {savedHosts.map((h) => (
               <button
@@ -613,6 +620,13 @@ export default function RoutingTable() {
 
           {selectedHost && !detailLoading && selectedDetail && (
             <HostDetail
+              onMoved={result => {
+                setSelectedHost(current => current === result.host ? null : current);
+                setSelectedDetail(current => current?.host === result.host ? null : current);
+                setRaw(current => removeMovedHost(current, result.host));
+                setSaveMessage({ ok: true, text: `Moved ${result.host} to ${result.targetTenantName}.` });
+                refreshList();
+              }}
               detail={selectedDetail}
               deleting={deleting}
               onDelete={handleDelete}

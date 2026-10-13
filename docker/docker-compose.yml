@@ -7,6 +7,7 @@ services:
     container_name: net-toolbox-backend
     environment:
       ROLE: backend
+      TENANT_DATA_ROOT: /data/tenants
       CORS_ORIGINS: ${CORS_ORIGINS:-}
     dns:
       - ${ROUTER_IP:-192.168.1.1}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reconcileTagIds } from "./useIpamData.js";
-import { openAutodiscoverStream, scanAddressLabel } from "./useIpamScan.js";
+import { openAutodiscoverStream, scanAddressLabel, shouldRecoverScanStream } from "./useIpamScan.js";
 import { getAutodiscoverJob } from "../api.js";
 
 afterEach(() => {
@@ -20,6 +20,12 @@ describe("IPAM hook helpers", () => {
     expect(scanAddressLabel({ status: "in_progress" })).toBe("scanning…");
     expect(scanAddressLabel({ status: "complete", alive: true })).toBe("used");
     expect(scanAddressLabel({ status: "complete", alive: false })).toBe("free");
+  });
+
+  it("keeps recovering while a disconnected scan job is running", () => {
+    expect(shouldRecoverScanStream({ status: "running" })).toBe(true);
+    expect(shouldRecoverScanStream({ status: "done" })).toBe(false);
+    expect(shouldRecoverScanStream({ status: "error" })).toBe(false);
   });
 
   it("opens the scan stream with session credentials", () => {

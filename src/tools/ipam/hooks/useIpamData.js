@@ -135,16 +135,25 @@ export default function useIpamData() {
     }
   }, [loadSubnetTags]);
 
+  const clearSelection = useCallback(() => {
+    selectionGenerationRef.current += 1;
+    setSelectedId(null);
+    setSelectedDetail(null);
+    setHighlightedAddressId(null);
+    setDetailError(null);
+    setDetailLoading(false);
+  }, []);
+
   const handleDetailUpdated = useCallback((detail) => {
     setSelectedDetail(detail);
     refreshList();
   }, [refreshList]);
 
-  const handleDelete = useCallback(async () => {
-    if (!selectedId) return;
+  const handleDelete = useCallback(async (reason) => {
+    if (!selectedId || !reason?.trim()) return;
     setDeleting(true);
     try {
-      await deleteSubnet(selectedId);
+      await deleteSubnet(selectedId, reason.trim());
       setSelectedId(null);
       setSelectedDetail(null);
       await refreshList();
@@ -160,6 +169,6 @@ export default function useIpamData() {
     detailLoading, detailError, deleting, allTags, tagError, selectedTagIds,
     subnetTagIds, addressTagIds, setSelectedTagIds, refreshList, selectSubnet,
     handleTagChange, handleAddressTagChange, handleTagCreated, handleDetailUpdated,
-    handleDelete, loadAddressTags,
+    handleDelete, loadAddressTags, clearSelection,
   };
 }

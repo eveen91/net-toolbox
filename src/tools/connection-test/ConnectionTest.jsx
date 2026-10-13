@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import "./connection-test.css";
-import { parseSources, parseLines, parsePorts, rowsToCsv, downloadCsv } from "./logic.js";
+import { parseSources, parseLines, parsePorts, validateWorkload, validateSettings, downloadCsv } from "./logic.js";
 import { runConnectionTest } from "./api.js";
 
 const EXAMPLE = {
@@ -8,6 +8,10 @@ const EXAMPLE = {
   destinations: "10.0.1.10\n10.0.1.20\ndb-prod.internal",
   ports: "443\n1433\n22",
 };
+
+function countLabel(count, label) {
+  return `${count} ${label}${count === 1 ? "" : "s"}`;
+}
 
 function statusPillClass(status) {
   const s = (status || "").toUpperCase();
@@ -35,8 +39,12 @@ export default function ConnectionTest() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
+  const [runSummary, setRunSummary] = useState(null);
+  const runningRef = useRef(false);
 
-  const run = async () => {
+  const run = async (event) => {
+    event.preventDefault();
+    if (runningRef.current) return;
     setError(null);
     setResult(null);
     try {
@@ -47,11 +55,15 @@ export default function ConnectionTest() {
       const parsedPorts = parsePorts(ports);
       if (parsedPorts.length === 0) throw new Error("Enter at least one port.");
 
+      const combinations = validateWorkload(parsedSources, parsedDestinations, parsedPorts);
+      validateSettings({ connectTimeout, sshPort, winrmPort, winrmScheme, winrmTransport });
       const hasLinux = parsedSources.some((s) => s.os === "linux");
       const hasWindows = parsedSources.some((s) => s.os === "windows");
       if (hasLinux && (!linuxUser || !linuxPass)) throw new Error("Enter Linux SSH credentials — you have Linux sources.");
       if (hasWindows && (!winUser || !winPass)) throw new Error("Enter Windows credentials — you have Windows sources.");
 
+      runningRef.current = true;
+      setRunSummary(`${countLabel(parsedSources.length, "source")} × ${countLabel(parsedDestinations.length, "destination")} × ${countLabel(parsedPorts.length, "port")} = ${countLabel(combinations, "test")}`);
       setLoading(true);
       const payload = {
         sources: parsedSources,
@@ -70,6 +82,7 @@ export default function ConnectionTest() {
     } catch (e) {
       setError(e.message);
     } finally {
+      runningRef.current = false;
       setLoading(false);
     }
   };
@@ -84,107 +97,116 @@ export default function ConnectionTest() {
   }, [result]);
 
   return (
-    <div>
+    <div className="ct-tool">
       <div className="nt-tool-header">
         <h2>Connection test</h2>
         <p>SSH into Linux sources and WinRM into Windows sources, then check TCP connectivity to each destination:port.</p>
       </div>
 
       <div className="tool-layout">
-        <div className="tool-panel">
+        <form className="tool-panel" onSubmit={run} noValidate aria-label="Connection test configuration">
+          <fieldset className="ct-run-fields" disabled={loading}>
+          <legend className="ct-sr-only">Connection test configuration</legend>
+          <p className="tool-hint" id="ct-limits">Up to 16 sources, 64 destinations, 32 ports and 1024 combinations per run.</p>
           <div className="tool-field">
-            <div className="tool-label">
-              <span>Sources <span className="tool-hint">one per line: host,linux or host,windows</span></span>
-            </div>
-            <textarea className="tool-textarea" value={sources} onChange={(e) => setSources(e.target.value)} />
+            <label className="tool-label" htmlFor="ct-sources">Sources <span className="tool-hint">one per line: host,linux or host,windows</span></label>
+            <textarea id="ct-sources" aria-describedby="ct-limits" className="tool-textarea" value={sources} onChange={(e) => setSources(e.target.value)} />
           </div>
 
           <div className="tool-field">
-            <div className="tool-label"><span>Destinations <span className="tool-hint">one per line</span></span></div>
-            <textarea className="tool-textarea" style={{ minHeight: 64 }} value={destinations} onChange={(e) => setDestinations(e.target.value)} />
+            <label className="tool-label" htmlFor="ct-destinations">Destinations <span className="tool-hint">one per line</span></label>
+            <textarea id="ct-destinations" className="tool-textarea" style={{ minHeight: 64 }} value={destinations} onChange={(e) => setDestinations(e.target.value)} />
           </div>
 
           <div className="tool-field">
-            <div className="tool-label"><span>Ports <span className="tool-hint">one per line</span></span></div>
-            <textarea className="tool-textarea" style={{ minHeight: 56 }} value={ports} onChange={(e) => setPorts(e.target.value)} />
+            <label className="tool-label" htmlFor="ct-ports">Ports <span className="tool-hint">one per line</span></label>
+            <textarea id="ct-ports" className="tool-textarea" style={{ minHeight: 56 }} value={ports} onChange={(e) => setPorts(e.target.value)} />
           </div>
 
           <hr className="ct-divider" />
 
-          <div className="ct-section-label">Linux SSH credentials</div>
-          <div className="ct-cred-grid" style={{ marginBottom: 16 }}>
-            <input className="tool-input" placeholder="username" value={linuxUser} onChange={(e) => setLinuxUser(e.target.value)} />
-            <input className="tool-input" placeholder="password" type="password" value={linuxPass} onChange={(e) => setLinuxPass(e.target.value)} />
-          </div>
-
-          <div className="ct-section-label">Windows / WinRM credentials</div>
-          <div className="ct-cred-grid">
-            <input className="tool-input" placeholder="username" value={winUser} onChange={(e) => setWinUser(e.target.value)} />
-            <input className="tool-input" placeholder="password" type="password" value={winPass} onChange={(e) => setWinPass(e.target.value)} />
-          </div>
-          <div className="tool-hint" style={{ marginTop: 6 }}>
-            Sent directly to the backend for this run only — not stored.
-          </div>
+          <fieldset className="ct-credentials">
+            <legend className="ct-section-label">Linux SSH credentials</legend>
+            <div className="ct-cred-grid">
+              <label htmlFor="ct-linux-user">Username<input id="ct-linux-user" className="tool-input" autoComplete="off" value={linuxUser} onChange={e => setLinuxUser(e.target.value)} /></label>
+              <label htmlFor="ct-linux-pass">Password<input id="ct-linux-pass" className="tool-input" autoComplete="off" type="password" value={linuxPass} onChange={e => setLinuxPass(e.target.value)} /></label>
+            </div>
+          </fieldset>
+          <fieldset className="ct-credentials">
+            <legend className="ct-section-label">Windows / WinRM credentials</legend>
+            <div className="ct-cred-grid">
+              <label htmlFor="ct-win-user">Username<input id="ct-win-user" className="tool-input" autoComplete="off" value={winUser} onChange={e => setWinUser(e.target.value)} /></label>
+              <label htmlFor="ct-win-pass">Password<input id="ct-win-pass" className="tool-input" autoComplete="off" type="password" value={winPass} onChange={e => setWinPass(e.target.value)} /></label>
+            </div>
+          </fieldset>
+          <div className="tool-hint">Sent directly to the backend for this run only — not stored.</div>
 
           <details className="ct-advanced" style={{ marginTop: 16 }}>
             <summary>Advanced settings</summary>
             <div className="ct-advanced-grid">
               <div className="tool-field">
-                <div className="tool-label">Connect timeout (s)</div>
-                <input className="tool-input" type="number" min={1} max={60} value={connectTimeout} onChange={(e) => setConnectTimeout(Number(e.target.value))} />
+                <label className="tool-label" htmlFor="ct-timeout">Connect timeout (s)</label>
+                <input id="ct-timeout" className="tool-input" type="number" min={1} max={60} step={1} value={connectTimeout} onChange={(e) => setConnectTimeout(Number(e.target.value))} />
               </div>
               <div className="tool-field">
-                <div className="tool-label">SSH port</div>
-                <input className="tool-input" type="number" value={sshPort} onChange={(e) => setSshPort(Number(e.target.value))} />
+                <label className="tool-label" htmlFor="ct-ssh-port">SSH port</label>
+                <input id="ct-ssh-port" className="tool-input" type="number" min={1} max={65535} step={1} value={sshPort} onChange={(e) => setSshPort(Number(e.target.value))} />
               </div>
               <div className="tool-field">
-                <div className="tool-label">WinRM port</div>
-                <input className="tool-input" type="number" value={winrmPort} onChange={(e) => setWinrmPort(Number(e.target.value))} />
+                <label className="tool-label" htmlFor="ct-winrm-port">WinRM port</label>
+                <input id="ct-winrm-port" className="tool-input" type="number" min={1} max={65535} step={1} value={winrmPort} onChange={(e) => setWinrmPort(Number(e.target.value))} />
               </div>
               <div className="tool-field">
-                <div className="tool-label">WinRM scheme</div>
-                <select className="tool-input" value={winrmScheme} onChange={(e) => setWinrmScheme(e.target.value)}>
-                  <option value="http">http (5985)</option>
+                <label className="tool-label" htmlFor="ct-scheme">WinRM scheme</label>
+                <select id="ct-scheme" className="tool-input" value={winrmScheme} onChange={e => { const scheme = e.target.value; setWinrmScheme(scheme); if (winrmPort === 5985 || winrmPort === 5986) setWinrmPort(scheme === "https" ? 5986 : 5985); }}>
+                  <option value="http" disabled={winrmTransport === "basic"}>http (5985)</option>
                   <option value="https">https (5986)</option>
                 </select>
               </div>
               <div className="tool-field" style={{ gridColumn: "1 / -1" }}>
-                <div className="tool-label">WinRM auth transport</div>
-                <select className="tool-input" value={winrmTransport} onChange={(e) => setWinrmTransport(e.target.value)}>
+                <label className="tool-label" htmlFor="ct-transport">WinRM auth transport</label>
+                <select id="ct-transport" aria-describedby="ct-basic-help" className="tool-input" value={winrmTransport} onChange={e => { const transport = e.target.value; setWinrmTransport(transport); if (transport === "basic") { setWinrmScheme("https"); if (winrmPort === 5985) setWinrmPort(5986); } }}>
                   <option value="ntlm">NTLM (local accounts, non-domain)</option>
                   <option value="kerberos">Kerberos (domain-joined)</option>
-                  <option value="basic">Basic (must be enabled on target)</option>
+                  <option value="basic">Basic (requires HTTPS; enable on target)</option>
                   <option value="credssp">CredSSP</option>
                 </select>
+                <p id="ct-basic-help" className="tool-hint">Basic authentication requires HTTPS with a trusted server certificate.</p>
               </div>
             </div>
           </details>
 
           <div className="tool-actions">
-            <button className="tool-btn tool-btn-primary" onClick={run} disabled={loading}>
+            <button type="submit" className="tool-btn tool-btn-primary" disabled={loading}>
               {loading ? "Running…" : "Run test"}
             </button>
             <button
+              type="button"
               className="tool-btn tool-btn-ghost"
               onClick={() => {
                 setSources(EXAMPLE.sources);
                 setDestinations(EXAMPLE.destinations);
                 setPorts(EXAMPLE.ports);
                 setError(null);
+                setResult(null);
+                setRunSummary(null);
               }}
             >
               Load example
             </button>
           </div>
 
-          {error && <div className="tool-error">{error}</div>}
-        </div>
+          </fieldset>
+          {error && <div className="tool-error" role="alert">{error}</div>}
+        </form>
 
         <div className="tool-panel">
           {!result && !loading && !error && (
             <div className="tool-empty">Fill in sources, destinations, and ports, then hit Run test.</div>
           )}
-          {loading && <div className="ct-loading">Connecting to sources and testing ports…</div>}
+          <div role="status" aria-live="polite" aria-atomic="true" className={loading ? "ct-loading" : "ct-run-status"}>
+            {loading ? `Connecting to sources and testing ports… ${runSummary}` : result ? `Completed: ${countLabel(stats.total, "result")}, ${stats.open} open, ${stats.bad} failed or unreachable, ${stats.other} other. ${runSummary}.` : ""}
+          </div>
 
           {result && !loading && (
             <>
@@ -199,7 +221,6 @@ export default function ConnectionTest() {
                 Results
                 <button
                   className="tool-btn tool-btn-ghost"
-                  style={{ padding: "5px 10px", fontSize: 12 }}
                   onClick={() => downloadCsv(result.csv, `connectivity_results_${Date.now()}.csv`)}
                 >
                   Download CSV

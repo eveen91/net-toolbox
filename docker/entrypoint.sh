@@ -22,7 +22,8 @@ if [ "${ROLE}" = "backend" ]; then
     # by a named Docker volume (see docker-compose.yml). We symlink the
     # app's expected db path to the persistent location instead of
     # patching the source.
-    mkdir -p /data
+    export TENANT_DATA_ROOT="${TENANT_DATA_ROOT:-/data/tenants}"
+    mkdir -p /data "$TENANT_DATA_ROOT"
     touch /data/toolbox.db
     ln -sf /data/toolbox.db "${APP_DIR}/server/toolbox.db"
     echo ">>> [backend] toolbox.db -> /data/toolbox.db (persistent volume)"

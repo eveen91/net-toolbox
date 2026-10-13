@@ -1,6 +1,14 @@
 import React, { useState } from "react";
 import { createSubnet } from "./api.js";
 
+export function subnetDraftToRequest({ cidr, vlan, description }) {
+  return {
+    cidr: cidr.trim(),
+    vlan: vlan.trim() === "" ? null : Number(vlan),
+    description: description.trim() || null,
+  };
+}
+
 export default function AddSubnetForm({ onCreated }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [cidr, setCidr] = useState("");
@@ -27,8 +35,8 @@ export default function AddSubnetForm({ onCreated }) {
     setError(null);
     setCreating(true);
     try {
-      const vlanValue = vlan.trim() === "" ? null : Number(vlan);
-      const created = await createSubnet(cidr.trim(), vlanValue, description.trim() || null);
+      const payload = subnetDraftToRequest({ cidr, vlan, description });
+      const created = await createSubnet(payload.cidr, payload.vlan, payload.description);
       reset();
       setModalOpen(false);
       onCreated(created);

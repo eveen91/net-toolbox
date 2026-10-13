@@ -1,6 +1,7 @@
 import React from "react";
 import { visibleTools } from "../tools/registry.js";
 import { useAuth } from "../auth/AuthContext.jsx";
+import { navigationGroups } from "../components/navigation.js";
 
 export default function HomePage({ onOpen }) {
   const { user, loginRequired } = useAuth();
@@ -13,14 +14,16 @@ export default function HomePage({ onOpen }) {
           net<span>::</span>toolbox
         </h1>
         <p>
-          A small set of browser-based networking tools. Pick one below — everything runs
-          locally, nothing leaves your browser.
+          A self-hosted workspace for network infrastructure, diagnostics and planning.
+          Calculators run in your browser; operational tools use your toolbox server.
         </p>
       </div>
 
-      <div className="nt-grid">
-        {tools.map((tool) => (
-          <div
+      {navigationGroups(tools).map((group) => <section className="nt-workspace-section" key={group.id}>
+        <h2>{group.label}</h2>
+        <div className="nt-grid">
+        {group.items.map((tool) => (
+          <button type="button"
             key={tool.id}
             className={`nt-card ${tool.status === "soon" ? "soon" : ""}`}
             onClick={() => tool.status === "live" && onOpen(tool.id)}
@@ -33,9 +36,10 @@ export default function HomePage({ onOpen }) {
             </div>
             <div className="nt-card-name">{tool.name}</div>
             <div className="nt-card-desc">{tool.tagline}</div>
-          </div>
+          </button>
         ))}
-      </div>
+        </div>
+      </section>)}
     </div>
   );
 }

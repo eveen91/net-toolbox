@@ -4,7 +4,7 @@ import { heatmapPageForAddress, ipv4ToNumber } from "./logic.js";
 
 const MAX_HEATMAP_ADDRESSES = 65536;
 export const MAX_HEATMAP_REQUEST = 500;
-const CELL_MIN_PX = 14;
+const CELL_MIN_PX = 24;
 const CELL_GAP_PX = 3;
 const COVERAGE_FREE = 0;
 const COVERAGE_CHILD = 1;
@@ -25,6 +25,15 @@ function numberToIpv4(value) {
     Math.floor(value / 256) % 256,
     value % 256,
   ].join(".");
+}
+
+export function nextHeatmapCellIndex({ currentIndex, key, columns, pageStart, pageEnd, placeholders = [] }) {
+  const delta = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns }[key];
+  if (!delta) return currentIndex;
+  const placeholderOffsets = new Set(placeholders);
+  let nextIndex = currentIndex + delta;
+  while (nextIndex >= pageStart && nextIndex < pageEnd && placeholderOffsets.has(nextIndex)) nextIndex += delta;
+  return nextIndex >= pageStart && nextIndex < pageEnd ? nextIndex : currentIndex;
 }
 
 function rangeToSegments(startOffset, endOffset, columns) {
@@ -59,7 +68,7 @@ export default function SubnetHeatmap({
 }) {
   const containerRef = useRef(null);
   const hoveredIndexRef = useRef(null);
-  const [columns, setColumns] = useState(32);
+  const [columns, setColumns] = useState(Math.floor(MAX_HEATMAP_REQUEST / ROWS_PER_PAGE));
   const [activeIndex, setActiveIndex] = useState(0);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState(null);
@@ -335,19 +344,13 @@ export default function SubnetHeatmap({
   const handleKeyDown = useCallback((event) => {
     const target = getCellTarget(event);
     if (!target) return;
-    const deltas = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -columns, ArrowDown: columns };
-    const delta = deltas[event.key];
-    if (!delta) return;
+    if (!Object.hasOwn({ ArrowLeft: true, ArrowRight: true, ArrowUp: true, ArrowDown: true }, event.key)) return;
     event.preventDefault();
-    let nextIndex = target.index + delta;
-    while (
-      nextIndex >= pageStart &&
-      nextIndex < pageEnd &&
-      prepared.cells.find((cell) => cell.offset === nextIndex)?.isPlaceholder
-    ) {
-      nextIndex += delta;
-    }
-    if (nextIndex < pageStart || nextIndex >= pageEnd || !prepared.cells.some((cell) => cell.offset === nextIndex)) return;
+    const nextIndex = nextHeatmapCellIndex({
+      currentIndex: target.index, key: event.key, columns, pageStart, pageEnd,
+      placeholders: prepared.cells.filter((cell) => cell.isPlaceholder).map((cell) => cell.offset),
+    });
+    if (nextIndex === target.index || !prepared.cells.some((cell) => cell.offset === nextIndex)) return;
     setActiveIndex(nextIndex);
     containerRef.current
       ?.querySelector(`[data-cell-index="${nextIndex}"]`)

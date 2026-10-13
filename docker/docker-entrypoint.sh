@@ -4,7 +4,8 @@ set -euo pipefail
 if [ "${ROLE:-"backend"}" = "backend" ]; then
     # --- persistent SQLite database -----------------------------------
     # App code is now baked in, toolbox.db/auth.db still reside in persistent volume.
-    mkdir -p /data
+    export TENANT_DATA_ROOT="${TENANT_DATA_ROOT:-/data/tenants}"
+    mkdir -p /data "$TENANT_DATA_ROOT"
     
     # We must ensure database files exist before linking
     if [ ! -f /data/toolbox.db ]; then touch /data/toolbox.db; fi

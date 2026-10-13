@@ -25,6 +25,7 @@ FULL_ACCESS_PERMISSIONS = ["*"]
 # exactly as before until an admin deliberately narrows it down.
 DEFAULT_ROLE_NAME = "user"
 DEFAULT_ROLE_SEED_PERMISSIONS = [
+    "device-visualization",
     "subnet-splitter",
     "connection-test",
     "routing-map",
@@ -172,6 +173,7 @@ def init_auth_db() -> None:
                 (DEFAULT_ROLE_NAME, json.dumps(DEFAULT_ROLE_SEED_PERMISSIONS), _now()),
             )
         conn.commit()
+        _init_tenants(conn)
 
         # One-time (idempotent) migration: if a legacy global admin_group_dn
         # is configured and hasn't been migrated yet, bind it to the admin
@@ -220,6 +222,12 @@ def create_user(username: str, password_hash: str, role: str = "user", auth_sour
             )
         except sqlite3.IntegrityError:
             raise ValueError(f'Username "{username}" is already taken for {auth_source} accounts')
+        # Newly created local/AD users retain their legacy default-tenant role.
+        default = conn.execute("SELECT id FROM tenants WHERE is_default = 1").fetchone()
+        if default:
+            user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            conn.execute("INSERT INTO tenant_memberships (tenant_id, user_id, role_name) VALUES (?, ?, ?)",
+                         (default["id"], user_id, role))
         conn.commit()
         row = conn.execute(
             "SELECT * FROM users WHERE username = ? AND auth_source = ?",
@@ -369,7 +377,13 @@ def update_user_password(user_id: int, password_hash: str) -> None:
 def update_user_role(user_id: int, role: str) -> None:
     conn = get_connection()
     try:
+        old = conn.execute("SELECT role FROM users WHERE id = ?", (user_id,)).fetchone()
         conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        if old:
+            # Legacy role editing changes default membership only when it still
+            # follows that role; explicitly customized tenant grants survive.
+            conn.execute("UPDATE tenant_memberships SET role_name = ? WHERE tenant_id = 'default' AND user_id = ? AND role_name = ?",
+                         (role, user_id, old["role"]))
         conn.commit()
     finally:
         conn.close()
@@ -463,8 +477,8 @@ def update_role_permissions(role_id: int, permissions: List[str]) -> Dict:
         row = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
         if row is None:
             raise ValueError("Role not found")
-        if row["name"] == ADMIN_ROLE_NAME:
-            raise ValueError('The "admin" role always has full access and cannot be edited')
+        if row["name"] in (ADMIN_ROLE_NAME, "tenant-admin"):
+            raise ValueError(f'The "{row["name"]}" role always has full access and cannot be edited')
         conn.execute(
             "UPDATE roles SET permissions = ? WHERE id = ?",
             (json.dumps(permissions), role_id),
@@ -493,9 +507,10 @@ def delete_role(role_id: int) -> None:
         row = conn.execute("SELECT * FROM roles WHERE id = ?", (role_id,)).fetchone()
         if row is None:
             raise ValueError("Role not found")
-        if row["name"] == ADMIN_ROLE_NAME:
-            raise ValueError('The "admin" role cannot be deleted')
-        if count_users_with_role(row["name"]) > 0:
+        if row["name"] in (ADMIN_ROLE_NAME, "tenant-admin"):
+            raise ValueError(f'The "{row["name"]}" role cannot be deleted')
+        membership_count = conn.execute("SELECT COUNT(*) FROM tenant_memberships WHERE role_name = ?", (row["name"],)).fetchone()[0]
+        if count_users_with_role(row["name"]) > 0 or membership_count > 0:
             raise ValueError(
                 f'Role "{row["name"]}" is still assigned to one or more users'
             )
@@ -643,5 +658,113 @@ def get_user_by_username_and_source(username: str, auth_source: str) -> Optional
             (username, auth_source),
         ).fetchone()
         return _user_dict(row) if row else None
+    finally:
+        conn.close()
+
+# Global tenant directory; module data lives outside this database.
+def _init_tenants(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS tenants (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        is_default INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+    )""")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS one_default_tenant ON tenants(is_default) WHERE is_default = 1")
+    conn.execute("""CREATE TABLE IF NOT EXISTS tenant_memberships (
+        tenant_id TEXT NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role_name TEXT NOT NULL REFERENCES roles(name),
+        PRIMARY KEY (tenant_id, user_id)
+    )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS tenant_memberships_user ON tenant_memberships(user_id)")
+    conn.execute("""CREATE TABLE IF NOT EXISTS tenant_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id TEXT,
+        actor_id INTEGER, action TEXT NOT NULL, details TEXT NOT NULL, created_at TEXT NOT NULL
+    )""")
+    conn.execute("INSERT OR IGNORE INTO tenants(id, name, is_default, created_at) VALUES ('default', 'Domyślny', 1, ?)", (_now(),))
+    conn.execute("INSERT OR IGNORE INTO roles(name, permissions, is_builtin, created_at) VALUES ('tenant-admin', ?, 1, ?)", (json.dumps(["*"]), _now()))
+    migrated = conn.execute("SELECT value FROM app_settings WHERE key = 'tenant_memberships_v1'").fetchone()
+    if not migrated:
+        conn.execute("""INSERT OR IGNORE INTO tenant_memberships(tenant_id, user_id, role_name)
+            SELECT 'default', u.id, u.role FROM users u JOIN roles r ON r.name = u.role""")
+        conn.execute("INSERT INTO app_settings(key, value) VALUES ('tenant_memberships_v1', 'done')")
+    conn.commit()
+
+
+def list_tenants(user=None):
+    conn = get_connection()
+    try:
+        if user and user["role"] == ADMIN_ROLE_NAME:
+            rows = conn.execute("SELECT * FROM tenants ORDER BY is_default DESC, name").fetchall()
+        elif user:
+            rows = conn.execute("""SELECT t.* FROM tenants t JOIN tenant_memberships m ON m.tenant_id = t.id
+                WHERE m.user_id = ? ORDER BY t.is_default DESC, t.name""", (user["id"],)).fetchall()
+        elif not is_login_required():
+            rows = conn.execute("SELECT * FROM tenants WHERE is_default = 1").fetchall()
+        else:
+            rows = []
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_tenant(tenant_id):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT * FROM tenants WHERE id = ?", (tenant_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def tenant_role(tenant_id, user_id):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT role_name FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?", (tenant_id, user_id)).fetchone()
+        return row["role_name"] if row else None
+    finally:
+        conn.close()
+
+
+def list_tenant_members(tenant_id):
+    conn = get_connection()
+    try:
+        return [dict(row) for row in conn.execute("""SELECT u.id, u.username, u.auth_source AS authSource, m.role_name AS role
+            FROM tenant_memberships m JOIN users u ON u.id = m.user_id WHERE m.tenant_id = ? ORDER BY u.username""", (tenant_id,))]
+    finally:
+        conn.close()
+
+
+def set_tenant_membership(tenant_id, user_id, role, actor_id=None):
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        previous = conn.execute("SELECT role_name FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?", (tenant_id, user_id)).fetchone()
+        account = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+        if role == ADMIN_ROLE_NAME:
+            raise ValueError("Use tenant-admin for tenant administration; admin is a platform role")
+        if not conn.execute("SELECT 1 FROM tenants WHERE id = ?", (tenant_id,)).fetchone():
+            raise ValueError("Tenant not found")
+        if not conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone():
+            raise ValueError("User not found")
+        if not conn.execute("SELECT 1 FROM roles WHERE name = ?", (role,)).fetchone():
+            raise ValueError("Role not found")
+        conn.execute("""INSERT INTO tenant_memberships(tenant_id, user_id, role_name) VALUES (?, ?, ?)
+            ON CONFLICT(tenant_id, user_id) DO UPDATE SET role_name = excluded.role_name""", (tenant_id, user_id, role))
+        conn.execute("INSERT INTO tenant_audit(tenant_id, actor_id, action, details, created_at) VALUES (?, ?, 'membership_set', ?, ?)",
+                     (tenant_id, actor_id, json.dumps({"userId": user_id, "username": account["username"], "role": role, "previousRole": previous["role_name"] if previous else None}), _now()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_tenant_membership(tenant_id, user_id, actor_id=None):
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        account = conn.execute("SELECT username FROM users WHERE id = ?", (user_id,)).fetchone()
+        previous = conn.execute("SELECT role_name FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?", (tenant_id, user_id)).fetchone()
+        conn.execute("DELETE FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?", (tenant_id, user_id))
+        conn.execute("INSERT INTO tenant_audit(tenant_id, actor_id, action, details, created_at) VALUES (?, ?, 'membership_remove', ?, ?)",
+                     (tenant_id, actor_id, json.dumps({"userId": user_id, "username": account["username"] if account else None, "previousRole": previous["role_name"] if previous else None}), _now()))
+        conn.commit()
     finally:
         conn.close()

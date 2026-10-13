@@ -6,7 +6,7 @@ import {
   moveDhcpPool,
 } from "./api.js";
 
-export default function ResubnetReview({ onMoved }) {
+export default function ResubnetReview({ onMoved, canWrite = true }) {
   const [entries, setEntries] = useState([]);
   const [pools, setPools] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -115,7 +115,7 @@ export default function ResubnetReview({ onMoved }) {
               <td>{e.currentSubnetCidr}</td>
               <td>{e.proposedSubnetCidr}</td>
               <td>
-                <button
+                {canWrite && <><button
                   className="tool-btn tool-btn-primary ip-row-btn"
                   disabled={movingId === e.addressId}
                   onClick={() => handleMove(e)}
@@ -127,7 +127,7 @@ export default function ResubnetReview({ onMoved }) {
                   onClick={() => handleDismiss(e.addressId)}
                 >
                   Dismiss
-                </button>
+                </button></>}
               </td>
             </tr>
           ))}
@@ -148,7 +148,7 @@ export default function ResubnetReview({ onMoved }) {
                 <td>{p.currentSubnetCidr}</td>
                 <td>{p.proposedSubnetCidr}</td>
                 <td>
-                  <button
+                  {canWrite && <><button
                     className="tool-btn tool-btn-primary ip-row-btn"
                     disabled={movingId === key}
                     onClick={() => handleMovePool(p)}
@@ -160,7 +160,7 @@ export default function ResubnetReview({ onMoved }) {
                     onClick={() => handleDismiss(key)}
                   >
                     Dismiss
-                  </button>
+                  </button></>}
                 </td>
               </tr>
             );

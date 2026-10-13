@@ -121,6 +121,7 @@ if (loading) return <div className="tool-empty">Loading users…</div>;
 return (
     <div className="nt-admin-panel">
       <h2>Users</h2>
+      <p className="tool-hint">Accounts are global. The admin role grants platform administration. Other account roles provide initial access to the default tenant; manage tenant memberships in the Tenants tab.</p>
       {error && <div className="tool-error">{error}</div>}
       <div className="tool-table-wrap">
         <table className="tool-table">

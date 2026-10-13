@@ -15,6 +15,8 @@ Run it with:
 """
 
 import asyncio
+import csv
+import io
 import ipaddress
 import json
 import logging
@@ -33,6 +35,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import ValidationError
+from device_visualization.router import build_router as build_device_visualization_router
+from connection_test.schemas import Source, Credentials, RunRequest
+from connection_test.runtime import run_sources, results_csv
 
 import db
 import auth
@@ -44,6 +49,11 @@ import troubleshoot_devices
 import troubleshoot_logic
 import troubleshoot_audit
 import validation_routes
+from tenancy.context import current_tenant, tenant_scope, run_in_executor
+from tenancy.service import resolve_tenant, initialize_all_tenants
+from tenancy.router import build_router as build_tenant_router
+from ipam_transfer.router import build_router as build_ipam_transfer_router
+from routing_transfer.router import build_router as build_routing_transfer_router
 from ipam import IpamRepository, IpamService
 from ipam import scan_service as ipam_scan_service
 from ipam.router import build_router as build_ipam_router
@@ -59,10 +69,8 @@ app = FastAPI(title="net::toolbox API")
 @app.on_event("startup")
 def _init_db():
     setup_logging()
-    db.init_db()
     auth_db.init_auth_db()
-    troubleshoot_devices.init_db()
-    troubleshoot_audit.init_db()
+    initialize_all_tenants()
 
 
 # Browser origins allowed to make credentialed cross-origin requests.
@@ -90,7 +98,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(validation_routes.router)
 
 PUBLIC_PATHS = {
     "/api/health",
@@ -115,16 +122,23 @@ async def combined_middleware(request: Request, call_next):
     # Auth protection
     if request.method == "OPTIONS":
         return await call_next(request)
-    if request.url.path in PUBLIC_PATHS:
-        return await call_next(request)
-    if not request.url.path.startswith("/api/"):
-        return await call_next(request)
-    if not auth_db.is_login_required():
+    path = request.url.path
+    if not path.startswith("/api/"):
         return await call_next(request)
     token = request.cookies.get(SESSION_COOKIE_NAME)
-    if not token or auth_db.get_user_by_session_token(token) is None:
+    user = auth_db.get_user_by_session_token(token) if token else None
+    if path not in PUBLIC_PATHS and auth_db.is_login_required() and user is None:
         return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
-    return await call_next(request)
+    # Identity, platform administration and tenant directory are global.
+    if path.startswith(("/api/auth/", "/api/admin/", "/api/tenants")) or path == "/api/health":
+        return await call_next(request)
+    tenant_id = request.headers.get("X-Tenant-ID") or request.query_params.get("tenant_id") or "default"
+    try:
+        context = resolve_tenant(tenant_id, user)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    with tenant_scope(context):
+        return await call_next(request)
 
 
 @app.middleware("http")
@@ -181,16 +195,6 @@ EXECUTOR = ThreadPoolExecutor(max_workers=16)
 # Request / response models
 # ---------------------------------------------------------------------------
 
-class Source(BaseModel):
-    host: str
-    os: Literal["linux", "windows"]
-
-
-class Credentials(BaseModel):
-    username: str
-    password: str
-
-
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -203,12 +207,16 @@ class UserPublic(BaseModel):
     role: str
     authSource: str
     permissions: List[str] = []
+    tenantRole: Optional[str] = None
+    globalPermissions: List[str] = []
 
 
 class SessionInfoResponse(BaseModel):
     loginRequired: bool
     adEnabled: bool
     user: Optional[UserPublic] = None
+    tenants: List[Dict] = []
+    tenantId: Optional[str] = None
 
 
 class CreateUserRequest(BaseModel):
@@ -322,19 +330,6 @@ class BootstrapAdminRequest(BaseModel):
         return v
 
 
-class RunRequest(BaseModel):
-    sources: List[Source]
-    destinations: List[str]
-    ports: List[int]
-    linux_credentials: Optional[Credentials] = None
-    windows_credentials: Optional[Credentials] = None
-    connect_timeout_seconds: int = Field(default=5, ge=1, le=60)
-    ssh_port: int = Field(default=22, ge=1, le=65535)
-    winrm_port: int = Field(default=5985, ge=1, le=65535)
-    winrm_transport: Literal["ntlm", "kerberos", "basic", "credssp"] = "ntlm"
-    winrm_scheme: Literal["http", "https"] = "http"
-
-
 class ResultRow(BaseModel):
     source_host: str
     destination: str
@@ -426,8 +421,7 @@ def test_linux_source(
         _, stdout, stderr = client.exec_command(script, timeout=timeout_seconds * len(destinations) * len(ports) + 15)
         out = stdout.read().decode(errors="replace")
         rows = []
-        for line in out.splitlines():
-            parts = line.strip().split(",")
+        for parts in csv.reader(io.StringIO(out)):
             if len(parts) == 5:
                 rows.append(ResultRow(source_host=parts[0], destination=parts[1], port=parts[2], status=parts[3], timestamp=parts[4]))
         if not rows:
@@ -504,8 +498,7 @@ def test_windows_source(
         result = session.run_ps(script)
         out = result.std_out.decode(errors="replace")
         rows = []
-        for line in out.splitlines():
-            parts = line.strip().split(",")
+        for parts in csv.reader(io.StringIO(out)):
             if len(parts) == 5:
                 rows.append(ResultRow(source_host=parts[0], destination=parts[1], port=parts[2], status=parts[3], timestamp=parts[4]))
         if not rows:
@@ -592,7 +585,8 @@ def require_authenticated_user(
 
 
 def user_permissions(user: Dict) -> List[str]:
-    return auth_db.role_permissions_for_name(user["role"])
+    context = current_tenant.get()
+    return list(context.permissions) if context else auth_db.role_permissions_for_name(user["role"])
 
 
 def _user_public(user: Dict) -> UserPublic:
@@ -602,26 +596,28 @@ def _user_public(user: Dict) -> UserPublic:
         role=user["role"],
         authSource=user["authSource"],
         permissions=user_permissions(user),
+        globalPermissions=auth_db.role_permissions_for_name(user["role"]),
+        tenantRole=current_tenant.get().role if current_tenant.get() else None,
     )
 
 
 def require_feature(feature_id: str):
     """Dependency factory: gates a tool's backend endpoints behind the
-    caller's role permissions, the same permissions the Config Panel's
-    Roles editor manages. A no-op when login isn't required, matching the
-    rest of the app's behavior in that mode."""
+    verified tenant permissions. Anonymous access is limited to the
+    default tenant when the existing open mode is enabled."""
 
     def _dependency(
         session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     ) -> Optional[Dict]:
-        if not auth_db.is_login_required():
+        context = current_tenant.get()
+        if not auth_db.is_login_required() and context is None:
             return None
         user = None
         if session_token:
             user = auth_db.get_user_by_session_token(session_token)
-        if user is None:
+        if user is None and (context is None or context.role is not None):
             raise HTTPException(status_code=401, detail="Not authenticated")
-        permissions = user_permissions(user)
+        permissions = list(context.permissions) if context else user_permissions(user)
         if "*" not in permissions and feature_id not in permissions:
             raise HTTPException(
                 status_code=403, detail=f'Your role does not have access to "{feature_id}"'
@@ -638,12 +634,13 @@ def require_ipam_permission(permission: Literal["read", "write", "scan", "admin"
     def _dependency(
         session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME),
     ) -> Optional[Dict]:
-        if not auth_db.is_login_required():
+        context = current_tenant.get()
+        if not auth_db.is_login_required() and context is None:
             return None
         user = auth_db.get_user_by_session_token(session_token) if session_token else None
-        if user is None:
+        if user is None and (context is None or context.role is not None):
             raise HTTPException(status_code=401, detail="Not authenticated")
-        permissions = user_permissions(user)
+        permissions = list(context.permissions) if context else user_permissions(user)
         if "*" not in permissions and "ipam" not in permissions and permission_id not in permissions:
             raise HTTPException(status_code=403, detail=f'Your role does not have access to "{permission_id}"')
         return user
@@ -651,10 +648,17 @@ def require_ipam_permission(permission: Literal["read", "write", "scan", "admin"
     return _dependency
 
 
+app.include_router(validation_routes.build_router(require_feature))
+app.include_router(build_tenant_router(require_admin_user))
+app.include_router(build_routing_transfer_router(require_feature, require_authenticated_user))
+
+
 ipam_repository = IpamRepository(db)
 ipam_service = IpamService(ipam_repository, auth_db.get_user_by_id)
 ipam_scan_service.configure(ipam_repository)
 app.include_router(build_ipam_router(ipam_service, require_ipam_permission, require_logged_in_user))
+app.include_router(build_ipam_transfer_router(require_ipam_permission, require_authenticated_user))
+app.include_router(build_device_visualization_router(require_feature, require_logged_in_user))
 
 
 @app.on_event("startup")
@@ -752,7 +756,7 @@ def logout(response: Response, session_token: Optional[str] = Cookie(default=Non
 
 
 @app.get("/api/auth/session", response_model=SessionInfoResponse)
-def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
+def get_session_info(request: Request, session_token: Optional[str] = Cookie(default=None, alias=SESSION_COOKIE_NAME)):
     login_required = auth_db.is_login_required()
     ad_enabled = auth_db.get_ad_config()["enabled"]
     user = None
@@ -760,7 +764,18 @@ def get_session_info(session_token: Optional[str] = Cookie(default=None, alias=S
         found = auth_db.get_user_by_session_token(session_token)
         if found:
             user = _user_public(found)
-    return SessionInfoResponse(loginRequired=login_required, adEnabled=ad_enabled, user=user)
+    tenants = auth_db.list_tenants(found if session_token and user else None)
+    requested = request.headers.get("X-Tenant-ID")
+    selected = next((t for t in tenants if t["id"] == requested), None)
+    if selected is None and tenants:
+        selected = tenants[0]
+    if user and selected:
+        with tenant_scope(resolve_tenant(selected["id"], found)):
+            user = _user_public(found)
+    elif user:
+        user.permissions = []
+    return SessionInfoResponse(loginRequired=login_required, adEnabled=ad_enabled, user=user,
+                               tenants=tenants, tenantId=selected["id"] if selected else None)
 
 
 @app.post("/api/auth/change-password")
@@ -773,6 +788,7 @@ def change_own_password(req: ChangePasswordRequest, user: Dict = Depends(require
     return {"ok": True}
 
 
+@app.get("/api/admin/bootstrap-status", response_model=BootstrapStatusResponse)
 @app.post("/api/admin/bootstrap-status", response_model=BootstrapStatusResponse)
 def admin_bootstrap_status():
     bootstrap_secret = os.environ.get("BOOTSTRAP_SECRET")
@@ -1032,58 +1048,8 @@ def test_ad_connection_endpoint(
     dependencies=[Depends(require_feature("connection-test"))],
 )
 async def run_connection_test(req: RunRequest):
-    destinations = [validate_host(d) for d in req.destinations]
-    ports = [validate_port(p) for p in req.ports]
-
-    loop = asyncio.get_event_loop()
-    tasks = []
-
-    for source in req.sources:
-        host = validate_host(source.host)
-        ports = [validate_port_identifier(str(p)) for p in req.ports]
-        if source.os == "linux":
-            if req.linux_credentials is None:
-                tasks.append(_error_row(host, "Missing Linux credentials"))
-                continue
-            tasks.append(
-                loop.run_in_executor(
-                    EXECUTOR,
-                    test_linux_source,
-                    host,
-                    req.linux_credentials,
-                    destinations,
-                    ports,
-                    req.connect_timeout_seconds,
-                    req.ssh_port,
-                )
-            )
-        else:
-            if req.windows_credentials is None:
-                tasks.append(_error_row(host, "Missing Windows credentials"))
-                continue
-            tasks.append(
-                loop.run_in_executor(
-                    EXECUTOR,
-                    test_windows_source,
-                    host,
-                    req.windows_credentials,
-                    destinations,
-                    ports,
-                    req.connect_timeout_seconds,
-                    req.winrm_port,
-                    req.winrm_transport,
-                    req.winrm_scheme,
-                )
-            )
-
-    results = await asyncio.gather(*tasks)
-    rows: List[ResultRow] = [row for group in results for row in group]
-
-    csv_lines = ["SourceHost,DestinationHost,Port,Status,Timestamp"]
-    for r in rows:
-        csv_lines.append(f"{r.source_host},{r.destination},{r.port},{r.status},{r.timestamp}")
-
-    return RunResponse(rows=rows, csv="\n".join(csv_lines))
+    rows = await run_sources(req, test_linux_source, test_windows_source, _error_row)
+    return RunResponse(rows=rows, csv=results_csv(rows))
 
 
 async def _error_row(host: str, message: str) -> List[ResultRow]:
@@ -1365,7 +1331,7 @@ async def test_device_connection(req: TestConnectionRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/locate", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1405,7 +1371,7 @@ async def locate_device(req: LocateRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/port-health", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1424,7 +1390,7 @@ async def port_health(req: PortHealthRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/cable-test", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1449,7 +1415,7 @@ async def cable_test(req: CableTestRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/transceiver-health", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1468,7 +1434,7 @@ async def transceiver_health(req: TransceiverHealthRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/stp-report", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1484,7 +1450,7 @@ async def stp_report(req: StpReportRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/access-check", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1503,7 +1469,7 @@ async def access_check(req: AccessCheckRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/ping", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1517,7 +1483,7 @@ async def ping(req: PingRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/route-check", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1538,7 +1504,7 @@ async def route_check(req: RouteCheckRequest):
             return {"success": False, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.post("/api/troubleshoot/run", dependencies=[Depends(require_feature("troubleshoot"))])
@@ -1552,7 +1518,7 @@ async def full_run(req: FullRunRequest):
             return {"ip": req.ip, "error": str(e)}
 
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(EXECUTOR, _run)
+    return await run_in_executor(loop, EXECUTOR, _run)
 
 
 @app.get("/api/troubleshoot/audit-log", dependencies=[Depends(require_admin_user)])

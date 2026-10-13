@@ -1,3 +1,4 @@
+import { tenantStreamUrl } from "../../tenantContext.js";
 import { apiFetch } from "../../apiFetch.js";
 import { buildAuditQueryParams } from "./audit.js";
 import { fetchAllAddressPages, normalizeAddressPageLimit } from "./logic.js";
@@ -86,18 +87,20 @@ export async function createSubnet(cidr, vlan, description) {
   return handle(res);
 }
 
-export async function updateSubnet(subnetId, cidr, vlan, description) {
+export async function updateSubnet(subnetId, cidr, vlan, description, expectedUpdatedAt) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ cidr, vlan, description }),
+    body: JSON.stringify({ cidr, vlan, description, expectedUpdatedAt }),
   });
   return handle(res);
 }
 
-export async function deleteSubnet(subnetId) {
+export async function deleteSubnet(subnetId, reason) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}`, {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
   });
   return handle(res);
 }
@@ -146,7 +149,8 @@ export async function updateAddress(
   vmCluster,
   environment,
   locked,
-  allocationType = "static"
+  allocationType = "static",
+  expectedUpdatedAt
 ) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
     method: "PUT",
@@ -162,14 +166,17 @@ export async function updateAddress(
       environment,
       locked,
       allocationType,
+      expectedUpdatedAt,
     }),
   });
   return handle(res);
 }
 
-export async function deleteAddress(subnetId, addressId) {
+export async function deleteAddress(subnetId, addressId, reason) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/${addressId}`, {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
   });
   return handle(res);
 }
@@ -190,11 +197,11 @@ export async function bulkUpdateAddresses(subnetId, addressIds, fields) {
   return handle(res);
 }
 
-export async function bulkDeleteAddresses(subnetId, addressIds) {
+export async function bulkDeleteAddresses(subnetId, addressIds, reason) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/addresses/bulk-delete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ addressIds }),
+    body: JSON.stringify({ addressIds, reason }),
   });
   return handle(res);
 }
@@ -254,7 +261,7 @@ export async function retryAutodiscoverJob(subnetId, jobId) {
 }
 
 export function autodiscoverStreamUrl(subnetId, jobId) {
-  return `${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/stream/${jobId}`;
+  return tenantStreamUrl(`${BASE_URL}/api/ipam/subnets/${subnetId}/autodiscover/stream/${jobId}`);
 }
 
 export async function getActiveAutodiscoverJob(subnetId) {
@@ -321,6 +328,29 @@ export async function updateScanSchedule(subnetId, intervalMinutes, enabled) {
   return handle(res);
 }
 
+export async function importIpamRecords(records, confirm = false) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ records, confirm }),
+  });
+  return handle(res);
+}
+
+export async function getDataQualityViolations() {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/data-quality/violations`);
+  return handle(res);
+}
+
+export async function muteDataQualityViolation(violationId, reason, expiresAt) {
+  const res = await apiFetch(`${BASE_URL}/api/ipam/data-quality/violations/${encodeURIComponent(violationId)}/mute`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason, expiresAt: expiresAt || null }),
+  });
+  return handle(res);
+}
+
 export async function getMisplacedAddresses() {
   const res = await apiFetch(`${BASE_URL}/api/ipam/misplaced-addresses`);
   return handle(res);
@@ -377,11 +407,11 @@ export async function createDhcpPool(subnetId, data) {
   return handle(res);
 }
 
-export async function updateDhcpPool(subnetId, poolId, data) {
+export async function updateDhcpPool(subnetId, poolId, data, expectedUpdatedAt) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools/${poolId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ ...data, expectedUpdatedAt }),
   });
   return handle(res);
 }
@@ -391,9 +421,11 @@ export async function getDhcpPools(subnetId) {
   return handle(res);
 }
 
-export async function deleteDhcpPool(subnetId, poolId) {
+export async function deleteDhcpPool(subnetId, poolId, reason) {
   const res = await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/dhcp-pools/${poolId}`, {
     method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reason }),
   });
   return handle(res);
 }
@@ -464,10 +496,11 @@ export async function deleteTag(tagId) {
   return handle(res);
 }
 
-export async function searchTags(query) {
+export async function searchTags(query, signal) {
   if (!query || !query.trim()) return [];
   const res = await apiFetch(
-    `${BASE_URL}/api/ipam/tags/search?q=${encodeURIComponent(query.trim())}`
+    `${BASE_URL}/api/ipam/tags/search?q=${encodeURIComponent(query.trim())}`,
+    { signal }
   );
   return handle(res);
 }
@@ -574,4 +607,29 @@ export async function exportAuditLog(options = {}, admin = false) {
     throw new Error(`Backend error (${res.status}): ${detail}`);
   }
   return res.blob();
+}
+
+export async function fetchArchives(resourceType = "") {
+  const query = resourceType ? `?resource_type=${encodeURIComponent(resourceType)}` : "";
+  return handle(await apiFetch(`${BASE_URL}/api/ipam/archives${query}`));
+}
+
+export async function restoreArchive(archiveId) {
+  return handle(await apiFetch(`${BASE_URL}/api/ipam/archives/${encodeURIComponent(archiveId)}/restore`, { method: "POST" }));
+}
+
+export async function listSubnetMoveTargets() {
+  return handle(await apiFetch(`${BASE_URL}/api/ipam/move-targets`));
+}
+
+export async function previewSubnetMove(subnetId, targetTenantId) {
+  const query = new URLSearchParams({ targetTenantId });
+  return handle(await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/move-preview?${query}`));
+}
+
+export async function moveSubnetToTenant(subnetId, targetTenantId, expectedVersion) {
+  return handle(await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/move`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ targetTenantId, expectedVersion }),
+  }));
 }

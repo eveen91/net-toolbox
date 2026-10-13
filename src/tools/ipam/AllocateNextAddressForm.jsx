@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { useAccessibleDialog } from "./hooks/useAccessibleDialog.js";
 
 export function allocationDraftToRequest(draft) {
   return {
@@ -29,6 +30,7 @@ export default function AllocateNextAddressForm({ subnet, onAllocate, onCancel }
   const [draft, setDraft] = useState(initialDraft);
   const [error, setError] = useState(null);
   const [pending, setPending] = useState(false);
+  const { dialogRef } = useAccessibleDialog(true, onCancel, { restoreFocus: false });
 
   useEffect(() => {
     titleRef.current?.focus();
@@ -52,7 +54,7 @@ export default function AllocateNextAddressForm({ subnet, onAllocate, onCancel }
 
   return (
     <div className="tool-modal-overlay" onClick={pending ? undefined : onCancel}>
-      <section className="tool-modal ip-allocate-modal" role="dialog" aria-modal="true" aria-labelledby="ip-allocate-title" aria-busy={pending} onClick={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} className="tool-modal ip-allocate-modal" role="dialog" aria-modal="true" aria-labelledby="ip-allocate-title" aria-busy={pending} onClick={(event) => event.stopPropagation()}>
         <div className="tool-modal-header">
           <div>
             <div className="ip-address-popover-title" id="ip-allocate-title" ref={titleRef} tabIndex="-1">Allocate next IP</div>

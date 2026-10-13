@@ -13,16 +13,24 @@ from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
 import ipam_scan
+import auth_db
+from tenancy.context import current_tenant, tenant_scope, TenantContext
+from tenancy.service import tenant_database_path
 from .repository import IpamRepository
 from .schemas import ScanScheduleRequest
 
 logger = logging.getLogger("net_toolbox.ipam.scan")
 SCAN_EXECUTOR = ThreadPoolExecutor(max_workers=256)
-SCANS_IN_PROGRESS: set[int] = set()
+SCANS_IN_PROGRESS: set[tuple[str, int]] = set()
 SCAN_JOBS: dict[str, dict] = {}
-SCAN_JOBS_BY_SUBNET: dict[int, str] = {}
+SCAN_JOBS_BY_SUBNET: dict[tuple[str, int], str] = {}
 SCAN_SCHEDULER_TASK: Optional[asyncio.Task] = None
 repository: IpamRepository
+
+
+def scan_key(subnet_id):
+    context = current_tenant.get()
+    return (context.tenant_id if context else "default", subnet_id)
 
 
 def now_str() -> str:
@@ -101,19 +109,22 @@ async def perform_scan(
         if on_address_update is not None:
             on_address_update(address, "in_progress")
         tasks.append(asyncio.create_task(scan_one_task(address)))
-    for coro in asyncio.as_completed(tasks):
-        if is_cancelled is not None and is_cancelled():
-            for task in tasks:
+    try:
+        for coro in asyncio.as_completed(tasks):
+            result = await coro
+            if is_cancelled is not None and is_cancelled():
+                raise asyncio.CancelledError("Scan cancelled")
+            results.append(result)
+            completed_count += 1
+            if on_progress is not None:
+                on_progress(completed_count, total_count)
+            if on_address_update is not None:
+                on_address_update(result["address"], "done", alive=result["alive"], hostname=result["hostname"])
+    finally:
+        for task in tasks:
+            if not task.done():
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            raise asyncio.CancelledError("Scan cancelled")
-        result = await coro
-        results.append(result)
-        completed_count += 1
-        if on_progress is not None:
-            on_progress(completed_count, total_count)
-        if on_address_update is not None:
-            on_address_update(result["address"], "done", alive=result["alive"], hostname=result["hostname"])
+        await asyncio.gather(*tasks, return_exceptions=True)
 
     alive_count = 0
     free_count = 0
@@ -173,7 +184,7 @@ async def rescan_address(subnet_id: int, address_id: int):
     address_row = repository.get_subnet_address(subnet_id, address_id)
     if address_row is None:
         raise HTTPException(status_code=404, detail="Address not found")
-    if subnet_id in SCANS_IN_PROGRESS:
+    if repository.get_active_scan_job(subnet_id) is not None:
         raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
     if address_row["status"] == "reserved":
         return repository.get_subnet(subnet_id)
@@ -203,7 +214,7 @@ async def autodiscover_subnet(subnet_id: int):
     job_id = str(uuid.uuid4())
     if not repository.create_scan_job(job_id, subnet_id):
         raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
-    SCANS_IN_PROGRESS.add(subnet_id)
+    SCANS_IN_PROGRESS.add(scan_key(subnet_id))
     try:
         result = await perform_scan(subnet_id)
         repository.update_scan_job(job_id, status="done", result=result)
@@ -212,7 +223,7 @@ async def autodiscover_subnet(subnet_id: int):
         repository.update_scan_job(job_id, status="error", error=str(exc))
         raise
     finally:
-        SCANS_IN_PROGRESS.discard(subnet_id)
+        SCANS_IN_PROGRESS.discard(scan_key(subnet_id))
 
 
 def cleanup_old_scan_jobs(max_age_seconds: float = 300.0) -> None:
@@ -243,8 +254,20 @@ async def run_due_scan_schedules() -> None:
 async def scan_scheduler_loop() -> None:
     while True:
         try:
-            cleanup_old_scan_jobs()
-            await run_due_scan_schedules()
+            # A scheduler is platform work: bind each tenant explicitly before
+            # discovering jobs, and let spawned tasks inherit that context.
+            conn = auth_db.get_connection()
+            try:
+                tenants = [dict(row) for row in conn.execute("SELECT * FROM tenants")]
+            finally:
+                conn.close()
+            for tenant in tenants:
+                try:
+                    with tenant_scope(TenantContext(tenant["id"], tenant_database_path(tenant))):
+                        cleanup_old_scan_jobs()
+                        await run_due_scan_schedules()
+                except Exception:
+                    logger.exception("IPAM scheduler failed for tenant %s", tenant["id"])
         except Exception:
             logger.exception("IPAM scan scheduler iteration failed")
         await asyncio.sleep(30)
@@ -272,8 +295,8 @@ async def start_autodiscover_job(subnet_id: int):
     job_id = str(uuid.uuid4())
     if not repository.create_scan_job(job_id, subnet_id):
         raise HTTPException(status_code=409, detail="A scan is already running for this subnet")
-    SCANS_IN_PROGRESS.add(subnet_id)
-    SCAN_JOBS_BY_SUBNET[subnet_id] = job_id
+    SCANS_IN_PROGRESS.add(scan_key(subnet_id))
+    SCAN_JOBS_BY_SUBNET[scan_key(subnet_id)] = job_id
     SCAN_JOBS[job_id] = {
         "subnet_id": subnet_id,
         "completed": 0,
@@ -284,6 +307,10 @@ async def start_autodiscover_job(subnet_id: int):
         "created_at": time.time(),
         "addresses": {},
     }
+
+    def job_should_stop():
+        job = repository.get_scan_job(job_id)
+        return job is None or job["status"] != "running" or job["cancelRequested"]
 
     async def run_job():
         try:
@@ -315,7 +342,7 @@ async def start_autodiscover_job(subnet_id: int):
                     on_progress=on_progress,
                     on_targets_ready=on_targets_ready,
                     on_address_update=on_address_update,
-                    is_cancelled=lambda: repository.is_scan_job_cancel_requested(job_id),
+                    is_cancelled=job_should_stop,
                 ),
                 timeout=repository.scan_job_timeout_seconds,
             )
@@ -335,9 +362,9 @@ async def start_autodiscover_job(subnet_id: int):
             SCAN_JOBS[job_id]["error"] = str(exc)
             repository.update_scan_job(job_id, status="error", error=str(exc))
         finally:
-            SCANS_IN_PROGRESS.discard(subnet_id)
-            if SCAN_JOBS_BY_SUBNET.get(subnet_id) == job_id:
-                del SCAN_JOBS_BY_SUBNET[subnet_id]
+            SCANS_IN_PROGRESS.discard(scan_key(subnet_id))
+            if SCAN_JOBS_BY_SUBNET.get(scan_key(subnet_id)) == job_id:
+                del SCAN_JOBS_BY_SUBNET[scan_key(subnet_id)]
 
     asyncio.create_task(run_job())
     return {"jobId": job_id}

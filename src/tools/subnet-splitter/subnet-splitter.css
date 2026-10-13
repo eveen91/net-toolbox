@@ -38,8 +38,8 @@
     135deg,
     var(--warn-dim),
     var(--warn-dim) 4px,
-    #3a2a17 4px,
-    #3a2a17 8px
+    var(--warning-bg) 4px,
+    var(--warning-bg) 8px
   );
 }
 .ss-seg-free-a {
@@ -52,7 +52,7 @@
 .ss-tooltip {
   font-family: var(--mono);
   font-size: 12px;
-  background: #0a121e;
+  background: var(--input-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 8px 10px;

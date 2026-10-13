@@ -1,212 +1,90 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { searchTags, createTag } from "./api.js";
 import TagBadge from "./TagBadge.jsx";
 
-/**
- * Multi-select dropdown for choosing tags.
- *
- * Shows a search box that filters available tags, displays selected tags as
- * removable chips, and allows creating a new tag inline.
- *
- * Props:
- *   value      – array of selected tag ids
- *   onChange   – (ids) => void
- *   allTags    – optional pre-loaded tag list; if absent, loads on open
- *   placeholder – string (default "Search or create tag…")
- *   disabled   – prevents changes while a parent operation is pending
- *   onTagCreated – receives a newly created tag so parent caches stay current
- */
-export default function TagSelector({ value = [], onChange, allTags: propAllTags, placeholder, disabled = false, onTagCreated }) {
+export default function TagSelector({ value = [], onChange, allTags: propAllTags, placeholder, disabled = false, canCreate = true, onTagCreated }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [results, setResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const [newTagMode, setNewTagMode] = useState(false);
   const [newTagName, setNewTagName] = useState("");
   const [createError, setCreateError] = useState(null);
   const [newTagColor, setNewTagColor] = useState("#6366f1");
-
   const containerRef = useRef(null);
   const inputRef = useRef(null);
-
+  const listboxId = useId();
   const selectedIds = new Set(value);
   const all = propAllTags || [];
 
-  // Debounced search — show all tags when query is empty, filtered results otherwise
   useEffect(() => {
     const q = query.trim();
+    const controller = new AbortController();
     if (!q) {
-      setResults(all.filter((t) => !selectedIds.has(t.id)));
+      setResults(all.filter((tag) => !selectedIds.has(tag.id)));
       setIsSearching(false);
-      return;
+      return () => controller.abort();
     }
     setIsSearching(true);
-    let cancelled = false;
-    searchTags(q)
-      .then((tags) => {
-        if (!cancelled) setResults(tags.filter((t) => !selectedIds.has(t.id)));
-      })
-      .catch(() => {
-        if (!cancelled) setResults([]);
-      })
-      .finally(() => {
-        if (!cancelled) setIsSearching(false);
-      });
-    return () => { cancelled = true; };
-  }, [query, selectedIds, all]);
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        const tags = await searchTags(q, controller.signal);
+        if (!controller.signal.aborted) setResults(tags.filter((tag) => !selectedIds.has(tag.id)));
+      } catch (error) {
+        if (error.name !== "AbortError" && !controller.signal.aborted) setResults([]);
+      } finally {
+        if (!controller.signal.aborted) setIsSearching(false);
+      }
+    }, 280);
+    return () => { window.clearTimeout(timeoutId); controller.abort(); };
+  }, [query, value, all]);
 
-  // Click-outside closes dropdown
+  useEffect(() => { setActiveIndex(-1); }, [results, open]);
   useEffect(() => {
-    if (!open) return;
-    const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
-    };
+    if (!open) return undefined;
+    const handler = (event) => { if (containerRef.current && !containerRef.current.contains(event.target)) setOpen(false); };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
   const toggleTag = async (tagId) => {
     if (disabled) return;
-    const next = selectedIds.has(tagId)
-      ? value.filter((id) => id !== tagId)
-      : [...value, tagId];
-    await onChange(next);
+    await onChange(selectedIds.has(tagId) ? value.filter((id) => id !== tagId) : [...value, tagId]);
   };
-
-  const removeTag = async (tagId) => {
-    if (disabled) return;
-    await onChange(value.filter((id) => id !== tagId));
-  };
-
   const createAndAdd = async () => {
-    if (disabled) return;
-    const name = newTagName.trim();
-    if (!name) return;
+    if (disabled || !canCreate || !newTagName.trim()) return;
     try {
-      const created = await createTag({ name, color: newTagColor });
+      const created = await createTag({ name: newTagName.trim(), color: newTagColor });
       onTagCreated?.(created);
       await onChange([...value, created.id]);
-      setNewTagMode(false);
-      setNewTagName("");
-      setNewTagColor("#6366f1");
-      setCreateError(null);
-      setOpen(false);
-    } catch (e) {
-      setCreateError(e.message);
-    }
+      setNewTagMode(false); setNewTagName(""); setNewTagColor("#6366f1"); setCreateError(null); setOpen(false);
+    } catch (error) { setCreateError(error.message); }
+  };
+  const onSearchKeyDown = (event) => {
+    if (event.key === "ArrowDown") { event.preventDefault(); setActiveIndex((index) => Math.min(index + 1, results.length - 1)); }
+    else if (event.key === "ArrowUp") { event.preventDefault(); setActiveIndex((index) => Math.max(index - 1, 0)); }
+    else if (event.key === "Enter" && activeIndex >= 0) { event.preventDefault(); void toggleTag(results[activeIndex].id); }
+    else if (event.key === "Escape") { event.preventDefault(); setOpen(false); }
   };
 
-  const displayResults =
-    isSearching ? [] : results;
-
-  return (
-    <div className="ip-tag-selector" ref={containerRef}>
-      <div className="ip-tag-selector-chips">
-        {value.map((tagId) => {
-          const tag = all.find((t) => t.id === tagId);
-          if (!tag) return null;
-          return (
-            <TagBadge
-              key={tagId}
-              tag={tag}
-              size="sm"
-              removable={!disabled}
-              onRemove={removeTag}
-            />
-          );
-        })}
-
-        {newTagMode ? (
-          <div className="ip-tag-selector-new">
-            <input
-              className="tool-input ip-tag-selector-new-input"
-              placeholder="Tag name"
-              value={newTagName}
-              onChange={(e) => setNewTagName(e.target.value)}
-              disabled={disabled}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void createAndAdd();
-                if (e.key === "Escape") { setNewTagMode(false); setNewTagName(""); }
-              }}
-              autoFocus
-            />
-            <input
-              type="color"
-              className="ip-tag-selector-color"
-              value={newTagColor}
-              onChange={(e) => setNewTagColor(e.target.value)}
-              disabled={disabled}
-            />
-            <button type="button" className="tool-btn tool-btn-sm" onClick={createAndAdd} disabled={disabled}>
-              Create
-            </button>
-            <button type="button" className="tool-btn tool-btn-ghost tool-btn-sm" onClick={() => { setNewTagMode(false); setNewTagName(""); }} disabled={disabled}>
-              Cancel
-            </button>
-            {createError && <span className="tool-error ip-tag-selector-create-error">{createError}</span>}
-          </div>
-        ) : (
-          <button
-            type="button"
-            className="tool-btn tool-btn-ghost ip-tag-selector-add-btn"
-            onClick={() => setNewTagMode(true)}
-            disabled={disabled}
-          >
-            + New tag
-          </button>
-        )}
-      </div>
-
-      <button
-        type="button"
-          className="ip-tag-selector-toggle"
-          onClick={() => setOpen((o) => !o)}
-          disabled={disabled}
-      >
-        {open ? "▾" : "▸"} {placeholder || "Tags"}
-      </button>
-
-      {open && (
-        <div className="ip-tag-selector-dropdown">
-          <input
-            className="tool-input ip-tag-selector-search"
-            placeholder="Search tags…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            disabled={disabled}
-            autoFocus
-          />
-
-          {!query.trim() && !newTagMode && results.length > 0 && (
-            <div className="ip-tag-selector-hint">
-              Showing all tags ({results.length} available)
-            </div>
-          )}
-
-          {isSearching && <div className="ip-tag-selector-empty">Searching…</div>}
-
-          {!isSearching && displayResults.length === 0 && query.trim() && (
-            <div className="ip-tag-selector-empty">No matching tags.</div>
-          )}
-
-          {displayResults.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              className="ip-tag-selector-option"
-              onMouseDown={(e) => {
-                e.preventDefault();
-                void toggleTag(tag.id);
-              }}
-              disabled={disabled}
-            >
-              <span className="ip-tag-selector-option-dot" style={{ backgroundColor: tag.color }} />
-              <span className="ip-tag-selector-option-name">{tag.name}</span>
-              {tag.description && <span className="ip-tag-selector-option-desc">{tag.description}</span>}
-            </button>
-          ))}
-        </div>
-      )}
+  return <div className="ip-tag-selector" ref={containerRef}>
+    <div className="ip-tag-selector-chips">
+      {value.map((tagId) => { const tag = all.find((item) => item.id === tagId); return tag ? <TagBadge key={tagId} tag={tag} size="sm" removable={!disabled} onRemove={(id) => !disabled && onChange(value.filter((item) => item !== id))} /> : null; })}
+      {newTagMode ? <div className="ip-tag-selector-new">
+        <label className="sr-only" htmlFor={`${listboxId}-new`}>New tag name</label><input id={`${listboxId}-new`} className="tool-input ip-tag-selector-new-input" placeholder="Tag name" value={newTagName} onChange={(event) => setNewTagName(event.target.value)} disabled={disabled} onKeyDown={(event) => { if (event.key === "Enter") void createAndAdd(); if (event.key === "Escape") { setNewTagMode(false); setNewTagName(""); } }} autoFocus />
+        <label className="sr-only" htmlFor={`${listboxId}-color`}>Tag color</label><input id={`${listboxId}-color`} type="color" className="ip-tag-selector-color" value={newTagColor} onChange={(event) => setNewTagColor(event.target.value)} disabled={disabled} />
+        <button type="button" className="tool-btn tool-btn-sm" onClick={createAndAdd} disabled={disabled}>Create</button><button type="button" className="tool-btn tool-btn-ghost tool-btn-sm" onClick={() => { setNewTagMode(false); setNewTagName(""); }} disabled={disabled}>Cancel</button>
+        {createError && <span className="tool-error ip-tag-selector-create-error" role="alert">{createError}</span>}
+      </div> : canCreate && <button type="button" className="tool-btn tool-btn-ghost ip-tag-selector-add-btn" onClick={() => setNewTagMode(true)} disabled={disabled}>+ New tag</button>}
     </div>
-  );
+    <button type="button" className="ip-tag-selector-toggle" onClick={() => setOpen((current) => !current)} disabled={disabled} aria-expanded={open} aria-controls={listboxId}>{open ? "▾" : "▸"} {placeholder || "Tags"}</button>
+    {open && <div className="ip-tag-selector-dropdown">
+      <label className="sr-only" htmlFor={`${listboxId}-search`}>Search tags</label><input ref={inputRef} id={`${listboxId}-search`} className="tool-input ip-tag-selector-search" placeholder="Search tags…" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={onSearchKeyDown} disabled={disabled} autoFocus role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls={listboxId} aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${results[activeIndex]?.id}` : undefined} />
+      {!query.trim() && !newTagMode && results.length > 0 && <div className="ip-tag-selector-hint">Showing all tags ({results.length} available)</div>}
+      {isSearching && <div className="ip-tag-selector-empty" role="status">Searching…</div>}
+      {!isSearching && results.length === 0 && query.trim() && <div className="ip-tag-selector-empty">No matching tags.</div>}
+      <div id={listboxId} role="listbox" aria-label="Available tags">{!isSearching && results.map((tag, index) => <button key={tag.id} id={`${listboxId}-option-${tag.id}`} type="button" role="option" aria-selected={false} className="ip-tag-selector-option" onMouseDown={(event) => { event.preventDefault(); void toggleTag(tag.id); }} onMouseMove={() => setActiveIndex(index)} disabled={disabled}><span className="ip-tag-selector-option-dot" style={{ backgroundColor: tag.color }} /><span className="ip-tag-selector-option-name">{tag.name}</span>{tag.description && <span className="ip-tag-selector-option-desc">{tag.description}</span>}</button>)}</div>
+    </div>}
+  </div>;
 }

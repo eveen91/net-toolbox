@@ -6,6 +6,8 @@ import {
   updateRangeReservation,
 } from "./api.js";
 
+import { useAccessibleDialog } from "./hooks/useAccessibleDialog.js";
+
 function isValidIpv4(value) {
   const parts = value.trim().split(".");
   return parts.length === 4 && parts.every((part) => /^\d+$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
@@ -19,12 +21,13 @@ function emptyDraft() {
   return { start_ip: "", end_ip: "", status: "active", label: "", description: "" };
 }
 
-export default function RangeReservationManager({ subnetId, onReservationsChanged }) {
+export default function RangeReservationManager({ subnetId, onReservationsChanged, canWrite = true }) {
   const [reservations, setReservations] = useState([]);
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const { dialogRef } = useAccessibleDialog(Boolean(draft), () => { if (!saving) setDraft(null); });
 
   const loadReservations = async () => {
     setLoading(true);
@@ -92,7 +95,7 @@ export default function RangeReservationManager({ subnetId, onReservationsChange
   if (loading) return <div className="tool-empty">Loading range reservations...</div>;
 
   return (
-    <div>
+    <fieldset disabled={!canWrite} className="ip-permission-fields">
       <div className="ip-add-row">
         <button type="button" className="tool-btn tool-btn-primary" onClick={() => setDraft(emptyDraft())}>+ Reserve range</button>
       </div>
@@ -112,17 +115,17 @@ export default function RangeReservationManager({ subnetId, onReservationsChange
           </tr>)}</tbody>
         </table></div>
       )}
-      {draft && <div className="tool-modal-overlay" onClick={() => !saving && setDraft(null)}><div className="tool-modal" onClick={(event) => event.stopPropagation()}>
-        <div className="tool-modal-header"><h3>{draft.id ? "Edit range reservation" : "Reserve address range"}</h3><button type="button" className="tool-modal-close" onClick={() => setDraft(null)} disabled={saving}>×</button></div>
+      {draft && <div className="tool-modal-overlay" onClick={() => !saving && setDraft(null)}><div ref={dialogRef} className="tool-modal" role="dialog" aria-modal="true" aria-labelledby="ip-range-title" onClick={(event) => event.stopPropagation()}>
+        <div className="tool-modal-header"><h3 id="ip-range-title">{draft.id ? "Edit range reservation" : "Reserve address range"}</h3><button type="button" className="tool-modal-close" onClick={() => setDraft(null)} disabled={saving}>×</button></div>
         <form onSubmit={save}>
-          <div className="tool-field"><label className="tool-label">Start IP</label><input autoFocus required className="tool-input" value={draft.start_ip} onChange={(event) => setDraft({ ...draft, start_ip: event.target.value })} /></div>
-          <div className="tool-field"><label className="tool-label">End IP</label><input required className="tool-input" value={draft.end_ip} onChange={(event) => setDraft({ ...draft, end_ip: event.target.value })} /></div>
-          <div className="tool-field"><label className="tool-label">Status</label><select className="tool-input" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="active">Active</option><option value="released">Released</option></select></div>
-          <div className="tool-field"><label className="tool-label">Label <span className="tool-hint">optional</span></label><input className="tool-input" value={draft.label || ""} onChange={(event) => setDraft({ ...draft, label: event.target.value })} /></div>
-          <div className="tool-field"><label className="tool-label">Description <span className="tool-hint">optional</span></label><input className="tool-input" value={draft.description || ""} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></div>
+          <div className="tool-field"><label className="tool-label" htmlFor="ip-range-start">Start IP</label><input id="ip-range-start" autoFocus required className="tool-input" value={draft.start_ip} onChange={(event) => setDraft({ ...draft, start_ip: event.target.value })} /></div>
+          <div className="tool-field"><label className="tool-label" htmlFor="ip-range-end">End IP</label><input id="ip-range-end" required className="tool-input" value={draft.end_ip} onChange={(event) => setDraft({ ...draft, end_ip: event.target.value })} /></div>
+          <div className="tool-field"><label className="tool-label" htmlFor="ip-range-status">Status</label><select id="ip-range-status" className="tool-input" value={draft.status} onChange={(event) => setDraft({ ...draft, status: event.target.value })}><option value="active">Active</option><option value="released">Released</option></select></div>
+          <div className="tool-field"><label className="tool-label" htmlFor="ip-range-label">Label <span className="tool-hint">optional</span></label><input id="ip-range-label" className="tool-input" value={draft.label || ""} onChange={(event) => setDraft({ ...draft, label: event.target.value })} /></div>
+          <div className="tool-field"><label className="tool-label" htmlFor="ip-range-description">Description <span className="tool-hint">optional</span></label><input id="ip-range-description" className="tool-input" value={draft.description || ""} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></div>
           <div className="tool-actions"><button type="submit" className="tool-btn tool-btn-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button><button type="button" className="tool-btn tool-btn-ghost" onClick={() => setDraft(null)} disabled={saving}>Cancel</button></div>
         </form>
       </div></div>}
-    </div>
+    </fieldset>
   );
 }

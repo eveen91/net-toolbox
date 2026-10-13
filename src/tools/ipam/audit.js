@@ -19,20 +19,25 @@ export const AUDIT_EVENT_TYPES = [
   "address_tag_add",
   "address_tag_remove",
   "settings_update",
+  "archive_restore",
+  "range_reservation_create",
+  "range_reservation_update",
+  "range_reservation_delete",
 ];
 
 const AUDIT_EVENT_LABELS = {
   create: "Address created",
   update: "Address updated",
-  delete: "Address deleted",
+  delete: "Address archived",
   release: "Address released",
   reassign: "Address reassigned",
   subnet_create: "Subnet created",
   subnet_update: "Subnet updated",
-  subnet_delete: "Subnet deleted",
+  subnet_tenant_move: "Subnet moved to tenant",
+  subnet_delete: "Subnet archived",
   dhcp_pool_create: "DHCP pool created",
   dhcp_pool_update: "DHCP pool updated",
-  dhcp_pool_delete: "DHCP pool deleted",
+  dhcp_pool_delete: "DHCP pool archived",
   dhcp_pool_move: "DHCP pool moved",
   dhcp_pool_bulk_move: "DHCP pools moved",
   tag_create: "Tag created",
@@ -42,6 +47,10 @@ const AUDIT_EVENT_LABELS = {
   address_tag_add: "Address tag added",
   address_tag_remove: "Address tag removed",
   settings_update: "Settings updated",
+  archive_restore: "Record restored",
+  range_reservation_create: "Range reserved",
+  range_reservation_update: "Range reservation updated",
+  range_reservation_delete: "Range reservation deleted",
 };
 
 export function auditEventLabel(changeType) {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getIpamDashboard } from "./api.js";
+import { getDataQualityViolations, getIpamDashboard } from "./api.js";
 import { formatTimestamp, formatVlan } from "./logic.js";
 import TagBadge from "./TagBadge.jsx";
 
@@ -18,11 +18,13 @@ export default function IpamDashboard({ onSelectSubnet, tags = [] }) {
   const [error, setError] = useState(null);
   const [sortBy, setSortBy] = useState("cidr");
   const [sortDir, setSortDir] = useState("asc");
+  const [issueCount, setIssueCount] = useState(0);
 
   const loadDashboard = async () => {
     try {
-      const result = await getIpamDashboard();
+      const [result, violations] = await Promise.all([getIpamDashboard(), getDataQualityViolations()]);
       setEntries(result);
+      setIssueCount(violations.length);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -69,26 +71,36 @@ export default function IpamDashboard({ onSelectSubnet, tags = [] }) {
   if (sortDir === "desc") sortedEntries.reverse();
 
   const sortIndicator = (column) => (sortBy === column ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+  const ariaSort = (column) => (sortBy === column ? (sortDir === "asc" ? "ascending" : "descending") : "none");
+  const SortButton = ({ column, children }) => (
+    <button
+      type="button"
+      className="ip-address-sort"
+      onClick={() => handleSort(column)}
+      aria-label={`Sort by ${children}${sortBy === column ? `, currently ${sortDir === "asc" ? "ascending" : "descending"}` : ""}`}
+    >
+      {children}<span aria-hidden="true">{sortIndicator(column)}</span>
+    </button>
+  );
 
   return (
-    <div className="tool-table-wrap ip-table-wrap-full">
-      <table className="tool-table">
+    <>
+      <div className="ip-quality-summary">
+        <strong>Data quality</strong>
+        <span className={issueCount ? "tool-badge tool-badge-danger" : "tool-badge tool-badge-default"}>{issueCount} open issue{issueCount === 1 ? "" : "s"}</span>
+      </div>
+      <div className="tool-table-wrap ip-table-wrap-full ip-dashboard-table-wrap">
+      <table className="tool-table ip-dashboard-table">
         <thead>
           <tr>
-            <th className="ip-sortable-th" onClick={() => handleSort("cidr")}>
-              CIDR{sortIndicator("cidr")}
-            </th>
-            <th>Description</th>
+            <th aria-sort={ariaSort("cidr")}><SortButton column="cidr">CIDR</SortButton></th>
+            <th aria-sort={ariaSort("description")}><SortButton column="description">Description</SortButton></th>
             <th>VLAN</th>
-            <th className="ip-sortable-th" onClick={() => handleSort("usedCount")}>
-              Used / Free / Reserved{sortIndicator("usedCount")}
-            </th>
+            <th aria-sort={ariaSort("usedCount")}><SortButton column="usedCount">Used / Free / Reserved</SortButton></th>
             <th>Tags</th>
-            <th className="ip-sortable-th" onClick={() => handleSort("lastScannedAt")}>
-              Last scanned{sortIndicator("lastScannedAt")}
-            </th>
+            <th aria-sort={ariaSort("lastScannedAt")}><SortButton column="lastScannedAt">Last scanned</SortButton></th>
             <th>Since last scan</th>
-            <th></th>
+            <th><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -96,13 +108,13 @@ export default function IpamDashboard({ onSelectSubnet, tags = [] }) {
             const entryTags = tags.filter((t) => t.subnetIds?.includes(e.id));
             return (
               <tr key={e.id} className={e.lastScannedAt ? "" : "ip-dashboard-unscanned"}>
-                <td className="ip-subnet-cidr">{e.cidr}</td>
-                <td>{e.description || "—"}</td>
-                <td>{formatVlan(e.vlan)}</td>
-                <td>
+                <td data-label="CIDR" className="ip-subnet-cidr">{e.cidr}</td>
+                <td data-label="Description">{e.description || "—"}</td>
+                <td data-label="VLAN">{formatVlan(e.vlan)}</td>
+                <td data-label="Usage">
                   {e.usedCount} used · {e.freeCount} free · {e.reservedCount} reserved
                 </td>
-                <td>
+                <td data-label="Tags">
                   {entryTags.length > 0 ? (
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                       {entryTags.map((tag) => (
@@ -113,16 +125,17 @@ export default function IpamDashboard({ onSelectSubnet, tags = [] }) {
                     <span className="tool-hint">—</span>
                   )}
                 </td>
-                <td>{e.lastScannedAt ? formatTimestamp(e.lastScannedAt) : "never"}</td>
-                <td>
+                <td data-label="Last scanned">{e.lastScannedAt ? formatTimestamp(e.lastScannedAt) : "never"}</td>
+                <td data-label="Since last scan">
                   {e.lastScannedAt
                     ? `${e.lastScanNewlyUsed ?? 0} new · ${e.lastScanWentQuiet ?? 0} quiet · ${e.lastScanHostnameChanged ?? 0} renamed`
                     : "—"}
                 </td>
-                <td>
+                <td data-label="Actions" className="ip-actions-cell">
                   <button
                     className="tool-btn tool-btn-ghost ip-row-btn"
                     onClick={() => onSelectSubnet(e.id)}
+                    aria-label={`View subnet ${e.cidr}`}
                   >
                     View
                   </button>
@@ -132,6 +145,7 @@ export default function IpamDashboard({ onSelectSubnet, tags = [] }) {
           })}
         </tbody>
       </table>
-    </div>
+      </div>
+    </>
   );
 }

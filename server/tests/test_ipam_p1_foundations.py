@@ -245,6 +245,10 @@ def test_subnet_address_page_does_not_load_full_subnet_or_addresses(client, monk
 def test_interrupted_scan_job_is_released_on_initialization(client):
     subnet = db.create_subnet("10.120.0.0/29")
     assert db.create_scan_job("interrupted-job", subnet["id"])
+    conn = db.get_connection()
+    conn.execute("UPDATE ipam_scan_jobs SET updated_at = '2000-01-01T00:00:00+00:00' WHERE id = 'interrupted-job'")
+    conn.commit()
+    conn.close()
 
     db.init_db()
 

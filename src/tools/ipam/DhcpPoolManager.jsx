@@ -8,8 +8,9 @@ import {
   bulkMoveDhcpPools,
 } from "./api.js";
 import { isOutsidePointerStart } from "./logic.js";
+import { useAccessibleDialog } from "./hooks/useAccessibleDialog.js";
 
-function isValidIPv4(ip) {
+export function isValidIPv4(ip) {
   const parts = ip.split(".");
   if (parts.length !== 4) return false;
   return parts.every((part) => {
@@ -18,11 +19,11 @@ function isValidIPv4(ip) {
   });
 }
 
-function ipToNumber(ip) {
+export function ipToNumber(ip) {
   return ip.split(".").reduce((acc, octet) => (acc << 8) + parseInt(octet, 10), 0) >>> 0;
 }
 
-export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
+export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged, canWrite = true }) {
   const [pools, setPools] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -68,6 +69,7 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
   };
 
   const openAddModal = () => {
+    captureOpener();
     setEditingPool(null);
     setStartIp("");
     setEndIp("");
@@ -77,6 +79,7 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
   };
 
   const openEditModal = (pool) => {
+    captureOpener();
     setEditingPool(pool);
     setStartIp(pool.start_ip || pool.startIp || "");
     setEndIp(pool.end_ip || pool.endIp || "");
@@ -93,6 +96,7 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
     setName("");
     setDescription("");
   };
+  const { dialogRef, captureOpener } = useAccessibleDialog(modalOpen, closeModal);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -120,7 +124,7 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
         description: description.trim() || null,
       };
       if (editingPool) {
-        await updateDhcpPool(subnetId, editingPool.id, payload);
+        await updateDhcpPool(subnetId, editingPool.id, payload, editingPool.updated_at || editingPool.updatedAt);
       } else {
         await createDhcpPool(subnetId, payload);
       }
@@ -133,11 +137,27 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
     }
   };
 
+  const reloadEditingPool = async () => {
+    setSubmitting(true);
+    try {
+      const current = (await getDhcpPools(subnetId)).find((pool) => pool.id === editingPool.id);
+      if (!current) throw new Error("DHCP pool no longer exists. Close this editor and refresh pools.");
+      setEditingPool(current);
+      setStartIp(current.start_ip);
+      setEndIp(current.end_ip);
+      setName(current.name || "");
+      setDescription(current.description || "");
+      setError(null);
+    } catch (requestError) { setError(requestError.message); }
+    finally { setSubmitting(false); }
+  };
+
   const handleDelete = async (poolId) => {
-    if (!confirm("Delete this DHCP pool?")) return;
+    const reason = window.prompt("Archive reason:");
+    if (!reason?.trim()) return;
     setError(null);
     try {
-      await deleteDhcpPool(subnetId, poolId);
+      await deleteDhcpPool(subnetId, poolId, reason.trim());
       setSelectedIds((prev) => {
         const next = new Set(prev);
         next.delete(poolId);
@@ -202,7 +222,7 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
   }
 
   return (
-    <div>
+    <fieldset disabled={!canWrite} className="ip-permission-fields">
       <div className="ip-add-row" style={{ alignItems: "center" }}>
         <button type="button" className="tool-btn tool-btn-primary" onClick={openAddModal}>
           + Add Pool
@@ -242,7 +262,7 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
         )}
       </div>
 
-      {error && <div className="tool-error">{error}</div>}
+      {error && <div className="tool-error" role="alert">{error}</div>}
 
       {pools.length === 0 && !error && (
         <div className="tool-empty">No DHCP pools defined</div>
@@ -328,19 +348,19 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
 
       {modalOpen && (
         <div className="tool-modal-overlay">
-          <div ref={modalRef} className="tool-modal">
+          <div ref={(node) => { modalRef.current = node; dialogRef.current = node; }} className="tool-modal" role="dialog" aria-modal="true" aria-labelledby="ip-dhcp-pool-title" aria-busy={submitting}>
             <div className="tool-modal-header">
-              <h3>{editingPool ? "Edit DHCP Pool" : "Add DHCP Pool"}</h3>
+              <h3 id="ip-dhcp-pool-title">{editingPool ? "Edit DHCP Pool" : "Add DHCP Pool"}</h3>
               <button type="button" className="tool-modal-close" onClick={closeModal}>
                 ×
               </button>
             </div>
             <form onSubmit={handleSubmit}>
+              {error && <div className="tool-error" role="alert">{error}{error.includes("modified by another user") && <button type="button" className="tool-btn tool-btn-ghost" onClick={reloadEditingPool} disabled={submitting}>Reload current values</button>}</div>}
               <div className="tool-field">
-                <div className="tool-label">
-                  <span>Start IP</span>
-                </div>
+                <label className="tool-label" htmlFor="ip-dhcp-start">Start IP</label>
                 <input
+                  id="ip-dhcp-start"
                   autoFocus
                   className="tool-input"
                   placeholder="192.168.1.100"
@@ -350,10 +370,9 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
                 />
               </div>
               <div className="tool-field">
-                <div className="tool-label">
-                  <span>End IP</span>
-                </div>
+                <label className="tool-label" htmlFor="ip-dhcp-end">End IP</label>
                 <input
+                  id="ip-dhcp-end"
                   className="tool-input"
                   placeholder="192.168.1.200"
                   value={endIp}
@@ -362,10 +381,9 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
                 />
               </div>
               <div className="tool-field">
-                <div className="tool-label">
-                  <span>Name <span className="tool-hint">optional</span></span>
-                </div>
+                <label className="tool-label" htmlFor="ip-dhcp-name">Name <span className="tool-hint">optional</span></label>
                 <input
+                  id="ip-dhcp-name"
                   className="tool-input"
                   placeholder="e.g. Guest DHCP"
                   value={name}
@@ -373,10 +391,9 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
                 />
               </div>
               <div className="tool-field">
-                <div className="tool-label">
-                  <span>Description <span className="tool-hint">optional</span></span>
-                </div>
+                <label className="tool-label" htmlFor="ip-dhcp-description">Description <span className="tool-hint">optional</span></label>
                 <input
+                  id="ip-dhcp-description"
                   className="tool-input"
                   placeholder="e.g. Guest network range"
                   value={description}
@@ -406,6 +423,6 @@ export default function DhcpPoolManager({ subnetId, subnets, onPoolsChanged }) {
           </div>
         </div>
       )}
-    </div>
+    </fieldset>
   );
 }
