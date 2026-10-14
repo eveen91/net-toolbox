@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 
 import auth_db
 from .service import create_tenant, resolve_tenant
+from . import access
+from .group_router import invoke
 
 
 class TenantCreate(BaseModel):
@@ -81,5 +83,23 @@ def build_router(require_platform_admin):
                 "SELECT a.*, u.username AS actor_username FROM tenant_audit a LEFT JOIN users u ON u.id = a.actor_id WHERE a.tenant_id = ? ORDER BY a.id DESC LIMIT 200", (tenant_id,))]
         finally:
             conn.close()
+
+    @router.get('/{tenant_id}/group-access')
+    def group_access(tenant_id: str, user=Depends(tenant_admin)):
+        return access.bindings(tenant_id)
+
+    @router.put('/{tenant_id}/group-access/{group_id}')
+    def grant_group(tenant_id: str, req: MembershipUpdate, group_id: int, user=Depends(require_platform_admin)):
+        if user is None:
+            raise HTTPException(401, 'Sign in as a platform administrator')
+        invoke(access.set_binding,tenant_id,group_id,req.role,user['id'])
+        return {'ok':True}
+
+    @router.delete('/{tenant_id}/group-access/{group_id}')
+    def revoke_group(tenant_id: str, group_id: int, user=Depends(require_platform_admin)):
+        if user is None:
+            raise HTTPException(401, 'Sign in as a platform administrator')
+        invoke(access.set_binding,tenant_id,group_id,None,user['id'],remove=True)
+        return {'ok':True}
 
     return router

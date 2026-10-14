@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { nextHeatmapCellIndex } from "./SubnetHeatmap.jsx";
+import { heatmapLayout, nextHeatmapCellIndex } from "./SubnetHeatmap.jsx";
+
+describe("full-width heatmap layout", () => {
+  it("shows 20 rows across the full width even when the visible range exceeds one API batch", () => {
+    const layout = heatmapLayout(1350);
+    expect(layout.columns).toBe(50);
+    expect(layout.addressesPerPage).toBe(1000);
+  });
+
+  it("fits fixed tiles and retains 20 rows on mobile and large desktops", () => {
+    for (const width of [300, 990, 1350, 1800, 3500]) {
+      const { columns, addressesPerPage } = heatmapLayout(width);
+      expect(columns * 24 + (columns - 1) * 3).toBeLessThanOrEqual(width);
+      expect(width - (columns * 24 + (columns - 1) * 3)).toBeLessThan(27);
+      expect(addressesPerPage / columns).toBe(20);
+    }
+  });
+});
 
 describe("heatmap keyboard navigation", () => {
   const page = { columns: 4, pageStart: 0, pageEnd: 12 };

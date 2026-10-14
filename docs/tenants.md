@@ -7,8 +7,8 @@ w każdym z nich. DC i VRF pozostają przyszłymi strukturami wewnątrz tenanta.
 ## Obsługa
 
 1. Zaloguj się jako administrator platformy (`admin`).
-2. Otwórz **Config Panel → Tenants** i utwórz tenanta.
-3. Wybierz go w polu **Tenant** na pasku aplikacji.
+2. Otwórz **Administration → Tenants** i utwórz tenanta.
+3. Wybierz go w polu **Manage access for tenant** w panelu.
 4. W tym samym panelu przypisz istniejące konto i rolę. Nowe konta tworzysz
    w zakładce **Users**, a szablony uprawnień w **Roles**.
 
@@ -31,7 +31,7 @@ Zmiana szablonu roli dotyczy wszystkich członkostw używających tego szablonu.
 
 Przy pierwszej migracji istniejące konta zachowują role w tenancie domyślnym.
 Migracja jest jednokrotna: ponowny start nie odtwarza cofniętych członkostw.
-Nowe konta lokalne i AD otrzymują początkowe członkostwo w tenancie domyślnym.
+Nowe konta lokalne i dotychczasowy przepływ AD otrzymują początkowe członkostwo w tenancie domyślnym. Nowe konta AD rozpoznane wyłącznie przez przypisanie grupy do tenanta nie otrzymują tego dodatkowego członkostwa.
 Zmiana dawnej roli konta aktualizuje to członkostwo tylko wtedy, gdy nadal
 odpowiada ono dawnej roli; niezależne przypisania tenantowe pozostają zachowane.
 
@@ -126,3 +126,29 @@ tenanta. Uprawnienie `device-visualization` jest nadawane przez role członkostw
 nie jest automatycznie dodawane do istniejących ról. Moduł obejmuje switche,
 firewalle Check Point/FortiGate i generyczne serwery. Backup wszystkich baz
 tenantów zawiera jego dane i audyt.
+
+## Dostęp użytkowników i grup
+
+Administrator platformy wybiera tenanta w **Administration → Tenants → Manage access for tenant**. Ten wybór służy zarządzaniu uprawnieniami i nie zmienia aktywnego tenanta narzędzi na górnym pasku. W sekcji kont przypisuje rolę konkretnemu użytkownikowi; w **Group access** przypisuje rolę grupie. Szablony ról i uprawnień modułów nadal definiuje się w **Roles**.
+
+**Administration → Groups** umożliwia tworzenie grup lokalnych i AD:
+
+- **Local**: członków dodaje i usuwa administrator platformy. Można przypisać istniejące konto lokalne lub AD. Członkostwo samo nie daje dostępu; grupa musi mieć rolę w danym tenancie.
+- **Active Directory**: podaje się nazwę i pełny DN grupy. Aplikacja nie zarządza członkostwem w katalogu. Przypisane do tenantów grupy są sprawdzane podczas uwierzytelniania AD, także przez członkostwo zagnieżdżone. Widok członków pokazuje konta rozpoznane przy ostatnim uwierzytelnianiu, a nie kompletną listę katalogową. Po przypisaniu nowej grupy użytkownicy powinni ponownie zalogować się przez AD.
+
+Bez indywidualnego przypisania uprawnienia ze wszystkich pasujących grup w danym tenancie sumują się. **Indywidualna rola ma pierwszeństwo i zastępuje całość uprawnień grupowych**. Usunięcie indywidualnej roli przywraca uprawnienia grup; nie jest równoznaczne z całkowitym odebraniem dostępu. Aby odebrać dostęp, usuń wszystkie jego źródła. Jeżeli potrzebne jest indywidualne ograniczenie użytkownika należącego do grupy, przypisz mu w tym tenancie rolę o węższym zestawie uprawnień.
+
+Dotychczasowe przypisania, w tym automatyczne członkostwo kont w tenancie **Domyślny**, pozostają zachowane i mają pierwszeństwo przed grupami. Aby w tym tenancie korzystać z dziedziczenia grup, usuń jego indywidualne przypisanie. Globalny administrator nadal ma dostęp do wszystkich tenantów. Rola `tenant-admin` nadana przez grupę nie daje administracji platformą ani prawa do tworzenia grup lub przyznawania grupom dostępu.
+
+Zmiany grup lokalnych, przypisań grup, indywidualnych ról i szablonów uprawnień są odczytywane przy każdym żądaniu. Zmiany członkostwa w samym AD aplikacja poznaje dopiero podczas kolejnego uwierzytelnienia AD; do tego czasu obowiązuje ostatni zweryfikowany stan. Błędne hasło ani awaria LDAP nie są dowodem opuszczenia grupy. Nowe grupy AD bez przypisań tenantowych nie rozszerzają bramki logowania AD.
+
+Grupy, lokalne członkostwa, przypisania tenantowe i ostatnie obserwacje AD są przechowywane w `auth.db`. Migracja dodaje tabele bez zmiany istniejących danych. Zmiany przypisań i grup mają audyt zapisany w tej samej transakcji; historia globalnych grup jest w **Groups**, a zmiany dotyczące konkretnego tenanta również w **Tenants**. Usunięcie grupy usuwa jej członkostwa i wszystkie przypisania tenantowe, zachowując audyt.
+
+Nowe endpointy:
+
+- `/api/admin/access-groups` — wyszukiwanie i tworzenie grup, usuwanie po `/{id}`.
+- `/api/admin/access-groups/{id}/members` — członkowie; PUT/DELETE `/{userId}` tylko dla grup lokalnych.
+- `/api/admin/access-groups/accounts` oraz `/audit` — stronicowane konta do wyboru i historia grup.
+- `/api/tenants/{tenantId}/group-access` — przypisania grup; PUT/DELETE `/{groupId}` tylko dla administratora platformy.
+
+Listy globalnych grup, członków, kont do wyboru i historii grup używają domyślnie stron po 25 pozycji (maksymalnie 100). Dane AD nie są przyjmowane z przeglądarki; zapisuje je tylko backend po sprawdzeniu danych uwierzytelniających.

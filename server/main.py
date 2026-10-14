@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import ValidationError
 from device_visualization.router import build_router as build_device_visualization_router
+from dhcp_generator.router import build_router as build_dhcp_generator_router
 from connection_test.schemas import Source, Credentials, RunRequest
 from connection_test.runtime import run_sources, results_csv
 
@@ -52,6 +53,7 @@ import validation_routes
 from tenancy.context import current_tenant, tenant_scope, run_in_executor
 from tenancy.service import resolve_tenant, initialize_all_tenants
 from tenancy.router import build_router as build_tenant_router
+from tenancy.group_router import build_router as build_group_router
 from ipam_transfer.router import build_router as build_ipam_transfer_router
 from routing_transfer.router import build_router as build_routing_transfer_router
 from ipam import IpamRepository, IpamService
@@ -650,6 +652,7 @@ def require_ipam_permission(permission: Literal["read", "write", "scan", "admin"
 
 app.include_router(validation_routes.build_router(require_feature))
 app.include_router(build_tenant_router(require_admin_user))
+app.include_router(build_group_router(require_admin_user))
 app.include_router(build_routing_transfer_router(require_feature, require_authenticated_user))
 
 
@@ -659,6 +662,7 @@ ipam_scan_service.configure(ipam_repository)
 app.include_router(build_ipam_router(ipam_service, require_ipam_permission, require_logged_in_user))
 app.include_router(build_ipam_transfer_router(require_ipam_permission, require_authenticated_user))
 app.include_router(build_device_visualization_router(require_feature, require_logged_in_user))
+app.include_router(build_dhcp_generator_router(require_feature, require_logged_in_user))
 
 
 @app.on_event("startup")
@@ -677,7 +681,8 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
         return None
 
     bindings = auth_db.list_all_role_group_bindings()
-    candidate_group_dns = [b["groupDn"] for b in bindings]
+    from tenancy.access import ad_candidates, observe_ad
+    candidate_group_dns = list(dict.fromkeys([b['groupDn'] for b in bindings] + ad_candidates()))
 
     result = ldap_auth.authenticate_ad_user(
         username,
@@ -693,10 +698,12 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
     if result is None:
         return None
 
+    existing = auth_db.get_user_by_username_and_source(username, "ad")
+    if existing is not None:
+        allowed = {dn.lower(): dn for dn in candidate_group_dns}
+        observe_ad(existing['id'], [allowed[dn.lower()] for dn in result.get('matchedGroupDns', []) if dn.lower() in allowed])
     if not result["isRequiredMember"]:
         return None
-
-    existing = auth_db.get_user_by_username_and_source(username, "ad")
     if existing is not None:
         return existing
 
@@ -704,8 +711,15 @@ def _login_via_ad(username: str, password: str) -> Optional[Dict]:
     # (existing tests) mock authenticate_ad_user's return value and won't
     # include this key, so this must not KeyError on them.
     matched_group_dns = result.get("matchedGroupDns", [])
-    role = ldap_auth.resolve_role_from_bindings(matched_group_dns, bindings) or auth_db.DEFAULT_ROLE_NAME
-    return auth_db.create_user(username, "", role=role, auth_source="ad")
+    bound_role = ldap_auth.resolve_role_from_bindings(matched_group_dns, bindings)
+    role = bound_role or auth_db.DEFAULT_ROLE_NAME
+    tenant_dns = {dn.lower() for dn in ad_candidates()}
+    tenant_only = bound_role is None and any(dn.lower() in tenant_dns for dn in matched_group_dns)
+    # A tenant-only AD grant must not implicitly expose the default tenant.
+    user = auth_db.create_user(username, "", role=role, auth_source="ad", default_membership=not tenant_only)
+    allowed = {dn.lower(): dn for dn in candidate_group_dns}
+    observe_ad(user['id'], [allowed[dn.lower()] for dn in matched_group_dns if dn.lower() in allowed])
+    return user
 
 
 @app.post("/api/auth/login")

@@ -1,6 +1,7 @@
 import ViewTabs from "../components/ViewTabs.jsx";
 import { canLeaveWorkspace } from "../components/navigation.js";
 import TenantsPanel from "../tenants/TenantsPanel.jsx";
+import GroupsPanel from "../tenants/GroupsPanel.jsx";
 import React, { useState } from "react";
 import UsersPanel from "./UsersPanel.jsx";
 import RolesPanel from "./RolesPanel.jsx";
@@ -11,6 +12,7 @@ import "./admin.css";
 const SUBTABS = [
   { id: "tenants", label: "Tenants", Component: TenantsPanel },
   { id: "users", label: "Users", Component: UsersPanel },
+  { id: "groups", label: "Groups", Component: GroupsPanel },
   { id: "roles", label: "Roles", Component: RolesPanel },
   { id: "ad", label: "Active Directory", Component: ActiveDirectoryPanel },
   { id: "audit", label: "Audit Log", Component: AuditLogPanel },

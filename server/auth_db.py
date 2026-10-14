@@ -25,6 +25,7 @@ FULL_ACCESS_PERMISSIONS = ["*"]
 # exactly as before until an admin deliberately narrows it down.
 DEFAULT_ROLE_NAME = "user"
 DEFAULT_ROLE_SEED_PERMISSIONS = [
+    "dhcp-generator",
     "device-visualization",
     "subnet-splitter",
     "connection-test",
@@ -212,7 +213,7 @@ def _user_dict(row: sqlite3.Row) -> Dict:
     }
 
 
-def create_user(username: str, password_hash: str, role: str = "user", auth_source: str = "local") -> Dict:
+def create_user(username: str, password_hash: str, role: str = "user", auth_source: str = "local", *, default_membership: bool = True) -> Dict:
     conn = get_connection()
     try:
         try:
@@ -224,7 +225,7 @@ def create_user(username: str, password_hash: str, role: str = "user", auth_sour
             raise ValueError(f'Username "{username}" is already taken for {auth_source} accounts')
         # Newly created local/AD users retain their legacy default-tenant role.
         default = conn.execute("SELECT id FROM tenants WHERE is_default = 1").fetchone()
-        if default:
+        if default and default_membership:
             user_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
             conn.execute("INSERT INTO tenant_memberships (tenant_id, user_id, role_name) VALUES (?, ?, ?)",
                          (default["id"], user_id, role))
@@ -510,6 +511,7 @@ def delete_role(role_id: int) -> None:
         if row["name"] in (ADMIN_ROLE_NAME, "tenant-admin"):
             raise ValueError(f'The "{row["name"]}" role cannot be deleted')
         membership_count = conn.execute("SELECT COUNT(*) FROM tenant_memberships WHERE role_name = ?", (row["name"],)).fetchone()[0]
+        membership_count += conn.execute("SELECT COUNT(*) FROM tenant_group_access WHERE role_name = ?", (row["name"],)).fetchone()[0]
         if count_users_with_role(row["name"]) > 0 or membership_count > 0:
             raise ValueError(
                 f'Role "{row["name"]}" is still assigned to one or more users'
@@ -687,6 +689,8 @@ def _init_tenants(conn):
             SELECT 'default', u.id, u.role FROM users u JOIN roles r ON r.name = u.role""")
         conn.execute("INSERT INTO app_settings(key, value) VALUES ('tenant_memberships_v1', 'done')")
     conn.commit()
+    from tenancy.access import init_schema
+    init_schema(conn)
 
 
 def list_tenants(user=None):
@@ -695,8 +699,9 @@ def list_tenants(user=None):
         if user and user["role"] == ADMIN_ROLE_NAME:
             rows = conn.execute("SELECT * FROM tenants ORDER BY is_default DESC, name").fetchall()
         elif user:
-            rows = conn.execute("""SELECT t.* FROM tenants t JOIN tenant_memberships m ON m.tenant_id = t.id
-                WHERE m.user_id = ? ORDER BY t.is_default DESC, t.name""", (user["id"],)).fetchall()
+            from tenancy.access import tenant_ids
+            allowed = tenant_ids(user['id'])
+            rows = [row for row in conn.execute('SELECT * FROM tenants ORDER BY is_default DESC,name') if row['id'] in allowed]
         elif not is_login_required():
             rows = conn.execute("SELECT * FROM tenants WHERE is_default = 1").fetchall()
         else:
@@ -716,12 +721,9 @@ def get_tenant(tenant_id):
 
 
 def tenant_role(tenant_id, user_id):
-    conn = get_connection()
-    try:
-        row = conn.execute("SELECT role_name FROM tenant_memberships WHERE tenant_id = ? AND user_id = ?", (tenant_id, user_id)).fetchone()
-        return row["role_name"] if row else None
-    finally:
-        conn.close()
+    from tenancy.access import access
+    current = access(tenant_id, user_id)
+    return current['role'] if current else None
 
 
 def list_tenant_members(tenant_id):

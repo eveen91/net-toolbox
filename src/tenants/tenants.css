@@ -10,3 +10,18 @@
   .nt-tenant-selector .tool-input { max-width: 130px; }
 }
 
+.nt-access-picker { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; min-width: 0; }
+.nt-access-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 20px; font-size: 12px; color: var(--muted); }
+.nt-access-search { display: grid; gap: 8px; max-width: 420px; margin: 20px 0; }
+.nt-group-audit { padding-left: 20px; }
+.nt-group-audit li { padding: 12px 0; }
+.nt-group-audit pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: var(--input-bg); padding: 12px; border-radius: 6px; }
+.nt-tenants-panel h3 { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .nt-access-table, .nt-access-table tbody, .nt-access-table tr { display: block; width: 100%; }
+  .nt-access-table thead { display: none; }
+  .nt-access-table td { display: block; width: 100%; box-sizing: border-box; }
+  .nt-access-table td::before { content: attr(data-label); display: block; color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .nt-access-table .tool-input { width: 100%; }
+  .nt-access-table .tool-btn { margin: 4px 4px 4px 0; }
+}

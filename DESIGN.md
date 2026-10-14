@@ -194,11 +194,23 @@ The subnet browser is a filtered flat list, not a hierarchy tree. Hash addresses
 
 ### IPAM address views
 
-Heatmap is the default address view on initial selection and when switching subnets. Tiles are fixed at 24 × 24px with a 3px gap, avoiding expansion across wide workspaces. Column measurement and overlays share the same geometry; pages retain the 500-record request limit. Table remains available as an alternative.
+Heatmap is the default address view on initial selection and when switching subnets. Tiles are fixed at 24 × 24px with a 3px gap. The column count fills the available workspace width, including after opening an inspector. Column measurement and overlays share the same geometry; each page shows up to 20 rows, and all recorded addresses in its range are fetched in batches of at most 500 records. Table remains available as an alternative.
 
 ### Device overview and Port table
 
 Fit scales only the physical canvas, preserves physical port order, and considers both viewport width and height without enlarging beyond 100%. The viewport height is `clamp(200px, 38dvh, 380px)` outside fullscreen. Zoom and fullscreen controls complement the full-label Port table and unscaled editor. When a transformed socket's minimum dimension falls below 24px, canvas selection is disabled and an overview message directs users to zoom or the table. Saved documentation explicitly carries “No live link status”.
+
+### DHCP Generator workspace
+
+Infrastructure → DHCP Generator extends the shared panels, buttons, fields, local view controls, and semantic theme tokens. A configuration list (256px) sits beside a flexible editor; at 900px and below they stack. At 600px and below fields become a single column and published-version tables become labeled records. Configuration, Validate & publish, Versions, and Audit remain local views below global navigation. Reservations show 25 entries per page; configuration lists, versions, and audit show 20. Keep draft saving, validation, publication, and immutable version actions distinct and retain readable generated-text previews in both themes.
+
+### Tenant and group access workspace
+
+Administration → Groups and Tenants extend the shared theme, fields, buttons, tables, and local administration tabs. Group creation, membership, and access history stay in Groups; per-tenant individual and group roles stay in Tenants. The panel's “Manage access for tenant” selector chooses the access-management target independently of the active tool tenant in the global toolbar.
+
+Desktop access and membership views use tables. At 600px and below they become labeled records, with full-width fields and wrapping actions; long group DNs and account names wrap within the record. Group lists, member lists, searchable group/account choices, and global group history use 25-entry pages. This pagination rule does not describe the separate tenant membership and recent-change tables.
+
+Local membership exposes add/remove actions. AD membership is read-only and identified as the latest successful-login observation, with “Managed in AD” text on member records. Place the explanation of combined group permissions and individual-role precedence beside role controls. New group grants begin with an empty role choice, and saving requires an explicit selection. Keep removal consequences visible in confirmation text, including the possibility of remaining inherited access. The API and permission model is documented in [docs/tenants.md](docs/tenants.md).
 
 ### Motion
 

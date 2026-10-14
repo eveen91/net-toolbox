@@ -1,6 +1,6 @@
 # net::toolbox
 
-`net::toolbox` is a multi-tool networking application designed for network engineers and system administrators. It combines client-side utility calculators with backend-powered automation for remote connectivity testing, routing table management, IP address management (IPAM), and multi-vendor switch/gateway troubleshooting.
+`net::toolbox` is a multi-tool networking application designed for network engineers and system administrators. It combines client-side utility calculators with backend-powered automation for remote connectivity testing, routing table management, IP address management (IPAM), Check Point DHCP configuration generation, and multi-vendor switch/gateway troubleshooting.
 
 The application features a clean, modular shell (top toolbar + card grid home page) supporting session-based local authentication, Active Directory (LDAP/LDAPS) integration, role-based access control (RBAC), and containerized Docker deployment.
 
@@ -97,6 +97,9 @@ Store, view, and organize routing tables across infrastructure hosts.
 Quick IP address and subnet calculation tool.
 - **Execution**: Pure client-side computation in JavaScript.
 - **Outputs**: Network address, Broadcast address, Usable Host IP range, Total host capacity, Wildcard mask, and Netmask in dotted-decimal format.
+
+### DHCP Generator
+Prepare Check Point Gaia DHCPv4 configuration (R81.10 / R82.10) with reusable drafts, immutable published versions, artifact downloads, version comparison, restoration and audit. Uses tenant SQLite storage and the `dhcp-generator` feature permission. See [DHCP Generator documentation](docs/dhcp-generator.md) for the workflow, JSON format and optional syntax parser.
 
 ### IPAM (IP Address Management)
 Full-featured IP address and subnet management system.

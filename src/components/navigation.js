@@ -1,5 +1,5 @@
 export const TOOL_GROUPS = [
-  { id: "infrastructure", label: "Infrastructure", tools: ["ipam", "device-visualization", "routing-map"] },
+  { id: "infrastructure", label: "Infrastructure", tools: ["ipam", "dhcp-generator", "device-visualization", "routing-map"] },
   { id: "diagnostics", label: "Diagnostics", tools: ["troubleshoot", "connection-test", "post-change-validation"] },
   { id: "utilities", label: "Utilities", tools: ["ip-calculator", "subnet-splitter"] },
 ];

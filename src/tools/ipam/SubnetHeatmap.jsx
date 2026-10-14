@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getSubnetAddresses } from "./api.js";
+import { getAllSubnetAddresses } from "./api.js";
 import { heatmapPageForAddress, ipv4ToNumber } from "./logic.js";
 
 const MAX_HEATMAP_ADDRESSES = 65536;
@@ -10,6 +10,11 @@ const COVERAGE_FREE = 0;
 const COVERAGE_CHILD = 1;
 const COVERAGE_DHCP = 2;
 const ROWS_PER_PAGE = 20;
+
+export function heatmapLayout(width) {
+  const columns = Math.max(1, Math.min(MAX_HEATMAP_REQUEST, Math.floor((width + CELL_GAP_PX) / (CELL_MIN_PX + CELL_GAP_PX))));
+  return { columns, addressesPerPage: columns * ROWS_PER_PAGE };
+}
 
 const STATUS_LABELS = {
   available: "Available",
@@ -68,13 +73,12 @@ export default function SubnetHeatmap({
 }) {
   const containerRef = useRef(null);
   const hoveredIndexRef = useRef(null);
-  const [columns, setColumns] = useState(Math.floor(MAX_HEATMAP_REQUEST / ROWS_PER_PAGE));
+  const [{ columns, addressesPerPage }, setLayout] = useState(() => heatmapLayout(672));
   const [activeIndex, setActiveIndex] = useState(0);
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [tooltipPosition, setTooltipPosition] = useState(null);
   const totalAddresses = Number(subnet.totalAddresses || 0);
   const heatmapSupported = totalAddresses > 0 && totalAddresses <= MAX_HEATMAP_ADDRESSES;
-  const addressesPerPage = columns * ROWS_PER_PAGE;
   const pageCount = Math.max(1, Math.ceil(totalAddresses / addressesPerPage));
   const currentPage = Math.min(page, pageCount - 1);
   const pageStart = currentPage * addressesPerPage;
@@ -87,11 +91,9 @@ export default function SubnetHeatmap({
     const measure = () => {
       const width = element.clientWidth;
       if (!width) return;
-      const maxColumns = Math.floor(MAX_HEATMAP_REQUEST / ROWS_PER_PAGE);
-      const measuredColumns = Math.floor((width + CELL_GAP_PX) / (CELL_MIN_PX + CELL_GAP_PX));
-      const nextColumns = Math.max(1, Math.min(maxColumns, measuredColumns));
-      setColumns(nextColumns);
-      element.style.setProperty("--ip-heatmap-cols", nextColumns);
+      const next = heatmapLayout(width);
+      setLayout((previous) => previous.columns === next.columns ? previous : next);
+      element.style.setProperty("--ip-heatmap-cols", next.columns);
     };
 
     measure();
@@ -175,13 +177,11 @@ export default function SubnetHeatmap({
     const startIp = numberToIpv4(subnetStart + pageStart);
     const endIp = numberToIpv4(subnetStart + pageEnd - 1);
     let cancelled = false;
-    getSubnetAddresses(subnet.id, {
-      limit: Math.min(MAX_HEATMAP_REQUEST, pageEnd - pageStart),
-      offset: 0,
+    getAllSubnetAddresses(subnet.id, {
       addressStart: startIp,
       addressEnd: endIp,
-    }).then((page) => {
-      if (!cancelled) onAddressesLoaded?.(page.addresses, null);
+    }).then((addresses) => {
+      if (!cancelled) onAddressesLoaded?.(addresses, null);
     }).catch((error) => {
       if (!cancelled) onAddressesLoaded?.([], error);
     });

@@ -28,10 +28,11 @@ def resolve_tenant(tenant_id, user):
     if user and user["role"] == auth_db.ADMIN_ROLE_NAME:
         role, permissions = "admin", ["*"]
     elif user:
-        role = auth_db.tenant_role(tenant_id, user["id"])
-        if role is None:
+        from .access import access
+        effective = access(tenant_id, user['id'])
+        if effective is None:
             raise HTTPException(status_code=403, detail="Tenant access denied")
-        permissions = auth_db.role_permissions_for_name(role)
+        role, permissions = effective['role'], effective['permissions']
     elif tenant["is_default"] and not auth_db.is_login_required():
         role, permissions = None, ["*"]
     else:
@@ -43,12 +44,14 @@ def initialize_tenant(tenant):
     import troubleshoot_devices
     import troubleshoot_audit
     from device_visualization import repository as device_visualization
+    from dhcp_generator import repository as dhcp_generator
     path = tenant_database_path(tenant)
     with tenant_scope(TenantContext(tenant["id"], path)):
         db.init_db()
         troubleshoot_devices.init_db()
         troubleshoot_audit.init_db()
         device_visualization.init_db()
+        dhcp_generator.init_db()
 
 
 def initialize_all_tenants():
