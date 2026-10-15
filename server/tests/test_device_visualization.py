@@ -31,7 +31,7 @@ def create(client,data=None,headers=None):
 
 def config(device):
     result={key:device[key] for key in ('deviceType','vendor','name','model','description')}
-    key='networkCards' if device['deviceType']=='server' else 'portGroups'
+    key='networkCards' if device['deviceType'] in ('server','storage') else 'portGroups'
     result[key]=[{k:v for k,v in g.items() if k!='id' or key=='networkCards'} for g in device[key]]
     result['expectedVersion']=device['version']
     return result
@@ -364,3 +364,220 @@ def test_naming_migration_and_validation(client):
     for extra in [{'portNaming':'unknown'},{'portUnit':0},{'portSlot':17},{'portUnit':True}]:
         assert client.post(BASE,json={**appliance(),**extra}).status_code==422
     assert client.post(BASE,json={**server(),'portNaming':'unit-zero-port'}).status_code==422
+
+@pytest.mark.parametrize('kind', ['switch', 'firewall', 'server'])
+def test_management_port_identity_and_removal_review(client, kind):
+    data = server() if kind == 'server' else appliance(kind, 'checkpoint' if kind == 'firewall' else None)
+    d = create(client, {**data, 'managementPort': True})
+    mgmt = next(p for p in d['ports'] if p['isManagement'])
+    assert mgmt['name'] == 'MGMT' and mgmt['speedGbps'] == 1
+    assert len(d.get('networkCards') or d['portGroups']) == 3
+    regular = [p['id'] for p in d['ports'] if not p['isManagement']]
+    d = assign(client, d, mgmt, label='OOB', destination='Management switch')
+    # Older clients omitting the setting must preserve MGMT and its saved data.
+    response = client.put(f"{BASE}/{d['id']}", json=config(d))
+    assert response.status_code == 200, response.text
+    assert response.json() == d
+    candidate = {**config(d), 'managementPort': False}
+    preview = client.post(f"{BASE}/{d['id']}/update-preview", json=candidate).json()
+    assert preview['removedAssignedPortCount'] == 1
+    assert preview['removedPorts'][0]['id'] == mgmt['id']
+    assert client.put(f"{BASE}/{d['id']}", json=candidate).status_code == 409
+    removed = client.put(f"{BASE}/{d['id']}", json={**candidate, 'confirmPortDataRemoval': True}).json()
+    assert not removed['managementPort']
+    assert [p['id'] for p in removed['ports']] == regular
+    restored = client.put(f"{BASE}/{d['id']}", json={**config(removed), 'managementPort': True}).json()
+    assert next(p for p in restored['ports'] if p['isManagement'])['id'] != mgmt['id']
+
+
+def test_management_port_does_not_change_numeric_names(client):
+    d = create(client, {**appliance(), 'managementPort': True, 'portNaming': 'port'})
+    assert [p['name'] for p in d['ports'] if not p['isManagement']] == ['1', '2', '3', '4', '5', '6']
+    assert client.post(BASE, json={**appliance(), 'managementPort': 'yes'}).status_code == 422
+
+@pytest.mark.parametrize('address,normalized', [('192.0.2.129/25','192.0.2.129/25'),('192.0.2.1','192.0.2.1'),(' 2001:0DB8:0000::1/64 ','2001:db8::1/64'),('2001:db8::1','2001:db8::1')])
+def test_interface_ip_without_vlan_roundtrip_and_audit(client,address,normalized):
+    d=create(client,{**appliance(),'managementPort':True})
+    port=next(p for p in d['ports'] if p['isManagement'])
+    request={'label':None,'leadsTo':None,'expectedVersion':d['version'],'ipAddress':address}
+    response=client.put(f"{BASE}/{d['id']}/ports/{port['id']}",json=request)
+    assert response.status_code==200,response.text
+    d=response.json(); saved=next(p for p in d['ports'] if p['id']==port['id'])
+    assert saved['ipAddress']==normalized and saved['portMode'] is None
+    assert client.get(f"{BASE}/{d['id']}").json()==d
+    entry=client.get(f"{BASE}/{d['id']}/audit").json()['items'][0]
+    assert entry['oldValue']['port']['ipAddress'] is None
+    assert entry['newValue']['port']['ipAddress']==normalized
+    # Old clients changing labels preserve IP; equivalent saves do not create versions.
+    same=client.put(f"{BASE}/{d['id']}/ports/{port['id']}",json={**request,'expectedVersion':d['version']})
+    assert same.json()==d
+    d=assign(client,d,saved,label='management',destination=None)
+    assert next(p for p in d['ports'] if p['id']==port['id'])['ipAddress']==normalized
+    clear=client.put(f"{BASE}/{d['id']}/ports/{port['id']}",json={**request,'label':'management','expectedVersion':d['version'],'ipAddress':None})
+    assert clear.status_code==200 and next(p for p in clear.json()['ports'] if p['id']==port['id'])['ipAddress'] is None
+
+
+@pytest.mark.parametrize('address',['192.0.2.999','192.0.2.1/33','2001:db8::1/129','hostname',123,'fe80::1%eth0','10.1.2.3 garbage'])
+def test_invalid_interface_ip_does_not_change_port(client,address):
+    d=create(client);p=d['ports'][0]
+    response=client.put(f"{BASE}/{d['id']}/ports/{p['id']}",json={'label':None,'leadsTo':None,'expectedVersion':d['version'],'ipAddress':address})
+    assert response.status_code==422
+    assert client.get(f"{BASE}/{d['id']}").json()==d
+    assert client.get(f"{BASE}/{d['id']}/audit").json()['total']==1
+
+
+def test_ip_only_port_removal_requires_review_and_preserves_other_ports(client):
+    d=create(client);p=d['ports'][3]
+    d=client.put(f"{BASE}/{d['id']}/ports/{p['id']}",json={'label':None,'leadsTo':None,'expectedVersion':d['version'],'ipAddress':'10.20.30.1/24','portMode':'access','accessVlan':100}).json()
+    assert d['ports'][3]['ipAddress']=='10.20.30.1/24' and d['ports'][3]['accessVlan']==100
+    # Clearing VLAN must leave the independently stored address intact.
+    d=client.put(f"{BASE}/{d['id']}/ports/{p['id']}",json={'label':None,'leadsTo':None,'expectedVersion':d['version'],'portMode':None}).json()
+    assert d['ports'][3]['ipAddress']=='10.20.30.1/24' and d['ports'][3]['portMode'] is None
+    candidate=config(d);candidate['portGroups'][0]['count']=3
+    preview=client.post(f"{BASE}/{d['id']}/update-preview",json=candidate).json()
+    assert preview['removedConfiguredPortCount']==1 and preview['removedPorts'][0]['ipAddress']=='10.20.30.1/24'
+    assert client.put(f"{BASE}/{d['id']}",json=candidate).status_code==409
+    removed=client.put(f"{BASE}/{d['id']}",json={**candidate,'confirmPortDataRemoval':True})
+    assert removed.status_code==200 and p['id'] not in [p['id'] for p in removed.json()['ports']]
+
+
+def test_ip_migration_preserves_ports_assignments_and_is_repeatable(client):
+    d=assign(client,create(client));before=copy.deepcopy(d)
+    with repository.connection(write=True) as conn:
+        conn.execute('ALTER TABLE dv_ports DROP COLUMN ip_address')
+    repository.migrate_port_ip_addresses()
+    repository.migrate_port_ip_addresses()
+    assert client.get(f"{BASE}/{d['id']}").json()==before
+    with repository.connection() as conn:
+        assert conn.execute('PRAGMA foreign_key_check').fetchall()==[]
+
+
+def test_router_crud_management_ip_and_filter(client):
+    d=create(client,{**appliance('router'),'managementPort':True})
+    assert d['deviceType']=='router' and d['vendor'] is None
+    port=d['ports'][0]
+    d=client.put(f"{BASE}/{d['id']}/ports/{port['id']}",json={'label':'WAN','leadsTo':'ISP CPE','ipAddress':'192.0.2.1/30','expectedVersion':d['version']}).json()
+    assert d['ports'][0]['ipAddress']=='192.0.2.1/30'
+    assert client.get(BASE,params={'deviceType':'router'}).json()['items'][0]['id']==d['id']
+    assert client.put(f"{BASE}/{d['id']}",json=config(d)).json()==d
+    assert client.post(BASE,json={**appliance('router'),'vendor':'checkpoint'}).status_code==422
+    assert client.get(BASE,params={'deviceType':'router','vendor':'checkpoint'}).status_code==422
+
+
+def test_router_schema_upgrade_preserves_children_audit_and_sequence(client):
+    d=assign(client,create(client))
+    audit=client.get(f"{BASE}/{d['id']}/audit").json()
+    conn=db.get_connection()
+    try:
+        conn.execute('PRAGMA foreign_keys=OFF');conn.execute('PRAGMA legacy_alter_table=ON')
+        conn.execute('BEGIN IMMEDIATE')
+        sql=conn.execute("SELECT sql FROM sqlite_master WHERE name='dv_devices'").fetchone()[0]
+        sql=sql.replace("'switch','router','firewall','server'", "'switch','firewall','server'")
+        conn.execute(sql.replace('dv_devices','dv_devices_legacy',1))
+        conn.execute('INSERT INTO dv_devices_legacy SELECT * FROM dv_devices')
+        conn.execute('DROP TABLE dv_devices')
+        conn.execute('ALTER TABLE dv_devices_legacy RENAME TO dv_devices')
+        conn.execute("UPDATE sqlite_sequence SET seq=100 WHERE name='dv_devices'")
+        conn.commit()
+    finally:
+        conn.close()
+    repository.migrate_router_type()
+    repository.migrate_router_type()
+    assert client.get(f"{BASE}/{d['id']}").json()==d
+    assert client.get(f"{BASE}/{d['id']}/audit").json()==audit
+    router=create(client,{**appliance('router'),'name':'New router'})
+    assert router['id']>100
+    with repository.connection() as conn:
+        assert conn.execute('PRAGMA foreign_key_check').fetchall()==[]
+
+
+def storage():
+    return {'deviceType':'storage','name':'Array-01','managementPort':True,'networkCards':[
+        {'id':None,'controller':c,'slotNumber':slot,'name':f'{c} data {slot}','family':'sfp','count':2,'speedGbps':10}
+        for c in ('A','B') for slot in (1,2)]}
+
+
+def test_storage_dual_controller_identity_assignments_and_removal(client):
+    d=create(client,storage())
+    assert d['cardCount']==4 and d['portCount']==10 and d['managementPort']
+    assert {(c['controller'],c['slotNumber']) for c in d['networkCards']}=={('A',1),('A',2),('B',1),('B',2)}
+    mgmt=[p for p in d['ports'] if p['isManagement']]
+    assert {p['controller'] for p in mgmt}=={'A','B'}
+    assert {p['name'] for p in mgmt}=={'Controller A / MGMT','Controller B / MGMT'}
+    a=next(p for p in d['ports'] if p['controller']=='A' and p['slotNumber']==1)
+    b=next(p for p in d['ports'] if p['controller']=='B' and p['slotNumber']==1)
+    d=client.put(f"{BASE}/{d['id']}/ports/{a['id']}",json={'label':'iSCSI A','leadsTo':'Fabric A','expectedVersion':d['version'],'ipAddress':'10.10.1.1/24'}).json()
+    d=assign(client,d,b,label='iSCSI B',destination='Fabric B')
+    assert client.put(f"{BASE}/{d['id']}",json=config(d)).json()==d
+    baseline_b=[p for p in d['ports'] if p['controller']=='B']
+    candidate=config(d);candidate['networkCards'][0]['count']=1
+    # Removing the documented first card requires review and cannot alter B.
+    candidate['networkCards']=[g for g in candidate['networkCards'] if not(g['controller']=='A' and g['slotNumber']==1)]
+    preview=client.post(f"{BASE}/{d['id']}/update-preview",json=candidate).json()
+    assert preview['removedConfiguredPortCount']==1 and all(p['controller']=='A' for p in preview['removedPorts'])
+    assert client.put(f"{BASE}/{d['id']}",json=candidate).status_code==409
+    updated=client.put(f"{BASE}/{d['id']}",json={**candidate,'confirmPortDataRemoval':True}).json()
+    assert [p for p in updated['ports'] if p['controller']=='B']==baseline_b
+    assert client.get(BASE,params={'deviceType':'storage'}).json()['total']==1
+    entry=client.get(f"{BASE}/{d['id']}/audit").json()['items'][0]
+    assert entry['oldValue']['ports']!=entry['newValue']['ports']
+
+
+@pytest.mark.parametrize('change',['missing-B','duplicate-slot','slot-nine','no-controller','vendor','server-controller','move-controller','foreign-card'])
+def test_storage_controller_validation_and_parent_scoping(client,change):
+    data=storage()
+    if change=='missing-B':data['networkCards']=data['networkCards'][:2]
+    elif change=='duplicate-slot':data['networkCards'][1]['slotNumber']=1
+    elif change=='slot-nine':data['networkCards'][0]['slotNumber']=9
+    elif change=='no-controller':data['networkCards'][0].pop('controller')
+    elif change=='vendor':data['vendor']='checkpoint'
+    elif change=='server-controller':data['deviceType']='server'
+    else:
+        d=create(client,data);candidate=config(d)
+        if change=='move-controller':
+            for card in candidate['networkCards']:
+                card['controller']='B' if card['controller']=='A' else 'A'
+            expected=400
+        else:
+            other=create(client,{**storage(),'name':'Array-02'})
+            candidate['networkCards'][0]['id']=other['networkCards'][0]['id'];expected=404
+        response=client.put(f"{BASE}/{d['id']}",json=candidate)
+        assert response.status_code==expected,response.text
+        assert client.get(f"{BASE}/{d['id']}").json()==d
+        return
+    assert client.post(BASE,json=data).status_code==422
+
+
+def test_storage_management_removal_and_restore_are_independent(client):
+    d=create(client,storage())
+    mgmt=next(p for p in d['ports'] if p['isManagement'] and p['controller']=='B')
+    d=assign(client,d,mgmt,label='OOB B',destination='Management switch / 2')
+    ids=[p['id'] for p in d['ports'] if not p['isManagement']]
+    candidate={**config(d),'managementPort':False}
+    assert client.put(f"{BASE}/{d['id']}",json=candidate).status_code==409
+    d=client.put(f"{BASE}/{d['id']}",json={**candidate,'confirmPortDataRemoval':True}).json()
+    assert not d['managementPort'] and [p['id'] for p in d['ports']]==ids
+    d=client.put(f"{BASE}/{d['id']}",json={**config(d),'managementPort':True}).json()
+    assert len([p for p in d['ports'] if p['isManagement']])==2
+    assert next(p for p in d['ports'] if p['isManagement'] and p['controller']=='B')['id']!=mgmt['id']
+
+
+def test_storage_type_migration_from_router_schema_preserves_existing_data(client):
+    import re
+    d=assign(client,create(client,server()))
+    history=client.get(f"{BASE}/{d['id']}/audit").json()
+    conn=db.get_connection()
+    try:
+        conn.execute('PRAGMA foreign_keys=OFF');conn.execute('PRAGMA legacy_alter_table=ON');conn.execute('BEGIN IMMEDIATE')
+        sql=conn.execute("SELECT sql FROM sqlite_master WHERE name='dv_devices'").fetchone()[0]
+        sql=re.sub(r",\s*'storage'",'',sql)
+        conn.execute(sql.replace('dv_devices','dv_devices_legacy',1))
+        conn.execute('INSERT INTO dv_devices_legacy SELECT * FROM dv_devices')
+        conn.execute('DROP TABLE dv_devices');conn.execute('ALTER TABLE dv_devices_legacy RENAME TO dv_devices')
+        conn.commit()
+    finally:conn.close()
+    repository.migrate_device_types();repository.migrate_device_types()
+    assert client.get(f"{BASE}/{d['id']}").json()==d
+    assert client.get(f"{BASE}/{d['id']}/audit").json()==history
+    assert create(client,storage())['deviceType']=='storage'
+    with repository.connection() as conn:assert conn.execute('PRAGMA foreign_key_check').fetchall()==[]

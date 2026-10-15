@@ -22,6 +22,9 @@ def build_router(require_feature, require_logged_in_user):
     router=APIRouter(prefix='/api/device-visualization',tags=['device-visualization'],
                      dependencies=[Depends(require_feature('device-visualization'))])
 
+    from dc_inventory.router import catalog_router
+    router.include_router(catalog_router(),prefix='/inventory')
+
     @router.get('/devices',response_model=DevicePage)
     def listing(query: str=Query(default='',max_length=100),deviceType: DeviceType | None=None,vendor: Vendor | None=None,
                 limit: int=Query(default=50,ge=1,le=100),offset: int=Query(default=0,ge=0)):

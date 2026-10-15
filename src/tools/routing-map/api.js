@@ -63,3 +63,10 @@ export async function moveRoutingHost(host, targetTenantId, expectedVersion) {
     body: JSON.stringify({ targetTenantId, expectedVersion }),
   }));
 }
+
+export async function importRoutingNetworks(host, expectedUpdatedAt, interfaces = null) {
+  return handle(await apiFetch(`${BASE_URL}/api/routing/hosts/${encodeURIComponent(host)}/ipam-import`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedUpdatedAt, interfaces }),
+  }));
+}

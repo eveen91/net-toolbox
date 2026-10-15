@@ -35,6 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import ValidationError
+from dc_inventory.router import build_router as build_dc_inventory_router
 from device_visualization.router import build_router as build_device_visualization_router
 from dhcp_generator.router import build_router as build_dhcp_generator_router
 from connection_test.schemas import Source, Credentials, RunRequest
@@ -56,6 +57,7 @@ from tenancy.router import build_router as build_tenant_router
 from tenancy.group_router import build_router as build_group_router
 from ipam_transfer.router import build_router as build_ipam_transfer_router
 from routing_transfer.router import build_router as build_routing_transfer_router
+from routing_ipam.router import build_router as build_routing_ipam_router
 from ipam import IpamRepository, IpamService
 from ipam import scan_service as ipam_scan_service
 from ipam.router import build_router as build_ipam_router
@@ -654,6 +656,7 @@ app.include_router(validation_routes.build_router(require_feature))
 app.include_router(build_tenant_router(require_admin_user))
 app.include_router(build_group_router(require_admin_user))
 app.include_router(build_routing_transfer_router(require_feature, require_authenticated_user))
+app.include_router(build_routing_ipam_router(require_feature, require_ipam_permission, require_logged_in_user))
 
 
 ipam_repository = IpamRepository(db)
@@ -662,6 +665,7 @@ ipam_scan_service.configure(ipam_repository)
 app.include_router(build_ipam_router(ipam_service, require_ipam_permission, require_logged_in_user))
 app.include_router(build_ipam_transfer_router(require_ipam_permission, require_authenticated_user))
 app.include_router(build_device_visualization_router(require_feature, require_logged_in_user))
+app.include_router(build_dc_inventory_router(require_feature, require_logged_in_user))
 app.include_router(build_dhcp_generator_router(require_feature, require_logged_in_user))
 
 

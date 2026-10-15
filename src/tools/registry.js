@@ -1,4 +1,5 @@
 import React from "react";
+import DcInventory from "./dc-inventory/DcInventory.jsx";
 import DeviceVisualization from "./device-visualization/DeviceVisualization.jsx";
 import DhcpGenerator from "./dhcp-generator/DhcpGenerator.jsx";
 import DeviceIcon from "./device-visualization/DeviceIcon.jsx";
@@ -15,6 +16,7 @@ import PostChangeValidation from "./post-change-validation/PostChangeValidation.
 //   2. Import it below
 //   3. Add an entry to this array — the toolbar and home page pick it up automatically
 export const TOOLS = [
+  {id:"dc-inventory",name:"DC Inventory",icon:React.createElement("svg",{width:20,height:20,viewBox:"0 0 20 20",fill:"none","aria-hidden":true},React.createElement("path",{d:"M4 2h12v16H4V2Zm0 5h12M4 12h12M7 4h1m-1 5h1m-1 5h1",stroke:"currentColor",strokeWidth:1.5})),tagline:"Place devices in data centers and configurable racks with U-level occupancy.",status:"live",Component:DcInventory},
   { id: "dhcp-generator", name: "DHCP Generator", icon: React.createElement("svg", { width: 20, height: 20, viewBox: "0 0 20 20", fill: "none", "aria-hidden": true }, React.createElement("path", { d: "M4 2h9l3 3v13H4V2Zm8 0v4h4M7 10h6M7 14h6", stroke: "currentColor", strokeWidth: 1.5 })), tagline: "Generate Check Point Gaia DHCP configuration with immutable version history.", status: "live", Component: DhcpGenerator },
   { id: "device-visualization", name: "Device Visualization", icon: React.createElement(DeviceIcon), tagline: "Map physical ports on switches, firewalls and servers.", status: "live", Component: DeviceVisualization },
   {

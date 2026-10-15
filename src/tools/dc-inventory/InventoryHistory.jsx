@@ -1,0 +1,7 @@
+import React,{useEffect,useState} from 'react';
+import {listAudit} from './api.js';
+export default function InventoryHistory() {
+  const [offset,setOffset]=useState(0),[data,setData]=useState(null),[error,setError]=useState(null),[revision,setRevision]=useState(0);
+  useEffect(()=>{let active=true;setData(null);setError(null);listAudit({limit:25,offset}).then(result=>{if(active)setData(result);}).catch(failure=>{if(active)setError(failure.message);});return()=>{active=false;};},[offset,revision]);
+  return <section aria-label="Inventory history"><h3>Inventory history</h3>{error?<p role="alert" className="tool-error">{error}<button className="tool-btn tool-btn-ghost" onClick={()=>setRevision(value=>value+1)}>Retry history</button></p>:!data?<p role="status">Loading history…</p>:<><p>{data.total} recorded changes</p><ol className="di-history">{data.items.map(entry=><li key={entry.id}><strong>{entry.entityType} #{entry.entityId} · {entry.action}</strong><span>{new Date(entry.createdAt).toLocaleString()} · {entry.actorId?`Account #${entry.actorId}`:'Open mode'}</span><details><summary>Change details</summary><pre>{JSON.stringify({before:entry.oldValue,after:entry.newValue},null,2)}</pre></details></li>)}</ol><div className="di-actions"><button className="tool-btn tool-btn-ghost" disabled={!offset} onClick={()=>setOffset(value=>value-25)}>Previous changes</button><button className="tool-btn tool-btn-ghost" disabled={offset+25>=data.total} onClick={()=>setOffset(value=>value+25)}>Next changes</button></div></>}</section>;
+}

@@ -12,6 +12,7 @@ The application features a clean, modular shell (top toolbar + card grid home pa
    - [Subnet Splitter](#subnet-splitter)
    - [Connection Test](#connection-test)
    - [Device Visualization](#device-visualization)
+   - [DC Inventory](#dc-inventory)
    - [Routing Map](#routing-map)
    - [IP Calculator](#ip-calculator)
    - [IPAM (IP Address Management)](#ipam-ip-address-management)
@@ -74,15 +75,25 @@ Test TCP port connectivity from remote Linux or Windows source hosts to target d
 - **Security**: Credentials are provided per session and are never logged or persisted.
 
 ### Device Visualization
-Manually map physical ports on switches, Check Point/FortiGate firewalls, and generic servers.
+Manually map physical ports on switches, routers, Check Point/FortiGate firewalls, generic servers, and dual-controller storage arrays.
 - Tenant-scoped saved devices, searchable/filterable paginated list, port labels and destinations.
-- Per-port access VLAN or trunk VLAN list/ranges/`all`, with optional native VLAN; documentation only.
-- Server rear panels with 1–16 independently configured NICs and 1–8 sockets per card.
-- Ethernet 1/10G, SFP 10/25G and QSFP 40/100G, up to 128 sockets per device.
+- Per-interface IPv4/IPv6 address with optional prefix, independently optional access/trunk VLAN documentation.
+- Routers, firewalls, storage arrays, and servers open Connections with a compact physical panel and searchable saved interface → IP/VLAN → destination map; no live link or traffic inference.
+- Server rear panels with 1–16 independently configured NICs and 1–8 sockets per card, alongside a map grouped by NIC slot/name with card filtering and name search.
+- Storage rear panels and connection maps separate controllers A/B, each with 1–8 NICs, local slots, a controller filter, and an optional MGMT port.
+- Ethernet 1/10G, SFP 10/25G and QSFP 40/100G, up to 128 DATA sockets plus an optional dedicated MGMT Ethernet 1G socket (storage: one per controller, enabled together).
 - Versioned updates, reviewed removal of port data, and transactional audit surviving deletion.
 - Requires `device-visualization`; existing non-admin roles need an explicit grant.
 - Generic configurable appearance; no hardware discovery or live link state.
 See [usage, permissions and API](docs/device-visualization.md).
+
+### DC Inventory
+Place the shared Device Visualization devices in data centers and configurable 1–100U racks.
+- Bottom-up U numbering, recorded device height, rack elevation, and an unassigned-device list.
+- Collision, capacity, shrink, and nonempty-location deletion protections with version checks and atomic audit.
+- Tenant-scoped data and `dc-inventory` permission; existing roles need an explicit grant, while admin wildcard access applies automatically.
+- Backend restart automatically migrates existing tenant databases; no new dependencies.
+See [usage, placement rules and API](docs/dc-inventory.md).
 
 ### Routing Map
 Store, view, and organize routing tables across infrastructure hosts.
@@ -91,7 +102,8 @@ Store, view, and organize routing tables across infrastructure hosts.
   - **Text Parser**: Paste raw route dumps formatted as `@hostname` followed by `network -> next_hop` or `network directly connected <interface>`.
   - Server-side validation of CIDR networks and IP next hops.
   - Search and filter hosts, view route counts per host, edit routes in draft format, or delete hosts.
-  - Export full global routing database via `/api/routing/export`.
+  - Export routing data for the active tenant via `/api/routing/export`.
+  - Import interface networks into IPAM with one click, calculating the network address from the interface IP/mask and skipping duplicates. See [Routing Map → IPAM](docs/routing-ipam-import.md).
 
 ### IP Calculator
 Quick IP address and subnet calculation tool.

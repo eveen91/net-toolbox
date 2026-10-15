@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import "./routing-map.css";
 import MoveHostForm from "./MoveHostForm.jsx";
+import ImportNetworkResult from "./ImportNetworkResult.jsx";
+import { useAuth } from "../../auth/AuthContext.jsx";
+import { canIpam } from "../ipam/permissions.js";
+import useUnsavedChanges from "../../components/useUnsavedChanges.js";
+import { canLeaveWorkspace } from "../../components/navigation.js";
 import { removeMovedHost } from "./transferDraft.js";
 import {
   parseRoutingData,
@@ -17,6 +22,7 @@ import {
   getRoutingHost,
   saveRoutingHost,
   deleteRoutingHost,
+  importRoutingNetworks,
 } from "./api.js";
 
 function formatTimestamp(iso) {
@@ -164,10 +170,37 @@ function EditableField({ value, disabled, required, cidrHelper, onCommit }) {
   );
 }
 
-function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
+function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved, onReload }) {
+  const { user } = useAuth();
   const ifaces = interfacesForDisplay(detail);
   const [ifaceError, setIfaceError] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [importingNetworks, setImportingNetworks] = useState(false);
+  const [interfaceSaving, setInterfaceSaving] = useState(false);
+  const [ipamResult, setIpamResult] = useState(null);
+  const [ipamError, setIpamError] = useState(null);
+  const alive = useRef(true);
+  const importingRef = useRef(false);
+  const busy = deleting || importingNetworks || interfaceSaving;
+  const canImport = canIpam(user, 'ipam.write');
+  useUnsavedChanges(false, importingNetworks || interfaceSaving);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => { setIpamResult(null); setIpamError(null); }, [detail.host, detail.updatedAt]);
+
+  const importNetworks = async (names = null) => {
+    if (busy || importingRef.current || !canImport) return;
+    importingRef.current = true;
+    setImportingNetworks(true); setIpamError(null); setIpamResult(null);
+    try {
+      const result = await importRoutingNetworks(detail.host, detail.updatedAt, names);
+      if (alive.current) setIpamResult(result);
+    } catch (error) {
+      if (alive.current) setIpamError(error.message);
+    } finally {
+      importingRef.current = false;
+      if (alive.current) setImportingNetworks(false);
+    }
+  };
 
   // Reset the confirm step whenever a different host is selected, so it
   // doesn't carry over and accidentally arm itself for the next host.
@@ -189,8 +222,13 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
       nextHop: r.nextHop,
       interface: r.interface || null,
     }));
-    const saved = await saveRoutingHost(detail.host, routes, interfaces);
-    onDetailUpdated(saved);
+    setInterfaceSaving(true);
+    try {
+      const saved = await saveRoutingHost(detail.host, routes, interfaces);
+      if (alive.current) onDetailUpdated(saved);
+    } finally {
+      if (alive.current) setInterfaceSaving(false);
+    }
   };
 
   return (
@@ -210,14 +248,14 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
                 setConfirmingDelete(false);
                 onDelete();
               }}
-              disabled={deleting}
+              disabled={busy}
             >
               {deleting ? "Deleting…" : "Confirm delete"}
             </button>
             <button
               className="tool-btn tool-btn-ghost rm-delete-btn"
               onClick={() => setConfirmingDelete(false)}
-              disabled={deleting}
+              disabled={busy}
             >
               Cancel
             </button>
@@ -226,16 +264,29 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
           <button
             className="tool-btn tool-btn-ghost rm-delete-btn"
             onClick={() => setConfirmingDelete(true)}
-            disabled={deleting}
+            disabled={busy}
           >
             Delete host
           </button>
         )}
       </div>
 
-      <MoveHostForm key={detail.host} host={detail.host} onMoved={onMoved} />
+      <fieldset className="rm-operation-controls" disabled={importingNetworks || interfaceSaving}>
+        <MoveHostForm key={detail.host} host={detail.host} onMoved={onMoved} />
+      </fieldset>
       <div style={{ marginBottom: 20 }}>
-        <h3 className="rm-section-sub-title">Interfaces</h3>
+        <div className="rm-interface-heading"><h3 className="rm-section-sub-title">Interfaces</h3>
+          <button className="tool-btn tool-btn-ghost" disabled={busy || !canImport || !ifaces.length}
+            onClick={() => importNetworks()} title={canImport ? 'Import the saved interface networks into the current tenant’s IPAM' : 'IPAM write permission is required'}>
+            {importingNetworks ? 'Importing…' : 'Import all networks to IPAM'}
+          </button>
+        </div>
+        <p className="tool-hint">Network addresses are calculated from the interface address and mask. Existing subnets are skipped.</p>
+        {!canImport && <p className="tool-hint">IPAM write permission is required to import networks.</p>}
+        {ipamError && <div className="tool-error" role="alert">{ipamError}
+          <button className="tool-btn tool-btn-ghost" disabled={busy} onClick={onReload}>Reload interfaces</button>
+        </div>}
+        <ImportNetworkResult result={ipamResult} />
         {ifaceError && <div className="tool-error">{ifaceError}</div>}
         <div className="tool-table-wrap rm-table-wrap-full">
           <table className="tool-table rm-aligned-table">
@@ -261,7 +312,7 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
                   <td data-label="Address">
                     <EditableField
                       value={i.ipAddress}
-                      disabled={deleting}
+                      disabled={busy}
                       required
                       cidrHelper
                       onCommit={async (ipAddress) => {
@@ -275,9 +326,10 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
                     />
                   </td>
                   <td data-label="Description">
+                    <div className="rm-interface-description">
                     <EditableField
                       value={i.description}
-                      disabled={deleting}
+                      disabled={busy}
                       onCommit={async (description) => {
                         try {
                           await saveInterfaceField(i.name, { description });
@@ -287,6 +339,11 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
                         }
                       }}
                     />
+                    <button className="tool-btn tool-btn-ghost" disabled={busy || !canImport}
+                      aria-label={`Import network of ${i.name} to IPAM`} onClick={() => importNetworks([i.name])}>
+                      Import to IPAM
+                    </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -333,6 +390,7 @@ function HostDetail({ detail, deleting, onDelete, onDetailUpdated, onMoved }) {
 }
 
 export default function RoutingTable() {
+  const selectionEpoch = useRef(0);
   const [raw, setRaw] = useState(EXAMPLE);
   const { hosts: draftHosts, warnings } = useMemo(() => parseRoutingData(raw), [raw]);
 
@@ -368,20 +426,23 @@ export default function RoutingTable() {
 
   useEffect(() => {
     refreshList();
+    return () => { selectionEpoch.current++; };
   }, []);
 
   const selectHost = async (host) => {
+    if (!canLeaveWorkspace()) return;
+    const epoch = ++selectionEpoch.current;
     setSelectedHost(host);
     setSelectedDetail(null);
     setDetailError(null);
     setDetailLoading(true);
     try {
       const data = await getRoutingHost(host);
-      setSelectedDetail(data);
+      if (epoch === selectionEpoch.current) setSelectedDetail(data);
     } catch (e) {
-      setDetailError(e.message);
+      if (epoch === selectionEpoch.current) setDetailError(e.message);
     } finally {
-      setDetailLoading(false);
+      if (epoch === selectionEpoch.current) setDetailLoading(false);
     }
   };
 
@@ -620,6 +681,7 @@ export default function RoutingTable() {
 
           {selectedHost && !detailLoading && selectedDetail && (
             <HostDetail
+              onReload={() => selectHost(selectedDetail.host)}
               onMoved={result => {
                 setSelectedHost(current => current === result.host ? null : current);
                 setSelectedDetail(current => current?.host === result.host ? null : current);

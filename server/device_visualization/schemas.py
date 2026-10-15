@@ -1,10 +1,11 @@
 from typing import Literal
+from ipaddress import ip_address, ip_interface
 from .naming import PortNaming
 from .vlans import normalize_trunk
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Family = Literal['ethernet', 'sfp', 'qsfp']
-DeviceType = Literal['switch', 'firewall', 'server']
+DeviceType = Literal['switch', 'router', 'firewall', 'server', 'storage', 'cable-management']
 Vendor = Literal['checkpoint', 'fortigate', 'generic']
 SPEEDS = {'ethernet': (1, 10), 'sfp': (10, 25), 'qsfp': (40, 100)}
 COUNTS = {'ethernet': 96, 'sfp': 48, 'qsfp': 16}
@@ -27,6 +28,7 @@ class PortGroup(StrictModel):
 
 
 class NetworkCard(PortGroup):
+    controller: Literal['A', 'B'] | None = None
     id: int | None = Field(default=None, strict=True, ge=1)
     slotNumber: int = Field(strict=True, ge=1, le=16)
     name: str | None = Field(default=None, max_length=60)
@@ -39,11 +41,15 @@ class NetworkCard(PortGroup):
 
 
 class DeviceConfig(StrictModel):
+    heightU: int | None = Field(default=None,strict=True,ge=1,le=100)
+    rackId: int | None = Field(default=None,strict=True,ge=1)
+    rackPosition: int | None = Field(default=None,strict=True,ge=1,le=100)
     deviceType: DeviceType
     vendor: Vendor | None = None
     name: str = Field(min_length=1, max_length=100)
     model: str | None = Field(default=None, max_length=100)
     description: str | None = Field(default=None, max_length=500)
+    managementPort: bool = Field(default=False, strict=True)
     portNaming: PortNaming = 'family'
     portUnit: int = Field(default=1, strict=True, ge=1, le=16)
     portSlot: int = Field(default=1, strict=True, ge=0, le=16)
@@ -66,11 +72,20 @@ class DeviceConfig(StrictModel):
                 raise ValueError('Choose a firewall vendor')
         elif self.vendor is not None:
             raise ValueError('Vendor is only supported for firewalls')
-        if self.deviceType == 'server':
+        if self.deviceType == 'cable-management':
+            if self.heightU != 1 or self.managementPort or self.portGroups or self.networkCards:
+                raise ValueError('Cable management panels occupy exactly 1U and have no network ports')
+            return self
+        if self.deviceType in ('server', 'storage'):
             if not self.networkCards or 'portGroups' in self.model_fields_set:
-                raise ValueError('Servers require networkCards and do not accept portGroups')
-            if len({card.slotNumber for card in self.networkCards}) != len(self.networkCards):
+                raise ValueError('Servers/storage require networkCards and do not accept portGroups')
+            if len({(card.controller,card.slotNumber) for card in self.networkCards}) != len(self.networkCards):
                 raise ValueError('Network card slots must be unique')
+            if self.deviceType == 'storage':
+                if {card.controller for card in self.networkCards} != {'A','B'} or any(card.slotNumber > 8 for card in self.networkCards):
+                    raise ValueError('Storage requires controllers A and B, each with NIC slots 1–8')
+            elif any(card.controller is not None for card in self.networkCards):
+                raise ValueError('Controller ownership is only supported for storage')
             ids = [card.id for card in self.networkCards if card.id is not None]
             if len(set(ids)) != len(ids):
                 raise ValueError('Network card IDs must be unique')
@@ -101,7 +116,26 @@ class DeviceUpdate(DeviceConfig):
     confirmPortDataRemoval: bool = Field(default=False, strict=True)
 
 
-class PortVlanConfig(BaseModel):
+class PortNetworkConfig(BaseModel):
+    ipAddress: str | None = Field(default=None, max_length=64)
+
+    @field_validator('ipAddress', mode='before')
+    @classmethod
+    def normalize_ip(cls, value):
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise ValueError('Enter an IPv4 or IPv6 address, optionally with a prefix')
+        value = value.strip()
+        if not value:
+            return None
+        if '%' in value:
+            raise ValueError('Scoped addresses are not supported; enter the address without a zone')
+        try:
+            return str(ip_interface(value) if '/' in value else ip_address(value))
+        except ValueError as exc:
+            raise ValueError('Enter a valid IPv4 or IPv6 address, optionally with a prefix (e.g. 192.0.2.1/24)') from exc
+
     portMode: Literal['access', 'trunk'] | None = None
     accessVlan: int | None = Field(default=None, strict=True, ge=1, le=4094)
     trunkVlans: str | None = Field(default=None, max_length=2000)
@@ -122,7 +156,7 @@ class PortVlanConfig(BaseModel):
         return self
 
 
-class PortAssignment(PortVlanConfig, StrictModel):
+class PortAssignment(PortNetworkConfig, StrictModel):
     label: str | None = Field(max_length=50)
     leadsTo: str | None = Field(max_length=200)
     expectedVersion: int = Field(strict=True, ge=1)
@@ -139,6 +173,13 @@ class DeviceDelete(StrictModel):
 
 
 class DeviceSummary(BaseModel):
+    heightU: int | None
+    rackId: int | None
+    rackPosition: int | None
+    rackName: str | None
+    dataCenterId: int | None
+    dataCenterName: str | None
+    managementPort: bool
     portNaming: PortNaming
     portUnit: int
     portSlot: int
@@ -156,7 +197,9 @@ class DeviceSummary(BaseModel):
     cardCount: int
 
 
-class PortResponse(PortVlanConfig):
+class PortResponse(PortNetworkConfig):
+    controller: Literal['A', 'B'] | None = None
+    isManagement: bool = False
     id: int
     groupId: int
     family: Family
@@ -173,6 +216,7 @@ class GroupResponse(PortGroup):
 
 
 class DeviceDetail(DeviceSummary):
+    managementGroupId: int | None = None
     ports: list[PortResponse]
     portGroups: list[GroupResponse] | None = None
     networkCards: list[NetworkCard] | None = None

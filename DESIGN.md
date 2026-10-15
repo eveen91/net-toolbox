@@ -190,7 +190,7 @@ Shared panels use panel surfaces, borders, 20px padding, and 16px mobile padding
 
 ### IPAM inspector
 
-The subnet browser is a filtered flat list, not a hierarchy tree. Hash addresses bookmark modules, not every object or local view. The selected address is edited in a dedicated inspector with full-size fields, details, and save actions. Write, scan, and administration actions remain permission-controlled. The subnet object exposes local actions and More separately from its address filters. Do not migrate operations into global navigation.
+The Subnets browser shows saved parent-child relationships through indentation, expand/collapse buttons, and explicit parent CIDR notes. Search and tag filters keep nonmatching ancestors visible as “Parent context” and automatically expand matching paths; collapse controls are disabled while filtering. Mobile labeled records retain the hierarchy cues and use 44px expand/collapse targets. Hash addresses bookmark modules, not every object or local view. The selected address is edited in a dedicated inspector with full-size fields, details, and save actions. Write, scan, and administration actions remain permission-controlled. The subnet object exposes local actions and More separately from its address filters. Do not migrate operations into global navigation.
 
 ### IPAM address views
 
@@ -199,6 +199,14 @@ Heatmap is the default address view on initial selection and when switching subn
 ### Device overview and Port table
 
 Fit scales only the physical canvas, preserves physical port order, and considers both viewport width and height without enlarging beyond 100%. The viewport height is `clamp(200px, 38dvh, 380px)` outside fullscreen. Zoom and fullscreen controls complement the full-label Port table and unscaled editor. When a transformed socket's minimum dimension falls below 24px, canvas selection is disabled and an overview message directs users to zoom or the table. Saved documentation explicitly carries “No live link status”.
+
+The optional dedicated management socket appears as a separate **MGMT · Ethernet 1G** group on every device type (storage arrays have one per controller, enabled together), using the existing chassis, socket, selection, and theme treatments. Keep DATA numbering and server NIC slots intact. Its labeled checkbox belongs in New device and Edit device; labels, destinations, interface IP addresses, and optional VLANs use the existing unscaled port editor. Place IP before the optional VLAN controls and keep its independence from VLAN explicit. Show saved IP in the searchable Port table and socket tooltip/accessibility text. Removing saved MGMT or IP data uses the established removal review. Usage and API behavior live in [docs/device-visualization.md](docs/device-visualization.md).
+
+Routers, firewalls, storage arrays, and servers default to Connections: a compact Fit physical panel above a readable map of saved interface → IP / optional VLAN → destination details. Reuse the incumbent semantic surfaces, borders, mono technical values, and unscaled inspector. The panel and map share port selection; selecting an appliance collapses the device list, restored by Browse devices. Keep the map at full text/control size as container queries rearrange its rows; on phones the physical overview is 140px high. Show management first, offer documented/all/management scopes and search, paginate at 12 interfaces, and provide a useful empty state. Preserve separate Panel, Port table, and History views and existing switch defaults. Storage rear panels keep controllers A and B in separate banks with local NIC slots; the map repeats that grouping and adds a Both controllers / A / B filter. Each controller’s ports retain separate selection and documentation through the shared inspector. Server rear panels arrange NIC banks side by side with separate optional management. Their maps group Management and NIC slots/names, preserve slot gaps, and add a Network card filter; search includes card names, while Show all interfaces resets the card filter too. Keep empty filter intersections explicit. Diagram arrows must not imply live state or traffic direction.
+
+### DC Inventory workspace
+
+DC Inventory extends the shared operational panels, theme variables, fields, buttons, and local views. Keep the rack elevation beside its installed-device table, with U1 at the bottom and each U represented by a 44px row; selection opens an unscaled placement form. The rack scrolls within its viewport rather than shrinking labels. At 900px and below the elevation and table stack; at 600px and below device tables become labeled records and location fields use one column. Keep recorded device height, inclusive U ranges, free capacity, and validation errors explicit. Reuse the same DC / rack location fields in Device Visualization; location is shared documentation, not a second device catalog. See [docs/dc-inventory.md](docs/dc-inventory.md).
 
 ### DHCP Generator workspace
 
@@ -211,6 +219,14 @@ Administration → Groups and Tenants extend the shared theme, fields, buttons, 
 Desktop access and membership views use tables. At 600px and below they become labeled records, with full-width fields and wrapping actions; long group DNs and account names wrap within the record. Group lists, member lists, searchable group/account choices, and global group history use 25-entry pages. This pagination rule does not describe the separate tenant membership and recent-change tables.
 
 Local membership exposes add/remove actions. AD membership is read-only and identified as the latest successful-login observation, with “Managed in AD” text on member records. Place the explanation of combined group permissions and individual-role precedence beside role controls. New group grants begin with an empty role choice, and saving requires an explicit selection. Keep removal consequences visible in confirmation text, including the possibility of remaining inherited access. The API and permission model is documented in [docs/tenants.md](docs/tenants.md).
+
+### Routing Map → IPAM import
+
+Routing Map → Hosts extends the existing operational workspace in Operate mode. Keep **Import all networks to IPAM** beside the Interfaces heading and each **Import to IPAM** action inside its Description cell. Interfaces and Routes retain their shared three-column geometry; on small screens, the action stays with the labeled Description record.
+
+Explain network calculation and duplicate skipping beside the actions. Results remain inline above Interfaces: a status announcement gives created/skipped counts, **Open IPAM** links to the module, and native **Import details** discloses created networks and individual skip reasons. Reuse shared ghost buttons and semantic text/surfaces in both themes; no extra card or modal is needed.
+
+Pending import disables conflicting host operations and interface editing, and guards host/view navigation. Permission restrictions have visible explanatory text. Failures announce an error and offer **Reload interfaces**, including when saved source data changed. Preserve the active tenant throughout the handoff. Behavior and API details live in [docs/routing-ipam-import.md](docs/routing-ipam-import.md).
 
 ### Motion
 

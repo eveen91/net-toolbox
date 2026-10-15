@@ -34,3 +34,26 @@ it('round-trips switch naming parameters in configuration payloads',()=>{
   const draft={...initialDraft(),name:'Switch',portNaming:'unit-slot-port',portUnit:2,portSlot:3};
   expect(payload(draft,4)).toMatchObject({portNaming:'unit-slot-port',portUnit:2,portSlot:3,expectedVersion:4});
 });
+it('round-trips management port and includes its removal in the review',()=>{
+  const device={...initialDraft(),managementPort:true,ports:[{id:100,isManagement:true,label:'OOB'}]};
+  const draft=initialDraft(device);
+  expect(payload(draft).managementPort).toBe(true);
+  expect(removedPorts(device,draft)).toEqual([]);
+  expect(removedPorts(device,{...draft,managementPort:false}).map(p=>p.id)).toEqual([100]);
+});
+it('keeps independent storage slots and card ownership through draft and removal review',()=>{
+  const cards=['A','B'].map(controller=>({...newCard(),controller,slotNumber:1,id:controller==='A'?11:21}));
+  const device={deviceType:'storage',vendor:null,name:'Array',model:null,description:null,managementPort:true,networkCards:cards,ports:[{id:101,groupId:11,family:'ethernet',number:1,controller:'A'},{id:201,groupId:21,family:'ethernet',number:1,controller:'B'}]};
+  const draft=initialDraft(device);
+  expect(validateDraft(draft)).toBe(4);
+  expect(payload(draft).networkCards.map(c=>[c.controller,c.slotNumber,c.id])).toEqual([['A',1,11],['B',1,21]]);
+  expect(removedPorts(device,{...draft,networkCards:draft.networkCards.filter(c=>c.controller==='B')}).map(p=>p.id)).toEqual([101]);
+  expect(()=>validateDraft({...draft,networkCards:[draft.networkCards[0]]})).toThrow('controllers A and B');
+});
+it('accepts passive 1U cable panels without sockets and prevents invalid heights',()=>{
+  const draft={...initialDraft(),deviceType:'cable-management',name:'Cable panel',heightU:1,managementPort:false,portGroups:[]};
+  expect(validateDraft(draft)).toBe(0);
+  expect(payload(draft).portGroups).toEqual([]);
+  expect(()=>validateDraft({...draft,heightU:2})).toThrow('1U');
+  expect(()=>validateDraft({...draft,managementPort:true})).toThrow('no ports');
+});

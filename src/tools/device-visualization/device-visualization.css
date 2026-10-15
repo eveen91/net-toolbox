@@ -80,3 +80,75 @@
 
 /* Switch sockets are paired vertically: 1/2, 3/4, ... across two rows. */
 .sv-face-switch .sv-sockets { grid-template-rows: repeat(2,auto); grid-auto-flow: column; }
+
+.sv-form .sv-management-option { display: flex; flex-direction: row; align-items: center; gap: 10px; min-height: 44px; }
+.sv-management-option input { flex: 0 0 auto; }
+.sv-port-group-management { min-width: 140px; }
+.sv-port-group-management .sv-sockets { grid-template-rows: auto; }
+
+/* Appliance overview: physical panel followed by saved interface connections. */
+.sv-appliance-overview .sv-canvas-viewport { height: clamp(200px, 24dvh, 260px); }
+.sv-connection-map { container-type: inline-size; margin-top: 28px; border-top: 1px solid var(--border); padding-top: 24px; }
+.sv-map-heading { display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 8px 20px; }
+.sv-map-heading h4 { margin-bottom: 6px; font-size: 16px; color: var(--text); }
+.sv-map-heading p,.sv-map-heading>span { margin: 0; color: var(--muted); font-size: 12px; }
+.sv-map-controls { display: grid; grid-template-columns: minmax(0,1fr) minmax(180px,.5fr); gap: 16px; margin-top: 20px; }
+.sv-map-layout { display: grid; grid-template-columns: 155px minmax(0,1fr); align-items: start; gap: 24px; margin-top: 8px; }
+.sv-map-device { position: relative; display: flex; flex-direction: column; align-items: start; gap: 8px; padding: 20px 0; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+.sv-map-device::after { content: ''; position: absolute; top: 38px; right: -24px; width: 24px; border-top: 1px solid var(--border); }
+.sv-map-device svg { color: var(--accent); margin-bottom: 4px; }
+.sv-map-device strong { font-size: 15px; }
+.sv-map-device>span { color: var(--muted); font-size: 12px; }
+.sv-map-device .sv-map-device-count { line-height: 1.8; padding-top: 8px; border-top: 1px solid var(--border); width: 100%; }
+.sv-map-branches { min-width: 0; }
+.sv-map-list { list-style: none; margin: 0; padding: 0 0 0 20px; border-left: 1px solid var(--border); }
+.sv-map-list li { position: relative; }
+.sv-map-list li::before { content: ''; position: absolute; top: 50%; left: -20px; width: 20px; border-top: 1px solid var(--border); }
+.sv-connection { display: grid; grid-template-columns: minmax(90px,.7fr) minmax(120px,1fr) 24px minmax(100px,1fr); align-items: center; gap: 12px; text-align: left; width: 100%; min-height: 88px; padding: 16px 12px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; color: var(--text); background: transparent; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.sv-connection:hover:not(:disabled) { background: var(--panel-muted); }
+.sv-connection-selected,.sv-connection-selected:hover:not(:disabled) { background: var(--selected); outline: 1px solid var(--accent); outline-offset: -1px; }
+.sv-connection:disabled { cursor: default; opacity: .55; }
+.sv-connection-port,.sv-connection-config,.sv-connection-destination { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; }
+.sv-connection-port strong { font-size: 13px; }
+.sv-connection-port>span,.sv-connection-config>span:not(.sv-connection-ip),.sv-connection-destination>span { color: var(--muted); font-size: 11px; }
+.sv-connection-ip { font-family: var(--mono); font-size: 12px; }
+.sv-connection-destination strong { font-size: 12px; font-weight: 500; }
+.sv-map-unspecified { color: var(--muted); }
+.sv-connection-arrow { color: var(--muted); max-width: 100%; }
+.sv-map-empty { padding: 20px; color: var(--muted); font-size: 13px; background: var(--panel-muted); }
+.sv-map-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 16px; font-size: 12px; color: var(--muted); }
+.sv-map-footer>div { display: flex; flex-wrap: wrap; gap: 8px; }
+.sv-map-note { font-size: 11px; line-height: 1.6; color: var(--muted); margin: 16px 0 0; }
+@container (max-width: 850px) {
+  .sv-map-layout { grid-template-columns: minmax(0,1fr); gap: 4px; }
+  .sv-map-device { display: grid; grid-template-columns: 36px minmax(0,1fr); gap: 4px 12px; padding: 12px 0 20px; }
+  .sv-map-device::after { display: none; }
+  .sv-map-device svg { grid-row: span 4; }
+  .sv-map-device>span { grid-column: 2; }
+  .sv-map-device .sv-map-device-count { border: 0; padding-top: 2px; }
+}
+@container (max-width: 560px) {
+  .sv-map-controls { grid-template-columns: minmax(0,1fr); gap: 0; }
+  .sv-connection { grid-template-columns: minmax(0,1fr) 24px; gap: 12px; padding: 16px 10px; }
+  .sv-connection-port,.sv-connection-config,.sv-connection-destination { grid-column: 1; }
+  .sv-connection-arrow { grid-column: 2; grid-row: 2; }
+  .sv-connection-destination { padding-top: 4px; }
+  .sv-connection-config { gap: 8px; }
+}
+
+@media(max-width:600px) { .sv-appliance-overview .sv-canvas-viewport { height: 140px; } }
+
+.sv-storage-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+.sv-storage-fields>section { min-width: 0; }
+.sv-face-storage { display: grid; grid-template-columns: repeat(2,max-content); gap: 20px; }
+.sv-storage-controller { padding: 16px; border: 1px solid var(--border); background: var(--panel); border-radius: 6px; }
+.sv-storage-controller h3 { font-size: 14px; margin: 0 0 16px; color: var(--text); }
+.sv-storage-controller-groups { display: flex; gap: 24px; align-items: start; }
+.sv-map-controls-grouped { grid-template-columns: minmax(0,1fr) minmax(150px,.5fr) minmax(150px,.5fr); }
+@container(max-width:700px) { .sv-map-controls-grouped { grid-template-columns: minmax(0,1fr); gap: 0; } }
+@media(max-width:900px) { .sv-storage-fields { grid-template-columns: minmax(0,1fr); } }
+
+.sv-map-controller-heading { margin: 0; padding: 16px 12px 6px; color: var(--text); font-size: 13px; font-weight: 600; }
+
+/* Server NICs occupy separate rear-panel banks beside management. */
+.sv-face-server { display: flex; }

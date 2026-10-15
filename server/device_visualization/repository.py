@@ -33,7 +33,7 @@ def init_db():
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS dv_devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_type TEXT NOT NULL CHECK(device_type IN ('switch','firewall','server')),
+            device_type TEXT NOT NULL CHECK(device_type IN ('switch','router','firewall','server','storage','cable-management')),
             vendor TEXT CHECK(vendor IN ('checkpoint','fortigate','generic')),
             name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(name)) BETWEEN 1 AND 100),
             model TEXT CHECK(model IS NULL OR length(model)<=100),
@@ -77,9 +77,64 @@ def init_db():
         COMMIT;
         ''')
 
+    migrate_device_types()
     migrate_sfp_limit()
     migrate_port_vlans()
     migrate_port_naming()
+    migrate_port_ip_addresses()
+    from dc_inventory.repository import init_schema
+    with connection(write=True) as conn:
+        init_schema(conn)
+
+
+
+def migrate_router_type():
+    # Compatibility for callers of the original router migration.
+    migrate_device_types()
+
+
+def migrate_device_types():
+    """Extend legacy device CHECK while retaining IDs, children and audit."""
+    conn = db.get_connection()
+    try:
+        conn.execute('PRAGMA foreign_keys=OFF')
+        conn.execute('PRAGMA legacy_alter_table=ON')
+        conn.execute('BEGIN IMMEDIATE')
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='dv_devices'").fetchone()
+        if row is None:
+            return
+        missing = [kind for kind in ("router", "storage", "cable-management") if f"'{kind}'" not in row[0]]
+        if not missing:
+            return
+        sql = re.sub(r"(device_type\s+IN\s*\()([^)]*)(\))",
+                     lambda m: m[1] + m[2] + "".join(f",'{kind}'" for kind in missing) + m[3], row[0], count=1, flags=re.I)
+        if sql == row[0]:
+            raise sqlite3.IntegrityError('Cannot locate device type constraint during router migration')
+        objects = [r[0] for r in conn.execute("SELECT sql FROM sqlite_master WHERE tbl_name='dv_devices' AND type IN ('index','trigger') AND sql IS NOT NULL")]
+        sequence = conn.execute("SELECT seq FROM sqlite_sequence WHERE name='dv_devices'").fetchone()
+        sql = re.sub(r'CREATE TABLE(?: IF NOT EXISTS)?\s+(?:"dv_devices"|dv_devices)(?=\s*\()', 'CREATE TABLE dv_devices_new', sql, count=1, flags=re.I)
+        conn.execute(sql)
+        conn.execute('INSERT INTO dv_devices_new SELECT * FROM dv_devices')
+        conn.execute('DROP TABLE dv_devices')
+        conn.execute('ALTER TABLE dv_devices_new RENAME TO dv_devices')
+        if sequence:
+            conn.execute("UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='dv_devices'", (sequence[0],))
+        for statement in objects:
+            conn.execute(statement)
+        if conn.execute('PRAGMA foreign_key_check').fetchone() is not None:
+            raise sqlite3.IntegrityError('Foreign key validation failed during router migration')
+        conn.commit()
+    finally:
+        conn.rollback()
+        conn.execute('PRAGMA foreign_keys=ON')
+        conn.close()
+
+
+def migrate_port_ip_addresses():
+    with connection(write=True) as conn:
+        columns = {r['name'] for r in conn.execute('PRAGMA table_info(dv_ports)')}
+        if 'ip_address' not in columns:
+            conn.execute('ALTER TABLE dv_ports ADD COLUMN ip_address TEXT CHECK(ip_address IS NULL OR length(ip_address)<=64)')
 
 
 def migrate_port_naming():
@@ -164,11 +219,15 @@ def connection(write=False):
 
 def summary(row):
     return {out: row[col] for out, col in [('id','id'),('deviceType','device_type'),('vendor','vendor'),('name','name'),
-        ('portNaming','port_naming'),('portUnit','port_unit'),('portSlot','port_slot'),('model','model'),('description','description'),('version','version'),('createdAt','created_at'),('updatedAt','updated_at'),
+        ('heightU','height_u'),('rackId','rack_id'),('rackPosition','rack_position'),('rackName','rack_name'),('dataCenterId','data_center_id'),('dataCenterName','data_center_name'),('managementPort','management_port'),('portNaming','port_naming'),('portUnit','port_unit'),('portSlot','port_slot'),('model','model'),('description','description'),('version','version'),('createdAt','created_at'),('updatedAt','updated_at'),
         ('portCount','port_count'),('assignedPortCount','assigned_count'),('cardCount','card_count')]}
 
 
 SUMMARY_SQL = '''SELECT d.*,
+ (SELECT name FROM dc_racks WHERE id=d.rack_id) rack_name,
+ (SELECT data_center_id FROM dc_racks WHERE id=d.rack_id) data_center_id,
+ (SELECT c.name FROM dc_racks r JOIN dc_datacenters c ON c.id=r.data_center_id WHERE r.id=d.rack_id) data_center_name,
+ EXISTS(SELECT 1 FROM dv_port_groups g WHERE g.device_id=d.id AND g.group_key IN ('mgmt','mgmt-A','mgmt-B')) management_port,
  (SELECT COUNT(*) FROM dv_ports p WHERE p.device_id=d.id) port_count,
  (SELECT COUNT(*) FROM dv_ports p WHERE p.device_id=d.id AND p.leads_to IS NOT NULL) assigned_count,
  (SELECT COUNT(*) FROM dv_port_groups g WHERE g.device_id=d.id AND g.kind='nic') card_count FROM dv_devices d'''
@@ -184,17 +243,26 @@ def detail(conn, device_id):
     ordinal = 0
     for g in groups:
         for p in conn.execute('SELECT * FROM dv_ports WHERE group_id=? ORDER BY port_number', (g['id'],)):
-            ordinal += 1
-            name = f"NIC {g['slot_number']} / Port {p['port_number']}"
-            if g['kind']=='family':
+            management = g['group_key'] in ('mgmt','mgmt-A','mgmt-B')
+            controller = ('B' if g['slot_number'] > 8 else 'A') if row['device_type']=='storage' and g['kind']=='nic' else g['group_key'][-1] if row['device_type']=='storage' and management else None
+            slot = ((g['slot_number'] - 1) % 8 + 1) if controller and not management else g['slot_number']
+            if not management:
+                ordinal += 1
+            name = f"NIC {slot} / Port {p['port_number']}"
+            if management:
+                name = 'MGMT'
+            elif g['kind']=='family':
                 name = port_name(row,g['family'],p['port_number'],ordinal)
-            ports.append({'id':p['id'],'groupId':g['id'],'family':g['family'],'number':p['port_number'],'name':name,
-                          'slotNumber':g['slot_number'],'speedGbps':g['speed_gbps'],'label':p['label'],'leadsTo':p['leads_to'],
-                          'portMode':p['port_mode'],'accessVlan':p['access_vlan'],'trunkVlans':p['trunk_vlans'],'nativeVlan':p['native_vlan']})
+            if controller:
+                name = f'Controller {controller} / {name}'
+            ports.append({'controller':controller,'isManagement':management,'id':p['id'],'groupId':g['id'],'family':g['family'],'number':p['port_number'],'name':name,
+                          'slotNumber':slot,'speedGbps':g['speed_gbps'],'label':p['label'],'leadsTo':p['leads_to'],
+                          'ipAddress':p['ip_address'],'portMode':p['port_mode'],'accessVlan':p['access_vlan'],'trunkVlans':p['trunk_vlans'],'nativeVlan':p['native_vlan']})
     data['ports'] = ports
     mapped = [{'id':g['id'],'family':g['family'],'count':g['port_count'],'speedGbps':g['speed_gbps'],
-               **({'slotNumber':g['slot_number'],'name':g['name']} if g['kind']=='nic' else {})} for g in groups]
-    data['networkCards' if row['device_type']=='server' else 'portGroups'] = mapped
+               **({'slotNumber':((g['slot_number']-1)%8+1) if row['device_type']=='storage' else g['slot_number'],'name':g['name'],'controller':('B' if g['slot_number']>8 else 'A') if row['device_type']=='storage' else None} if g['kind']=='nic' else {})} for g in groups if g['group_key'] not in ('mgmt','mgmt-A','mgmt-B')]
+    data['managementGroupId'] = next((g['id'] for g in groups if g['group_key']=='mgmt'), None)
+    data['networkCards' if row['device_type'] in ('server','storage') else 'portGroups'] = mapped
     return data
 
 
@@ -239,7 +307,7 @@ def apply_groups(conn, device_id, proposed):
         group_id=g['id']
         if group_id is None:
             cursor=conn.execute('INSERT INTO dv_port_groups(device_id,kind,group_key,slot_number,name,family,port_count,speed_gbps) VALUES(?,?,?,?,?,?,?,?)',
-                (device_id,g['kind'],str(uuid.uuid4()) if g['kind']=='nic' else g['family'],g['slot'],g['name'],g['family'],g['count'],g['speedGbps']))
+                (device_id,g['kind'],str(uuid.uuid4()) if g['kind']=='nic' else g.get('groupKey',g['family']),g['slot'],g['name'],g['family'],g['count'],g['speedGbps']))
             group_id=cursor.lastrowid
         else:
             if existing[group_id]['family'] != g['family']:
@@ -260,8 +328,13 @@ def create_device(config, actor_id=None):
         device_id=cursor.lastrowid
         conn.execute("UPDATE dv_devices SET port_naming=?,port_unit=?,port_slot=? WHERE id=?", (config.portNaming,config.portUnit,config.portSlot,device_id))
         apply_groups(conn,device_id,proposals(config))
+        from dc_inventory.service import apply_placement
+        apply_placement(conn,device_id,config)
         result=detail(conn,device_id)
         audit(conn,device_id,actor_id,'device_create',None,result)
+        if result['rackId'] is not None or result['heightU'] is not None:
+            from dc_inventory import repository as inventory
+            inventory.log(conn,'device',device_id,actor_id,'placement',None,inventory.device_snapshot(result))
         return result
 
 
@@ -274,9 +347,13 @@ def update_device(device_id, config, actor_id=None, preview=False):
         proposed=proposals(config,current)
         review=preview_data(current,proposed)
         if preview:
+            from dc_inventory.service import apply_placement
+            apply_placement(conn,device_id,config,current,validate_only=True)
             return review
         if (review['removedAssignedPortCount'] or review['removedLabelledPortCount'] or review['removedConfiguredPortCount']) and not config.confirmPortDataRemoval:
-            raise Conflict({'code':'confirmation_required','message':'Review and confirm removal of port labels or assignments',**review})
+            raise Conflict({'code':'confirmation_required','message':'Review and confirm removal of port labels, assignments or IP/VLAN configuration',**review})
+        from dc_inventory.service import apply_placement
+        apply_placement(conn,device_id,config,current)
         apply_groups(conn,device_id,proposed)
         naming={key:getattr(config,key) if key in config.model_fields_set else current[key] for key in ('portNaming','portUnit','portSlot')}
         conn.execute('UPDATE dv_devices SET port_naming=?,port_unit=?,port_slot=? WHERE id=?',
@@ -289,6 +366,9 @@ def update_device(device_id, config, actor_id=None, preview=False):
         conn.execute('UPDATE dv_devices SET version=version+1,updated_at=? WHERE id=?',(now(),device_id))
         result=detail(conn,device_id)
         audit(conn,device_id,actor_id,'device_update',current,result)
+        if any(current[key]!=result[key] for key in ('rackId','rackPosition','heightU')):
+            from dc_inventory import repository as inventory
+            inventory.log(conn,'device',device_id,actor_id,'placement',inventory.device_snapshot(current),inventory.device_snapshot(result))
         return result
 
 
@@ -301,10 +381,11 @@ def update_port(device_id,port_id,request,actor_id=None):
         check_version(current,request.expectedVersion)
         fields={'portMode':'port_mode','accessVlan':'access_vlan','trunkVlans':'trunk_vlans','nativeVlan':'native_vlan'}
         vlan={key:getattr(request,key) for key in fields} if set(fields).intersection(request.model_fields_set) else {key:port[key] for key in fields}
-        if port['label']==request.label and port['leadsTo']==request.leadsTo and all(port[k]==v for k,v in vlan.items()):
+        address = request.ipAddress if 'ipAddress' in request.model_fields_set else port['ipAddress']
+        if port['ipAddress']==address and port['label']==request.label and port['leadsTo']==request.leadsTo and all(port[k]==v for k,v in vlan.items()):
             return current
-        conn.execute('UPDATE dv_ports SET label=?,leads_to=?,port_mode=?,access_vlan=?,trunk_vlans=?,native_vlan=? WHERE id=? AND device_id=?',
-                     (request.label,request.leadsTo,vlan['portMode'],vlan['accessVlan'],vlan['trunkVlans'],vlan['nativeVlan'],port_id,device_id))
+        conn.execute('UPDATE dv_ports SET label=?,leads_to=?,port_mode=?,access_vlan=?,trunk_vlans=?,native_vlan=?,ip_address=? WHERE id=? AND device_id=?',
+                     (request.label,request.leadsTo,vlan['portMode'],vlan['accessVlan'],vlan['trunkVlans'],vlan['nativeVlan'],address,port_id,device_id))
         conn.execute('UPDATE dv_devices SET version=version+1,updated_at=? WHERE id=?',(now(),device_id))
         result=detail(conn,device_id)
         updated=next(p for p in result['ports'] if p['id']==port_id)
@@ -319,6 +400,9 @@ def delete_device(device_id,request,actor_id=None):
         if not request.confirmDelete:
             raise Conflict({'code':'confirmation_required','message':'Confirm deletion of this device'})
         audit(conn,device_id,actor_id,'device_delete',current,None)
+        if current['rackId'] is not None:
+            from dc_inventory import repository as inventory
+            inventory.log(conn,'device',device_id,actor_id,'device_delete',inventory.device_snapshot(current),None)
         conn.execute('DELETE FROM dv_devices WHERE id=?',(device_id,))
         return {'deleted':True,'id':device_id}
 

@@ -27,6 +27,7 @@ DEFAULT_ROLE_NAME = "user"
 DEFAULT_ROLE_SEED_PERMISSIONS = [
     "dhcp-generator",
     "device-visualization",
+    "dc-inventory",
     "subnet-splitter",
     "connection-test",
     "routing-map",

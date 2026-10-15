@@ -418,3 +418,12 @@
 .rm-move-host fieldset { border: 0; padding: 12px 0; margin: 0; min-width: 0; }
 .rm-move-host select { max-width: 100%; margin: 0 12px 12px 8px; padding: 8px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
 .rm-move-host p { overflow-wrap: anywhere; }
+.rm-operation-controls { border: 0; padding: 0; margin: 0; min-width: 0; }
+.rm-interface-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.rm-interface-heading .rm-section-sub-title { margin: 0; }
+.rm-interface-description { display: flex; justify-content: space-between; align-items: start; gap: 12px; }
+.rm-interface-description .rm-editable-desc { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.rm-ipam-result { margin: 16px 0; overflow-wrap: anywhere; }
+.rm-ipam-result summary { cursor: pointer; padding: 12px 0; }
+.rm-ipam-result li { margin: 8px 0; }
+@media (max-width: 600px) { .rm-interface-description { flex-direction: column; } }

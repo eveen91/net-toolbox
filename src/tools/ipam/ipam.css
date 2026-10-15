@@ -1814,3 +1814,13 @@ button.audit-entry-header:focus-visible {
 .ip-move-subnet fieldset { border: 0; padding: 12px 0; margin: 0; min-width: 0; }
 .ip-move-subnet select { display: inline-block; width: auto; max-width: 100%; margin: 0 12px 12px 8px; }
 .ip-move-subnet p { overflow-wrap: anywhere; }
+.ip-subnet-tree-node { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.ip-subnet-tree-node > div { min-width: 0; }
+.ip-subnet-tree-toggle, .ip-subnet-tree-spacer { display: inline-flex; width: 32px; min-width: 32px; height: 32px; align-items: center; justify-content: center; }
+.ip-subnet-tree-toggle { border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--text); cursor: pointer; font-size: 16px; }
+.ip-subnet-tree-toggle:hover { background: var(--bg-hover); }
+.ip-subnet-tree-toggle:disabled { cursor: default; }
+.ip-subnet-tree-spacer { color: var(--muted); }
+.ip-subnet-parent { display: block; color: var(--muted); font: 11px/1.5 var(--mono); margin-top: 4px; overflow-wrap: anywhere; }
+@media (max-width: 600px) { .ip-subnet-tree-toggle, .ip-subnet-tree-spacer { width: 44px; min-width: 44px; height: 44px; } }
+@media (min-width: 601px) { .ip-subnet-list-table td:first-child { min-width: 280px; } }

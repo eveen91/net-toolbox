@@ -2,6 +2,8 @@ import React,{useCallback,useEffect,useRef,useState} from 'react';
 import DeviceForm from './DeviceForm.jsx';
 import DeviceCanvas from './DeviceCanvas.jsx';
 import PortTable from './PortTable.jsx';
+import ConnectionMap from './ConnectionMap.jsx';
+import { isAppliance } from './connections.js';
 import ViewTabs from '../../components/ViewTabs.jsx';
 import useUnsavedChanges from '../../components/useUnsavedChanges.js';
 import PortEditor from './PortEditor.jsx';
@@ -25,7 +27,7 @@ export default function DeviceVisualization() {
   const select=useCallback(async id=>{
     const ticket=++selectionSeq.current;
     setSelectedId(id);setSelectedPort(null);setDevice(null);setDetailError(null);setDetailLoading(true);setMode('browse');setConfirmDelete(false);setDeleteError(null);setDirty(false);
-    try {const data=await getDevice(id);if(ticket===selectionSeq.current)setDevice(data);}
+    try {const data=await getDevice(id);if(ticket===selectionSeq.current){setDevice(data);if(isAppliance(data))setListOpen(false);setPortView(data.deviceType==='cable-management'?'panel':isAppliance(data)?'connections':window.matchMedia('(max-width: 899px)').matches?'table':'panel');}}
     catch(e){if(ticket===selectionSeq.current)setDetailError(e.message);}
     finally {if(ticket===selectionSeq.current)setDetailLoading(false);}
   },[]);
@@ -53,9 +55,10 @@ export default function DeviceVisualization() {
   };
   const saved=data=>{
     if(!alive.current)return;
+    if(selectedRef.current!==data.id){setPortView(data.deviceType==='cable-management'?'panel':isAppliance(data)?'connections':window.matchMedia('(max-width: 899px)').matches?'table':'panel');if(isAppliance(data))setListOpen(false);}
     setSelectedId(data.id);setDevice(data);setDirty(false);setMode('browse');setNotice(`Saved ${data.name}.`);setConfirmDelete(false);refresh();
     const portId=portRef.current;
-    if(portId)requestAnimationFrame(()=>{if(alive.current&&selectedRef.current===data.id&&portRef.current===portId)document.getElementById(`sv-port-${portId}`)?.focus();});
+    if(portId)requestAnimationFrame(()=>{if(alive.current&&selectedRef.current===data.id&&portRef.current===portId)(document.getElementById(`sv-map-port-${portId}`)||document.getElementById(`sv-port-${portId}`))?.focus();});
   };
   const remove=async()=>{
     setBusy(true);setDeleteError(null);
@@ -70,7 +73,7 @@ export default function DeviceVisualization() {
   const port=device?.ports.find(p=>p.id===selectedPort);
   const choosePort=id=>guard(()=>{setSelectedPort(id);setListOpen(false);});
   return <div className="sv-tool">
-    <div className="nt-tool-header sv-page-heading"><div><h2>Device Visualization</h2><p>Document physical connections on switches, firewalls and server network cards.</p></div><div className="sv-heading-actions">
+    <div className="nt-tool-header sv-page-heading"><div><h2>Device Visualization</h2><p>Document interfaces and connections on routers, firewalls, switches, servers and storage arrays.</p></div><div className="sv-heading-actions">
       <button className="tool-btn tool-btn-ghost" aria-expanded={listOpen} onClick={()=>setListOpen(value=>!value)}>Browse devices</button>
       <button className="tool-btn tool-btn-primary" disabled={busy} onClick={()=>guard(()=>{setMode('create');setSelectedPort(null);setConfirmDelete(false);})}>New device</button>
     </div></div>
@@ -79,7 +82,7 @@ export default function DeviceVisualization() {
       <aside className="tool-panel sv-sidebar" aria-label="Device list">
         <fieldset disabled={busy} className="sv-form-fields">
           <label>Search devices<input className="tool-input" maxLength={100} value={query} onChange={e=>{const value=e.target.value;guard(()=>{setQuery(value);setOffset(0);});}}/></label>
-          <div className="sv-filters"><label>Type<select aria-label="Type" className="tool-input" value={type} onChange={e=>{const value=e.target.value;guard(()=>{setType(value);if(value&&value!=='firewall')setVendor('');setOffset(0);});}}><option value="">All types</option><option value="switch">Switch</option><option value="firewall">Firewall</option><option value="server">Server</option></select></label><label>Vendor<select aria-label="Vendor" className="tool-input" value={vendor} disabled={type!==''&&type!=='firewall'} onChange={e=>{const value=e.target.value;guard(()=>{setVendor(value);setOffset(0);});}}><option value="">All vendors</option>{Object.entries(VENDORS).map(([id,name])=><option value={id} key={id}>{name}</option>)}</select></label></div>
+          <div className="sv-filters"><label>Type<select aria-label="Type" className="tool-input" value={type} onChange={e=>{const value=e.target.value;guard(()=>{setType(value);if(value&&value!=='firewall')setVendor('');setOffset(0);});}}><option value="">All types</option><option value="switch">Switch</option><option value="router">Router</option><option value="firewall">Firewall</option><option value="server">Server</option><option value="storage">Storage array</option><option value="cable-management">Cable management panel</option></select></label><label>Vendor<select aria-label="Vendor" className="tool-input" value={vendor} disabled={type!==''&&type!=='firewall'} onChange={e=>{const value=e.target.value;guard(()=>{setVendor(value);setOffset(0);});}}><option value="">All vendors</option>{Object.entries(VENDORS).map(([id,name])=><option value={id} key={id}>{name}</option>)}</select></label></div>
         </fieldset>
         {listLoading&&<p role="status">Loading devices…</p>}
         {listError&&<p className="tool-error" role="alert">{listError}<button className="tool-btn tool-btn-ghost" onClick={refresh}>Retry list</button></p>}
@@ -97,13 +100,14 @@ export default function DeviceVisualization() {
           {detailError&&<p className="tool-error" role="alert">{detailError}<button className="tool-btn tool-btn-ghost" onClick={()=>select(selectedId)}>Retry device</button></p>}
           {!device&&!detailLoading&&!detailError&&<div className="tool-empty">Create or select a device to view its physical ports.</div>}
           {device&&!detailLoading&&<>
-            <header className="sv-device-heading"><div><h3>{device.name}</h3><p>{device.description||'No description'}<span className="tool-hint"> · #{device.id} · {device.portCount} ports · {device.assignedPortCount} assigned</span></p></div><div className="sv-heading-actions"><button className="tool-btn tool-btn-ghost" disabled={busy} onClick={()=>guard(()=>{setMode('edit');setSelectedPort(null);})}>Edit device</button><button className="tool-btn tool-btn-ghost" disabled={busy} onClick={()=>guard(()=>{setConfirmDelete(true);setSelectedPort(null);})}>Delete device</button></div></header>
+            <header className="sv-device-heading"><div><h3>{device.name}</h3><p className="tool-hint">{device.rackId?`${device.dataCenterName} / ${device.rackName} · U${device.rackPosition}–U${device.rackPosition+device.heightU-1}`:'Unassigned to a rack'} · {device.heightU?`${device.heightU}U`:'Height not recorded'}</p><p>{device.description||'No description'}<span className="tool-hint"> · #{device.id} · {device.portCount} ports · {device.assignedPortCount} assigned</span></p></div><div className="sv-heading-actions"><button className="tool-btn tool-btn-ghost" disabled={busy} onClick={()=>guard(()=>{setMode('edit');setSelectedPort(null);})}>Edit device</button><button className="tool-btn tool-btn-ghost" disabled={busy} onClick={()=>guard(()=>{setConfirmDelete(true);setSelectedPort(null);})}>Delete device</button></div></header>
             {confirmDelete&&<div className="sv-review" role="region" aria-label="Device deletion review"><h4>Delete {device.name}?</h4><p>This removes the {device.deviceType}, {device.portCount} sockets and {device.assignedPortCount} destinations. History will remain.</p><button className="tool-btn tool-btn-primary" disabled={busy} onClick={remove}>{busy?'Deleting…':'Confirm delete'}</button><button className="tool-btn tool-btn-ghost" disabled={busy} onClick={()=>setConfirmDelete(false)}>Cancel delete</button>{deleteError&&<p role="alert" className="tool-error">{deleteError}<button className="tool-btn tool-btn-ghost" onClick={()=>select(selectedId)}>Reload current device</button></p>}</div>}
-            <ViewTabs items={[{id:'panel',label:'Panel'},{id:'table',label:'Port table'},{id:'history',label:'History'}]} value={portView} label="Device views" onChange={value=>guard(()=>{setPortView(value);setSelectedPort(null);})}/>
+            <ViewTabs items={[...(isAppliance(device)?[{id:'connections',label:'Connections'}]:[]),{id:'panel',label:'Panel'},{id:'table',label:'Port table'},{id:'history',label:'History'}]} value={portView} label="Device views" onChange={value=>guard(()=>{setPortView(value);setSelectedPort(null);})}/>
+            {portView==='connections'&&isAppliance(device)&&<div className="sv-appliance-overview"><DeviceCanvas device={device} selectedPort={selectedPort} onSelectPort={choosePort} disabled={busy||confirmDelete}/><ConnectionMap key={device.id} device={device} selectedPort={selectedPort} onSelectPort={choosePort} disabled={busy||confirmDelete}/></div>}
             {portView==='panel'&&<DeviceCanvas device={device} selectedPort={selectedPort} onSelectPort={choosePort} disabled={busy||confirmDelete}/>}
             {portView==='table'&&<PortTable device={device} selectedPort={selectedPort} onSelectPort={choosePort} disabled={busy||confirmDelete}/>}
             {portView==='history'&&<DeviceHistory deviceId={device.id}/>}
-            {!confirmDelete&&!port&&portView!=='history'&&<p className="sv-select-hint">Select a port to view or edit its label and destination.</p>}
+            {device.deviceType!=='cable-management'&&!confirmDelete&&!port&&portView!=='history'&&<p className="sv-select-hint">Select an interface to edit its IP, VLAN, label or destination.</p>}
           </>}
         </>}
       </section>
