@@ -1,28 +1,28 @@
-# Wdrożony wariant z nawigacją u góry
+# Implemented top navigation variant
 
-Wariant B z TOP-NAVIGATION.md jest wdrożony w warstwie React. Makiety pozostają odniesieniem projektowym, a bieżący kontrakt komponentów i tokenów zapisuje DESIGN.md.
+Variant B from TOP-NAVIGATION.md is implemented in React. Mockups remain design references; DESIGN.md records the current component and token contract.
 
-## Zmiany
+## Changes
 
-- Górny pasek: grupy Infrastructure, Diagnostics i Utilities, Workspace, administracja według uprawnień, tenant, konto i przełącznik motywu. Poniżej 1280 px moduły są w menu Modules; ekran telefonu zachowuje tenant i konto. Menu jest renderowane przez portal i obsługuje Escape oraz focus.
-- Pełna szerokość treści, wspólny rytm odstępów, przyciski, pola, statusy i lokalne przełączniki widoków. Motywy jasny i ciemny zapisują tylko preferencję wyglądu. Usunięto obowiązkowy import fontów z Google; nazwy fontów mają lokalne/systemowe fallbacki.
-- Moduły mają adresy hash, działające odświeżanie oraz Back/Forward. Po zmianie modułu fokus przechodzi do treści. Adresy nie kodują jeszcze selekcji wszystkich obiektów i filtrów.
-- IPAM: domyślna lista podsieci z filtrowaniem, osobne widoki modułu i sekcje podsieci, heatmapa jako widok początkowy, z kafelkami 24 × 24 px i odstępem 3 px, kolumnami na całą dostępną szerokość i maksymalnie 20 wierszami na stronę i pobieraniem całego widocznego zakresu partiami do 500 rekordów; tabela pozostaje alternatywą. Tabela i mapa otwierają wspólny inspektor, bez przeskakiwania z tabeli do mapy. Rzadkie akcje podsieci są w More. Zachowano paginację, wersjonowanie, uprawnienia i operacje zbiorcze. Odświeżenie rekordu jest przypisane do generacji wyboru, więc spóźniona odpowiedź nie zastępuje innego wybranego adresu.
-- Device Visualization: Fit mierzony z geometrii urządzenia i dostępnej przestrzeni, zoom, fullscreen, tabela portów z wyszukiwaniem, inspektor obok oraz zwijana lista urządzeń. Na telefonie początkowo tabela. Fizyczna kolejność portów pozostaje bez zmian. Zapis edytora nadal jest dokumentacją, nie konfiguracją sprzętu. Przy zbyt małych celach w Fit wybór wymaga zoomu lub tabeli.
-- Routing Map: identyczny colgroup dla Interfaces i Routes, stabilne szerokości podczas edycji, mobilny widok label/value. Import jest rozwijanym procesem zamiast stale otwartym formularzem.
-- Pozostałe moduły korzystają ze wspólnego wyglądu i nawigacji lokalnej. Ekran startowy jest obsługiwany klawiaturą i opisuje rzeczywistą architekturę self-hosted. Demonstracyjne etapy walidacji są jawnie oznaczone; GUI nie deklaruje eksportu lub trwałego podpisu, których nie wykonało.
+- Top bar: Infrastructure, Diagnostics and Utilities groups, Workspace, administration according to permissions, tenant, account and theme switch. Below 1280 px, modules are in the Modules menu; phone screens retain tenant and account. Menus render through a portal and support Escape and focus management.
+- Full-width content, shared spacing rhythm, buttons, fields, statuses and local view switches. Light and dark themes store only appearance preferences. The mandatory Google font import was removed; font names have local/system fallbacks.
+- Modules have hash addresses, working refresh and Back/Forward. Focus moves to content after switching modules. Addresses do not yet encode all object selections and filters.
+- IPAM: default subnet list with filtering, separate module views and subnet sections, heatmap as the initial view with 24 × 24 px tiles and 3 px gaps, columns filling available width and up to 20 rows per page, fetching the entire visible range in batches of up to 500 records; the table remains an alternative. Table and map open a shared inspector without switching from table to map. Infrequent subnet actions are under More. Pagination, versioning, permissions and bulk operations are preserved. Record refresh is tied to the selection generation, so late responses do not replace another selected address.
+- Device Visualization: Fit measured from device geometry and available space, zoom, fullscreen, searchable port table, adjacent inspector and collapsible device list. Phones initially show the table. Physical port order remains unchanged. Editor saves remain documentation, not hardware configuration. When Fit makes targets too small, selection requires zoom or the table.
+- Routing Map: identical colgroup for Interfaces and Routes, stable widths during editing, mobile label/value view. Import is an expandable flow rather than a permanently open form.
+- Other modules use the shared appearance and local navigation. The home screen supports keyboard use and describes the actual self-hosted architecture. Demonstration validation stages are explicitly labeled; the GUI does not claim exports or persistent signatures it has not produced.
 
-## Weryfikacja
+## Verification
 
-- `npm run build`: build produkcyjny przechodzi.
-- `npm test`: 24 pliki, 84 testy przechodzą; obejmują uprawnienia grup nawigacji i obliczenia Fit.
-- Chromium z izolowanymi przykładowymi odpowiedziami API: 63 kombinacje (Workspace i osiem modułów × 320/390/768/1024/1366/1440/1920 px), bez poziomego overflow całej strony.
-- Przepływy przeglądarkowe: inspektor IPAM bez zmiany Table, ochrona niezapisanego draftu, zapis adresu i opóźniona odpowiedź przy zmianie wyboru; Fit całego urządzenia oraz zapis portu; wspólne granice tabel routingu; oba motywy; widoczność menu dla czytelnika IPAM; focus po Escape, wyborze modułu oraz Back/Forward.
-- Niezależny przegląd sześciu zrzutów desktop/mobile i źródeł: disposition ship po korekcie fokusu. Jasny motyw sprawdzono po zakończeniu przejść kolorów.
-- `graphify update .`: graf kodu odświeżony przez ekstrakcję AST.
+- `npm run build`: production build passes.
+- `npm test`: 24 files, 84 tests pass; these include navigation group permissions and Fit calculations.
+- Chromium with isolated sample API responses: 63 combinations (Workspace and eight modules × 320/390/768/1024/1366/1440/1920 px), without whole-page horizontal overflow.
+- Browser flows: IPAM inspector without switching away from Table, unsaved draft protection, address saving and delayed responses during selection changes; Fit of the entire device and port saving; shared routing table boundaries; both themes; menu visibility for an IPAM reader; focus after Escape, module selection and Back/Forward.
+- Independent review of six desktop/mobile screenshots and source: disposition ship after a focus correction. Light theme was checked after color transitions completed.
+- `graphify update .`: code graph refreshed through AST extraction.
 
-Zrzuty rzeczywistej aplikacji z danymi testowymi są w `.impeccable/review/`. Testy przeglądarkowe sprawdzają frontend na fixtures, nie połączenia do rzeczywistych urządzeń ani walidację istniejących roboczych zmian backendu. Nie wykonano pełnego audytu zgodności WCAG. Loader i detektor Impeccable są niedostępne bez zainstalowanego silnika; źródła i niezależny przegląd wykorzystano bezpośrednio.
+Screenshots of the actual application with test data are in `.impeccable/review/`. Browser tests check the frontend against fixtures, not connections to real devices or validation of existing backend working changes. A full WCAG conformance audit was not performed. The Impeccable loader and detector are unavailable without the installed engine; source and independent review were used directly.
 
-## Granice obecnego wdrożenia
+## Current implementation boundaries
 
-Lista podsieci jest płaska; zaplanowane pełne drzewo i adresy URL pojedynczych obiektów pozostają dalszym rozszerzeniem. Fit służy do orientacji — nazwy i formularze pozostają czytelne w tabeli i inspektorze. Ochrona niezapisanych zmian obejmuje edytor urządzenia/portu, adresu i nagłówka podsieci; nie jest jeszcze wspólnym systemem Save/Discard/Stay dla wszystkich formularzy projektu. Połączenia, runy walidacji i trwały sign-off nie zostały dodane jako nowe funkcje backendowe. Wdrożenie nie przenosi ani nie zmienia danych tenantów.
+The subnet list is flat; the planned full tree and individual object URLs remain future extensions. Fit provides orientation — names and forms remain readable in the table and inspector. Unsaved-change protection covers device/port, address and subnet header editors; it is not yet a shared Save/Discard/Stay system for every project form. Connections, validation runs and persistent sign-off were not added as new backend features. Implementation does not move or change tenant data.

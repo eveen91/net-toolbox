@@ -40,6 +40,9 @@ def init_schema(conn):
         WHEN EXISTS(SELECT 1 FROM dv_devices WHERE rack_id=NEW.id AND rack_position+height_u-1>NEW.height_u)
         BEGIN SELECT RAISE(ABORT,'Rack resize would exclude installed devices'); END''')
 
+    from .connections import init_schema as init_connections
+    init_connections(conn)
+
 
 DC_SQL='''SELECT c.id,c.name,c.description,c.version,c.created_at AS createdAt,c.updated_at AS updatedAt,
  (SELECT COUNT(*) FROM dc_racks WHERE data_center_id=c.id) rackCount FROM dc_datacenters c'''

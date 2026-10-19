@@ -1,5 +1,5 @@
 import React,{useMemo} from 'react';
-import { CONTROLLERS,FAMILY_NAMES,VENDORS,usesCards } from './logic.js';
+import { CONTROLLERS,FAMILY_NAMES,VENDORS,usesCards,portDescription,effectivePort } from './logic.js';
 
 export default function DeviceFaceplate({device,selectedPort,onSelectPort,disabled}) {
   const groups=useMemo(()=>{
@@ -19,14 +19,14 @@ export default function DeviceFaceplate({device,selectedPort,onSelectPort,disabl
     const ports=device.ports.filter(p=>p.groupId===group.id);
     const heading=group.isManagement?'Management':usesCards(device.deviceType)?`NIC ${group.slotNumber}${group.name?` · ${group.name}`:''}`:FAMILY_NAMES[group.family];
     return <section className={`sv-port-group sv-port-group-${group.family} ${group.isManagement?'sv-port-group-management':''}`} key={group.id} aria-label={`${group.controller?`Controller ${group.controller} · `:''}${heading}`}>
-      <h4>{heading}<span>{group.speedGbps}G · {group.count} sockets</span></h4>
+      <h4>{heading}<span>{group.speedGbps}G{group.family==='sfp'?' default':''} · {group.count} sockets</span></h4>
       <div className="sv-sockets" style={{'--columns':device.deviceType==='switch'?Math.ceil(group.count/2):Math.min(group.count,usesCards(device.deviceType)?8:group.family==='qsfp'?4:8)}}>
         {ports.map(port=><button type="button" id={`sv-port-${port.id}`} key={port.id} disabled={disabled} tabIndex={port.id===selectedPort||(!selectedPort&&device.ports[0]?.id===port.id)?0:-1} onKeyDown={moveFocus}
           aria-pressed={port.id===selectedPort} className={`sv-socket sv-socket-${port.family} ${port.leadsTo?'sv-assigned':''} ${port.id===selectedPort?'sv-selected':''}`} onClick={()=>onSelectPort(port.id)}
-          aria-label={`${port.name}, ${FAMILY_NAMES[port.family]}, ${port.speedGbps} gigabits${port.label?`, label ${port.label}`:''}, ${port.leadsTo?`leads to ${port.leadsTo}`:'unassigned'}${port.ipAddress?`, IP ${port.ipAddress}`:''}${port.portMode?`, ${port.portMode} VLAN ${port.accessVlan||port.trunkVlans}`:''}`} title={`${port.ipAddress?`IP ${port.ipAddress}\n`:''}${port.portMode?`${port.portMode} VLAN ${port.accessVlan||port.trunkVlans}\n`:''}${port.name}${port.label?` · ${port.label}`:''}\n${port.leadsTo||'Unassigned'}`}>
+          aria-label={`${port.name}, ${portDescription(port)}, ${effectivePort(port).effectiveSpeedGbps} gigabits${port.label?`, label ${port.label}`:''}, ${port.leadsTo?`leads to ${port.leadsTo}`:'unassigned'}${port.ipAddress?`, IP ${port.ipAddress}`:''}${port.portMode?`, ${port.portMode} VLAN ${port.accessVlan||port.trunkVlans}`:''}`} title={`${portDescription(port)}\n${port.ipAddress?`IP ${port.ipAddress}\n`:''}${port.portMode?`${port.portMode} VLAN ${port.accessVlan||port.trunkVlans}\n`:''}${port.name}${port.label?` · ${port.label}`:''}\n${port.leadsTo||'Unassigned'}`}>
           <span className="sv-socket-shape" aria-hidden="true"><span className="sv-contacts"/></span>
           <span className="sv-socket-number">{port.isManagement?'MGMT':device.deviceType==='switch'&&device.portNaming!=='family'?port.name:port.number}<span className="sv-assignment-mark" aria-hidden="true">{port.leadsTo?'●':'○'}</span></span>
-          <span className="sv-socket-label">{port.label||`${port.speedGbps}G`}</span>
+          <span className="sv-socket-label">{port.label||`${effectivePort(port).effectiveSpeedGbps}G${port.transceiver==='rj45-1g'?' RJ45':''}`}</span>
         </button>)}
       </div>
     </section>;

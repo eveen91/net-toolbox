@@ -1,8 +1,8 @@
 import sqlite3
 from fastapi import APIRouter,Depends,HTTPException,Query,Path
 from device_visualization import repository as devices
-from . import repository as repo,service
-from .schemas import DataCenterWrite,DataCenterUpdate,RackCreate,RackUpdate,ResourceDelete,Placement,CablePanelCreate
+from . import repository as repo,service,connections
+from .schemas import DataCenterWrite,DataCenterUpdate,RackCreate,RackUpdate,ResourceDelete,Placement,CablePanelCreate,ConnectionCreate
 
 
 def invoke(operation,*args,**kwargs):
@@ -58,6 +58,18 @@ def build_router(require_feature,require_logged_in_user):
     @router.put('/devices/{device_id}/placement')
     def placement(req:Placement,device_id:int=Path(ge=1),user=Depends(require_logged_in_user)):
         return invoke(service.place,device_id,req,actor(user))
+    @router.get('/racks/{rack_id}/connections')
+    def connection_graph(rack_id:int=Path(ge=1),deviceId:int|None=Query(None,ge=1),limit:int=Query(20,ge=1,le=50),offset:int=Query(0,ge=0)):
+        return invoke(connections.graph,rack_id,deviceId,limit,offset)
+    @router.get('/devices/{device_id}/ports')
+    def device_ports(device_id:int=Path(ge=1)):
+        return invoke(connections.ports,device_id)
+    @router.post('/connections',status_code=201)
+    def connect(req:ConnectionCreate,user=Depends(require_logged_in_user)):
+        return invoke(connections.create,req,actor(user))
+    @router.delete('/connections/{connection_id}')
+    def disconnect(req:ResourceDelete,connection_id:int=Path(ge=1),user=Depends(require_logged_in_user)):
+        return invoke(connections.delete,connection_id,req,actor(user))
     @router.get('/audit')
     def audit(limit:int=Query(25,ge=1,le=100),offset:int=Query(0,ge=0)):
         return invoke(repo.history,limit,offset)

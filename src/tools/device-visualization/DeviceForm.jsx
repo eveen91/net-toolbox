@@ -10,7 +10,7 @@ export default function DeviceForm({device,onSaved,onCancel,onDirty,onBusy,onRel
   useEffect(()=>{onDirty(JSON.stringify(draft)!==baseline);},[draft,baseline,onDirty]);
   const change=patch=>{setDraft(d=>({...d,...patch}));setPreview(null);setError(null);setStale(false);};
   const total=(draft.networkCards||draft.portGroups).reduce((n,g)=>n+g.count,0);
-  const lost=removedPorts(device,draft).filter(p=>p.label||p.leadsTo||p.portMode||p.ipAddress);
+  const lost=removedPorts(device,draft).filter(p=>p.label||p.leadsTo||p.portMode||p.ipAddress||p.connectionId||p.transceiver);
   const perform=async(confirm=false)=>{
     setError(null);setBusy(true);onBusy(true);
     try {
@@ -59,7 +59,7 @@ export default function DeviceForm({device,onSaved,onCancel,onDirty,onBusy,onRel
       </fieldset>)}</div>}
       {draft.deviceType!=='cable-management'&&<p className={total<1||total>128?'tool-error':'tool-hint'}>{total} / 128 data sockets · minimum 1{draft.managementPort ? (draft.deviceType==='storage'?" · +2 MGMT":" · +1 MGMT") : ""}</p>}
       {lost.length>0&&!preview&&<p className="tool-hint">This draft removes data on {lost.length} ports. Review is required before saving.</p>}
-      {preview&&<div className="sv-review" role="region" aria-label="Port removal review"><h4>Review removed port data</h4><p>{preview.removedPortCount} sockets removed, {preview.removedAssignedPortCount} destinations and {preview.removedLabelledPortCount} labels lost, {preview.removedConfiguredPortCount} IP/VLAN configurations lost.</p><ul>{preview.removedPorts.filter(p=>p.label||p.leadsTo||p.portMode||p.ipAddress).map(p=><li key={p.id}><strong>{p.name}</strong> · {p.label||'no label'} · {p.leadsTo||'unassigned'}{p.ipAddress?` · IP ${p.ipAddress}`:''}{p.portMode?` · ${p.portMode} VLAN ${p.accessVlan||p.trunkVlans}`:''}</li>)}</ul>
+      {preview&&<div className="sv-review" role="region" aria-label="Port removal review"><h4>Review removed port data</h4><p>{preview.removedPortCount} sockets removed, {preview.removedAssignedPortCount} destinations and {preview.removedLabelledPortCount} labels lost, {preview.removedConfiguredPortCount} IP/VLAN configurations, modules or cable connections lost.</p><ul>{preview.removedPorts.filter(p=>p.label||p.leadsTo||p.portMode||p.ipAddress||p.connectionId||p.transceiver).map(p=><li key={p.id}><strong>{p.name}</strong> · {p.label||'no label'} · {p.leadsTo||'unassigned'}{p.connectionId?` · cable #${p.connectionId}`:''}{p.ipAddress?` · IP ${p.ipAddress}`:''}{p.portMode?` · ${p.portMode} VLAN ${p.accessVlan||p.trunkVlans}`:''}</li>)}</ul>
         <button className="tool-btn tool-btn-primary" type="button" onClick={()=>perform(true)}>Confirm removal and save</button><button className="tool-btn tool-btn-ghost" type="button" onClick={()=>setPreview(null)}>Cancel review</button>
       </div>}
       {!preview&&<button className="tool-btn tool-btn-primary" type="submit">{busy?'Saving…':'Save device'}</button>}

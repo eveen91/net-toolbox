@@ -60,3 +60,20 @@ export function removedPorts(device,draft) {
     return !group||group.family!==p.family||p.number>group.count;
   });
 }
+
+export const TRANSCEIVERS={
+  'sfp-1g':{label:'SFP · 1G optical',family:'sfp',speedGbps:1},
+  'sfp-10g':{label:'SFP+ · 10G optical',family:'sfp',speedGbps:10},
+  'sfp28-25g':{label:'SFP28 · 25G optical',family:'sfp',speedGbps:25},
+  'rj45-1g':{label:'SFP → RJ45 · 1G copper',family:'ethernet',speedGbps:1},
+};
+export function effectivePort(port) {
+  const module=TRANSCEIVERS[port.transceiver];
+  return {...port,effectiveFamily:module?.family||port.family,effectiveSpeedGbps:module?.speedGbps||port.speedGbps};
+}
+export const portDescription=port=>{const p=effectivePort(port);return TRANSCEIVERS[p.transceiver]?.label||`${FAMILY_NAMES[p.effectiveFamily]} · ${p.effectiveSpeedGbps}G`;};
+export const compatiblePorts=(source,ports)=>{
+  if(!source)return [];
+  const a=effectivePort(source);
+  return ports.filter(port=>{const b=effectivePort(port);return b.effectiveFamily===a.effectiveFamily&&b.effectiveSpeedGbps===a.effectiveSpeedGbps;});
+};

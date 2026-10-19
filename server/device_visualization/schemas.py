@@ -117,6 +117,7 @@ class DeviceUpdate(DeviceConfig):
 
 
 class PortNetworkConfig(BaseModel):
+    transceiver: Literal['sfp-1g','sfp-10g','sfp28-25g','rj45-1g'] | None = None
     ipAddress: str | None = Field(default=None, max_length=64)
 
     @field_validator('ipAddress', mode='before')
@@ -157,6 +158,18 @@ class PortNetworkConfig(BaseModel):
 
 
 class PortAssignment(PortNetworkConfig, StrictModel):
+    targetPortId: int | None = Field(default=None,strict=True,ge=1)
+    targetVersion: int | None = Field(default=None,strict=True,ge=1)
+    replacementToken: str | None = Field(default=None,min_length=64,max_length=64)
+
+    @model_validator(mode='after')
+    def linked_target(self):
+        if self.targetPortId is not None and self.targetVersion is None:
+            raise ValueError('Choose the destination device version with the target port')
+        if self.targetPortId is None and (self.targetVersion is not None or self.replacementToken is not None):
+            raise ValueError('Choose a target port before confirming a connection change')
+        return self
+
     label: str | None = Field(max_length=50)
     leadsTo: str | None = Field(max_length=200)
     expectedVersion: int = Field(strict=True, ge=1)
@@ -198,6 +211,9 @@ class DeviceSummary(BaseModel):
 
 
 class PortResponse(PortNetworkConfig):
+    effectiveFamily: Family
+    effectiveSpeedGbps: int
+    connectionId: int | None = None
     controller: Literal['A', 'B'] | None = None
     isManagement: bool = False
     id: int

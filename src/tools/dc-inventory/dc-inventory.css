@@ -43,3 +43,27 @@
 @media(max-width:1100px) { .di-location-bar { grid-template-columns: repeat(2,minmax(0,1fr)); } .di-location-bar>.di-actions { grid-column: 1/-1; } }
 @media(max-width:900px) { .di-rack-workspace { grid-template-columns: minmax(0,1fr); } .di-rack-elevation { max-width: 420px; width: 100%; } }
 @media(max-width:600px) { .di-fields,.di-location-bar { grid-template-columns: minmax(0,1fr); } .di-device-table,.di-device-table tbody,.di-device-table tr { display: block; width: 100%; } .di-device-table thead { display: none; } .di-device-table td { display: grid; grid-template-columns: 92px minmax(0,1fr); gap: 8px; } .di-device-table td::before { content: attr(data-label); color: var(--muted); } }
+.di-connections { margin-top: 24px; }
+.di-connections h4 { margin: 16px 0; font-size: 14px; overflow-wrap: anywhere; }
+.di-cabling-scroll { height: min(65dvh,720px); min-height: 240px; overflow: auto; border: 1px solid var(--border); background: var(--input-bg); border-radius: 6px; margin: 16px 0; }
+.di-cabling-svg { display: block; max-width: none; font-family: var(--font, sans-serif); }
+.di-svg-rack { fill: var(--panel); stroke: var(--border); }
+.di-svg-rule { stroke: var(--border-soft); }
+.di-svg-title { fill: var(--text); font-size: 14px; font-weight: 600; }
+.di-svg-dc,.di-svg-unit { fill: var(--muted); font-size: 11px; }
+.di-svg-unit { font-family: var(--mono); }
+.di-svg-device rect { fill: var(--input-bg); stroke: var(--border); }
+.di-svg-device-selected rect { fill: var(--selected); stroke: var(--accent); stroke-width: 2px; }
+.di-svg-name { fill: var(--text); font-size: 12px; font-weight: 600; }
+.di-cable-line { fill: none; stroke: var(--muted); stroke-width: 2px; }
+.di-cable-selected .di-cable-line { stroke: var(--accent); stroke-width: 4px; }
+.di-cable-dim .di-cable-line { opacity: .3; }
+.di-cable-hit { fill: none; stroke: transparent; stroke-width: 16px; cursor: pointer; }
+.di-cable:focus-within .di-cable-line,.di-cable:hover .di-cable-line { stroke: var(--accent); stroke-width: 4px; }
+.di-connection-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,360px),1fr)); gap: 8px; }
+.di-connection-list button { display: flex; flex-direction: column; gap: 8px; width: 100%; min-height: 44px; text-align: left; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--text); font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.di-connection-list button.di-connection-active { border-color: var(--accent); background: var(--selected); }
+.di-connection-list small { color: var(--muted); font-size: 12px; }
+.di-cable-detail { padding: 16px; background: var(--panel); border-left: 3px solid var(--accent); overflow-wrap: anywhere; }
+.di-connection-form section { min-width: 0; }
+.di-connection-form .di-actions { margin-bottom: 14px; }

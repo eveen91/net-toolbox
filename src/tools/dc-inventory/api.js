@@ -16,3 +16,7 @@ export const placeDevice=(id,data)=>request(`/devices/${id}/placement`,'PUT',dat
 export const listAudit=filters=>request('/audit'+query(filters));
 
 export const createCablePanel=data=>request('/cable-panels','POST',data);
+export const getConnections=(rackId,filters={})=>request(`/racks/${rackId}/connections`+query(filters));
+export const getDevicePorts=id=>request(`/devices/${id}/ports`);
+export const connectPorts=data=>request('/connections','POST',data);
+export const disconnectPorts=(id,data)=>request(`/connections/${id}`,'DELETE',data);

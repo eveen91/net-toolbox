@@ -38,7 +38,7 @@ def preview_data(current, proposed):
              p['family']!=by_id[p['groupId']]['family'] or p['number']>by_id[p['groupId']]['count']]
     return {'deviceId':current['id'],'version':current['version'],
             'removedCardCount':sum(g['id'] not in by_id for g in current.get('networkCards',[])),
-            'removedConfiguredPortCount':sum(bool(p.get('portMode') or p.get('ipAddress')) for p in removed),
+            'removedConfiguredPortCount':sum(bool(p.get('portMode') or p.get('ipAddress') or p.get('connectionId') or p.get('transceiver')) for p in removed),
             'removedPortCount':len(removed),'removedAssignedPortCount':sum(bool(p['leadsTo']) for p in removed),
             'removedLabelledPortCount':sum(bool(p['label']) for p in removed),'removedPorts':removed}
 

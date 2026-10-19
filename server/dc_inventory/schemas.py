@@ -37,3 +37,15 @@ class Placement(StrictModel):
 class CablePanelCreate(DataCenterWrite):
     rackId: int = Field(strict=True,ge=1)
     rackPosition: int = Field(strict=True,ge=1,le=100)
+
+class ConnectionCreate(StrictModel):
+    sourcePortId: int = Field(strict=True,ge=1)
+    targetPortId: int = Field(strict=True,ge=1)
+    sourceVersion: int = Field(strict=True,ge=1)
+    targetVersion: int = Field(strict=True,ge=1)
+    label: str | None = Field(default=None,max_length=100)
+
+    @field_validator('label',mode='before')
+    @classmethod
+    def trim(cls,value):
+        return value.strip() or None if isinstance(value,str) else value

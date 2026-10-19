@@ -1,46 +1,46 @@
-# Nowe GUI net::toolbox — propozycja do przeglądu
+# New net::toolbox GUI — proposal for review
 
-Status: projekt, nie wdrożenie. Data: 2026-10-13. Makiety używają wyłącznie przykładowych danych, nie przedstawiają stanu infrastruktury. Nie zmieniono aplikacji ani istniejących zmian roboczych.
+Status: design, not implementation. Date: 2026-10-13. Mockups use sample data only and do not represent infrastructure status. The application and existing working changes were not modified.
 
-Aktualizacja: wariant B został następnie wdrożony. [Zakres implementacji i weryfikacja](IMPLEMENTATION.md); bieżące tokeny i komponenty opisuje [DESIGN.md](../../DESIGN.md). Poniższy dokument zachowuje pierwotną propozycję i audyt.
+Update: variant B was subsequently implemented. See [implementation scope and verification](IMPLEMENTATION.md); current tokens and components are documented in [DESIGN.md](../../DESIGN.md). This document preserves the original proposal and audit.
 
-## Cel i zakres
+## Goal and scope
 
-Przekształcić zbiór osobnych narzędzi w spójne środowisko pracy administratora sieci. Najważniejszy rezultat: użytkownik zawsze wie, gdzie szukać obiektu, gdzie są jego dane, gdzie go edytować i jaki zakres obejmuje operacja. Priorytety potwierdzone przez użytkownika: przypadkowe rozmieszczenie przycisków i danych w IPAM, niemieszcząca się wizualizacja urządzenia, różne szerokości kolumn Interfaces/Routes i niespójność całej aplikacji.
+Turn a collection of separate tools into a consistent workspace for network administrators. The main outcome: users always know where to find an object, where its data lives, where to edit it and what an operation affects. User-confirmed priorities: arbitrary placement of IPAM buttons and data, device visualization that does not fit the screen, inconsistent Interfaces/Routes column widths and inconsistency across the application.
 
-Zakres audytu obejmuje powłokę aplikacji, wszystkie osiem modułów z rejestru, ekran startowy, konto, logowanie, administrację i tenanty. Wnioski pochodzą z aktualnego kodu JSX/CSS, dokumentacji produktu i tenantów oraz zapytania graphify. Nie wykonano audytu działającej aplikacji w przeglądarce; obserwacje geometrii wyliczono z CSS. Dostępność, zachowanie przy powiększeniu i rzeczywiste dane wymagają sprawdzenia przy wdrożeniu. Makiety SVG są propozycjami kompozycji, nie interaktywnym prototypem.
+The audit covers the application shell, all eight registered modules, the home screen, account, login, administration and tenants. Findings come from the current JSX/CSS, product and tenant documentation, and a graphify query. The running application was not audited in a browser; geometry observations were calculated from CSS. Accessibility, zoom behavior and real data require verification during implementation. SVG mockups propose composition, rather than an interactive prototype.
 
-## Makiety
+## Mockups
 
-Alternatywa z nawigacją u góry, odzyskująca 216 px szerokości: [wariant B — projekt i porównanie](TOP-NAVIGATION.md).
+A top navigation alternative that recovers 216 px of width: [variant B — design and comparison](TOP-NAVIGATION.md).
 
-- [IPAM: lista podsieci, tabela adresów i inspektor](ipam.svg).
-- [Device Visualization: cały panel urządzenia i inspektor portu](devices.svg).
-- [Routing Map: wspólne granice kolumn Interfaces i Routes](routing.svg).
+- [IPAM: subnet list, address table and inspector](ipam.svg).
+- [Device Visualization: complete device panel and port inspector](devices.svg).
+- [Routing Map: shared Interfaces and Routes column boundaries](routing.svg).
 
-Każda makieta ma 1440 × 900 px i pokazuje ten sam system: nawigacja, tenant, nagłówek, lokalne widoki, obszar danych. Angielski pozostaje językiem interfejsu, zgodnie z obecną aplikacją. Dokumentacja projektu jest po polsku. Wdrożenie nie powinno mieszać obu języków w jednym ekranie.
+Each mockup is 1440 × 900 px and shows the same system: navigation, tenant, heading, local views and data area. English remains the interface language, consistent with the current application. The original design documentation was written in Polish; it has since been translated into English. Implementation should keep each screen linguistically consistent.
 
-## Audyt: problem → konsekwencja → rozwiązanie
+## Audit: problem → consequence → solution
 
-| Priorytet | Dowód w repozytorium | Problem i konsekwencja | Decyzja projektowa |
+| Priority | Repository evidence | Problem and consequence | Design decision |
 |---|---|---|---|
-| P0 | `src/tools/post-change-validation/ExecutionTab.jsx`, `DiffViewTab.jsx`, `PirReportTab.jsx` | Execution używa SAMPLE_TESTS i timera; Diff pokazuje stały pozytywny wynik; PIR zmienia lokalny stan i deklaruje eksport. GUI może wyglądać jak dowód wykonanych testów. | Widoczny tryb Demonstration. Realne statusy dopiero z dowodów backendu; brak danych nie oznacza PASS. |
-| P1 | `src/components/Toolbar.jsx`, `src/index.css`, `src/tenants/tenants.css` | Wszystkie moduły, konfiguracja, konto i tenant konkurują o poziomy pasek. `.nt-toolbar` ma przewijanie w osi X. | Stały panel nawigacji z grupami; górny pasek służy kontekstowi i kontu. |
-| P1 | `src/App.jsx` | Nawigacja to lokalny `useState("home")`; wybór obiektu i widoku nie jest adresem strony. | Adresowalne widoki, Back/Forward i odtwarzanie widoku po odświeżeniu. |
-| P1 | `src/index.css`, `.nt-main` | Limit 1280 px i padding 28 px pozostawiają na dużym ekranie niewykorzystaną szerokość. | Moduły danych wykorzystują całą dostępną szerokość. Limit szerokości pozostaje dla tekstu i prostych formularzy. |
-| P1 | `src/tools/ipam/Ipam.jsx`, `IpamToolbar.jsx` | Start to search, bez listy podsieci; przełączniki widoków, narzędzia planowania, import i ustawienia stoją obok wyszukiwania. | Domyślnie lista podsieci; osobno nawigacja lokalna, filtry i akcje. |
-| P1 | `src/tools/ipam/SubnetDetail.jsx` | Inventory łączy statystyki, podsieci, heatmapę/tabelę, DHCP, rezerwacje i tagi. Otwarcie rekordu z tabeli ustawia `inventoryView("heatmap")`. | Podsieć ma zakładki tematyczne; tabela i mapa otwierają ten sam inspektor bez zmiany widoku. |
-| P1 | `src/tools/device-visualization/device-visualization.css`, `DeviceFaceplate.jsx` | Stała szerokość portów i layout `max-content` wymuszają poziomy scroll. Dla 48 Ethernet przy numeracji liczbowej: 24 × 82 + 23 × 8 = 2152 px, jeszcze przed SFP/QSFP. | Widok Fit, tryb powiększenia i alternatywna tabela. Czytelne dane nie są pomniejszane wraz z rysunkiem. |
-| P1 | `src/tools/device-visualization/DeviceVisualization.jsx` | Lista zajmuje 270 px, edytor jest pod panelem urządzenia; po wyborze portu trzeba szukać formularza niżej. | Port otwiera inspektor obok panelu. Lista urządzeń znika z obszaru roboczego na mniejszych ekranach. |
-| P1 | `src/tools/routing-map/RoutingTable.jsx`, `src/tools/shared.css` | Dwie trzykolumnowe tabele bez kontraktu szerokości i `colgroup`; auto layout zależy od zawartości i elementów edycyjnych. | Wspólny preset kolumn i paddingów. Edycja nie zmienia szerokości kolumn. |
-| P1 | `src/pages/HomePage.jsx` | Karty to klikalne `div`; opis deklaruje, że wszystko działa lokalnie w przeglądarce, choć moduły korzystają z serwera. | Linki dostępne z klawiatury; opis zgodny z self-hosted architekturą i zakresem każdego narzędzia. |
-| P2 | `src/index.css`, `src/tools/shared.css` | Wiele etykiet ma 10–11 px, monospace obejmuje nazwy i treści nietechniczne; input usuwa outline. | Sans do interfejsu, mono do adresów i nazw portów. Wspólny, widoczny focus. |
-| P2 | `src/tools/shared.css`, CSS modułów | Tabele domyślnie mają max-height 360 px, część modułów nadpisuje limit; osobne systemy przycisków i zakładek. | Jeden zestaw komponentów i zasad przewijania; lokalne wyjątki tylko dla rzeczywistych potrzeb danych. |
-| P2 | `src/tools/post-change-validation/PostChangeValidation.jsx`, `src/tools/routing-map/RoutingMap.jsx`, `src/tools/troubleshoot/Troubleshoot.jsx` | Różne konstrukcje zakładek; walidacja ma klikalne `div`. | Nawigacja trasami jako linki; zakładki wewnątrz obiektu z pełną obsługą klawiatury. |
+| P0 | `src/tools/post-change-validation/ExecutionTab.jsx`, `DiffViewTab.jsx`, `PirReportTab.jsx` | Execution uses SAMPLE_TESTS and a timer; Diff shows a fixed positive result; PIR changes local state and claims an export. The GUI may appear to prove tests were executed. | Visible Demonstration mode. Real statuses require backend evidence; missing data does not mean PASS. |
+| P1 | `src/components/Toolbar.jsx`, `src/index.css`, `src/tenants/tenants.css` | All modules, configuration, account and tenant compete for a horizontal bar. `.nt-toolbar` scrolls on the X axis. | Persistent grouped navigation panel; the top bar provides context and account controls. |
+| P1 | `src/App.jsx` | Navigation is local `useState("home")`; object and view selections are not page addresses. | Addressable views, Back/Forward and restoring the view after refresh. |
+| P1 | `src/index.css`, `.nt-main` | A 1280 px limit and 28 px padding leave unused width on large screens. | Data modules use all available width. Width limits remain for prose and simple forms. |
+| P1 | `src/tools/ipam/Ipam.jsx`, `IpamToolbar.jsx` | The initial view is search without a subnet list; view switches, planning tools, import and settings sit next to search. | Default subnet list; separate local navigation, filters and actions. |
+| P1 | `src/tools/ipam/SubnetDetail.jsx` | Inventory combines statistics, subnets, heatmap/table, DHCP, reservations and tags. Opening a table record sets `inventoryView("heatmap")`. | Subnet tabs organized by topic; table and map open the same inspector without switching views. |
+| P1 | `src/tools/device-visualization/device-visualization.css`, `DeviceFaceplate.jsx` | Fixed port widths and `max-content` layout force horizontal scrolling. For 48 Ethernet ports with numeric naming: 24 × 82 + 23 × 8 = 2152 px, before SFP/QSFP. | Fit view, zoom mode and alternative table. Readable data does not shrink with the drawing. |
+| P1 | `src/tools/device-visualization/DeviceVisualization.jsx` | The list takes 270 px and the editor sits below the device panel; selecting a port requires finding the form further down. | Ports open an inspector beside the panel. The device list leaves the workspace on smaller screens. |
+| P1 | `src/tools/routing-map/RoutingTable.jsx`, `src/tools/shared.css` | Two three-column tables without a width contract or `colgroup`; automatic layout depends on content and editing elements. | Shared column and padding preset. Editing does not change column widths. |
+| P1 | `src/pages/HomePage.jsx` | Cards are clickable `div` elements; the description claims everything runs locally in the browser, although modules use the server. | Keyboard-accessible links; descriptions matching the self-hosted architecture and each tool's scope. |
+| P2 | `src/index.css`, `src/tools/shared.css` | Many labels are 10–11 px, monospace covers names and nontechnical content, and inputs remove outlines. | Sans for the interface, mono for addresses and port names. Shared visible focus. |
+| P2 | `src/tools/shared.css`, module CSS | Tables default to max-height 360 px, some modules override it; separate button and tab systems. | One component set and scrolling policy; local exceptions only for actual data needs. |
+| P2 | `src/tools/post-change-validation/PostChangeValidation.jsx`, `src/tools/routing-map/RoutingMap.jsx`, `src/tools/troubleshoot/Troubleshoot.jsx` | Different tab implementations; validation uses clickable `div` elements. | Route navigation as links; tabs within objects with full keyboard support. |
 
-Zachowujemy już dobre rozwiązania: serwerową paginację adresów, wyszukiwanie z debounce, kontrolę wersji rekordów, podgląd przenosin, istniejące zabezpieczenia niezapisanych zmian, audyt oraz rozdzielenie uprawnień IPAM. Redesign nie powinien ich zastępować uproszczoną makietą.
+Preserve what already works well: server-side address pagination, debounced search, record version checks, move previews, existing unsaved-change protection, audit and separate IPAM permissions. The redesign should not replace these with a simplified mockup.
 
-## Architektura informacji
+## Information architecture
 
 ```text
 net::toolbox
@@ -56,104 +56,104 @@ net::toolbox
 ├─ Utilities
 │  ├─ IP Calculator
 │  └─ Subnet Splitter
-└─ Administration [według uprawnień]
+└─ Administration [according to permissions]
    ├─ Tenant access
-   ├─ Users [administracja platformy]
-   ├─ Roles [administracja platformy]
-   ├─ Active Directory [administracja platformy]
-   └─ Audit [właściwy zakres]
+   ├─ Users [platform administration]
+   ├─ Roles [platform administration]
+   ├─ Active Directory [platform administration]
+   └─ Audit [appropriate scope]
 ```
 
-Tenant jest granicą danych, nie filtrem. Jest stale widoczny w górnym pasku, również na ekranie telefonu. Globalne kalkulatory mają podpis `Browser utility · Global`, moduły bazodanowe nazwę aktywnego tenanta. Zmiana tenanta najpierw rozwiązuje niezapisany formularz, potem weryfikuje dostęp, odmontowuje moduł i czyści selekcję, cache oraz strumienie. Nie odtwarza numeru obiektu z poprzedniego tenanta. W razie błędu nie pokazuje danych pod nową nazwą tenanta. Zachować obecne zasady osobnego wyboru w kartach przeglądarki.
+The tenant is a data boundary, not a filter. It remains visible in the top bar, including on phones. Global calculators are labeled `Browser utility · Global`; database modules show the active tenant's name. Switching tenants first resolves unsaved forms, then verifies access, unmounts the module and clears selection, cache and streams. It does not restore an object ID from the previous tenant. On failure, it does not show data under the new tenant's name. Preserve the current rules for separate selections in browser tabs.
 
-Nie utożsamiać `tenant-admin` z administratorem platformy. Widoczność ekranów i akcji wynika z istniejących uprawnień, a serwer pozostaje źródłem autoryzacji. Brak dostępu do modułu ukrywa jego link; tryb tylko do odczytu zachowuje dane i pokazuje `Read only`, bez akcji zapisu. Nie zastępować indywidualnych `ipam.read/write/scan/admin` jednym ogólnym przełącznikiem.
+Do not equate `tenant-admin` with a platform administrator. Screen and action visibility follows existing permissions, and the server remains the authorization authority. No module access hides its link; read-only mode retains data and shows `Read only`, without write actions. Do not replace separate `ipam.read/write/scan/admin` permissions with one generic switch.
 
-## Wspólna anatomia ekranu
+## Shared screen anatomy
 
-1. Panel boczny: logo, Workspace, pogrupowane moduły, administracja na dole. Aktywny moduł ma stonowane tło, nie jaskrawy wypełniony przycisk.
-2. Pasek kontekstu: tenant i konto. Wyszukiwarka na początek obejmuje nawigację i bieżący moduł; wyszukiwanie między modułami wymaga osobnej pracy backendowej i nie jest obiecywane.
-3. Nagłówek strony: tytuł, krótki opis, jedna główna akcja po prawej. Operacje rzadkie w `More`; destrukcyjne na końcu menu.
-4. Nawigacja lokalna: podstrony modułu zawsze pod nagłówkiem. Nie mieszać jej z filtrami.
-5. Obszar roboczy: lista/selector po lewej, dane w środku, inspektor po wyborze po prawej. Proste kalkulatory używają układu formularz → wynik bez dodatkowych paneli.
-6. Pasek narzędzi danych: wyszukiwanie, filtry, liczba wyników, przełącznik widoku. Akcje zbiorcze pojawiają się dopiero po zaznaczeniu.
-7. Stopka tabeli: zakres wyników i paginacja. Zapis formularza jest w stałej stopce inspektora.
+1. Sidebar: logo, Workspace, grouped modules, administration at the bottom. The active module has a muted background rather than a bright filled button.
+2. Context bar: tenant and account. Initially, search covers navigation and the current module; cross-module search requires separate backend work and is not promised.
+3. Page header: title, short description and one primary action on the right. Infrequent operations under `More`; destructive actions at the end of the menu.
+4. Local navigation: module subpages always below the header. Do not mix navigation with filters.
+5. Workspace: list/selector on the left, data in the center, inspector on the right after selection. Simple calculators use form → result without additional panels.
+6. Data toolbar: search, filters, result count and view switch. Bulk actions appear only after selection.
+7. Table footer: result range and pagination. Form save actions sit in a fixed inspector footer.
 
-Jedno znaczenie dla każdego regionu. Dodawanie podsieci nie ląduje w filtrach; ustawienia nie pojawiają się wśród wyników; usuwanie nie konkuruje wizualnie z edycją. Nie tworzymy jednego ogromnego komponentu wymagającego kilkudziesięciu flag — wspólna anatomia dopuszcza listę, tabelę, canvas i formularz.
+Give each region one purpose. Adding a subnet does not belong in filters; settings do not appear among results; deletion does not visually compete with editing. Do not create one enormous component requiring dozens of flags — the shared anatomy accommodates lists, tables, canvases and forms.
 
 ## IPAM
 
-### Struktura
+### Structure
 
-Nawigacja modułu: `Subnets`, `Overview`, `Planning`, `Data quality`, `Archive`. `Import` to akcja listy uruchamiająca pełny proces: plik → podgląd → wynik. `Planning` zawiera Allocator i Resubnet z zachowaniem obecnych podglądów. Ustawienia i zarządzanie tagami dostępne z menu modułu według uprawnień.
+Module navigation: `Subnets`, `Overview`, `Planning`, `Data quality`, `Archive`. `Import` is a list action starting the complete flow: file → preview → result. `Planning` contains Allocator and Resubnet, retaining current previews. Settings and tag management are available from the module menu according to permissions.
 
-Domyślny ekran Subnets pokazuje listę dostępnych sieci: CIDR, opis, VLAN, tagi i skrócone wykorzystanie. Drzewo opiera się na istniejącym `parentId`; nie sugeruje, że wszystkie nakładające się CIDR tworzą potwierdzoną hierarchię. Nad listą wyszukiwanie i filtry. Brak wybranego obiektu oznacza przegląd listy, a nie instrukcję „wyszukaj coś”.
+The default Subnets screen lists available networks: CIDR, description, VLAN, tags and summarized utilization. The tree uses existing `parentId`; it does not imply all overlapping CIDRs form a confirmed hierarchy. Search and filters sit above the list. No selected object means browsing the list, rather than an instruction to “search for something”.
 
-Po wyborze podsieci: breadcrumb rodziców, CIDR, opis i VLAN, podsumowanie stanów, następnie zakładki `Addresses`, `DHCP & ranges`, `Child subnets`, `History`, `Settings`. Przydzielanie adresu jest akcją Addresses, skanowanie akcją podsieci z osobnym potwierdzeniem zakresu, eksport w menu danych. Przeniesienie do tenanta i archiwizacja mają przegląd wpływu.
+After subnet selection: parent breadcrumbs, CIDR, description and VLAN, a status summary, then `Addresses`, `DHCP & ranges`, `Child subnets`, `History`, `Settings` tabs. Address allocation is an Addresses action; scanning is a subnet action with separate scope confirmation; export is in the data menu. Tenant moves and archiving include an impact review.
 
-### Adresy
+### Addresses
 
-Tabela jest domyślnym widokiem pracy; mapa to alternatywna analiza zajętości. Tabela pokazuje zapisane rekordy, z jednoznacznym podpisem. Heatmapa obejmuje przestrzeń adresową, stronicowaną dla dużych sieci; niezapisane adresy nie są automatycznie wolne. Zachować osobno: Used, Reserved, Free (recorded), Not recorded. Nie sumować rodzica i dzieci jak niezależnych zakresów i nie prezentować zajętości jako dostępności hosta.
+The table is the default working view; the map is an alternative occupancy analysis. The table shows saved records with an explicit label. The heatmap covers address space, paginated for large networks; unrecorded addresses are not automatically free. Keep Used, Reserved, Free (recorded), Not recorded separate. Do not sum parent and child networks as independent ranges or present occupancy as host reachability.
 
-Wiersz adresu i komórka mapy otwierają ten sam inspektor. W tabeli nie następuje przełączenie do mapy. Inspektor: adres i stan, hostname/opis, zespół/środowisko/typ, tagi, blokada i dostępne wykluczenia, historia. Formularz ma ręczny zapis; zmiana statusu nie zapisuje niespodziewanie wszystkich pozostałych pól. Pola i akcje muszą respektować obecne uprawnienia.
+An address row and map cell open the same inspector. The table does not switch to the map. Inspector: address and status, hostname/description, team/environment/type, tags, lock and available exclusions, history. The form saves manually; changing status does not unexpectedly save all other fields. Fields and actions must respect existing permissions.
 
-Zaznaczenie zbiorcze zachowuje obecną semantykę: tylko bieżąca filtrowana strona. Podpis `12 selected on this page`; nie sugerować zaznaczenia całej bazy. Zmiana filtrów/paginacji czyści zaznaczenie jawnie. Wynik operacji podaje sukcesy, pominięcia i powody, bez fałszywego komunikatu o pełnym sukcesie.
+Bulk selection retains current semantics: only the current filtered page. Label it `12 selected on this page`; do not imply selection of the entire database. Changing filters/pagination explicitly clears selection. Operation results report successes, skips and reasons, without a false claim of complete success.
 
-### Przebieg
+### Flow
 
-Lista podsieci → wybór → tabela adresów → otwarcie adresu → edycja w inspektorze → zapis → aktualizacja wiersza bez utraty filtrów i scrolla. Konflikt wersji zachowuje draft, pokazuje aktualną wersję i oferuje ponowne sprawdzenie; nie nadpisuje cudzych zmian.
+Subnet list → selection → address table → open address → edit in inspector → save → update row without losing filters or scroll position. A version conflict preserves the draft, shows the current version and offers another review; it does not overwrite another user's changes.
 
 ## Device Visualization
 
-Lista urządzeń: nazwa, typ, model i liczba przypisanych portów. Filtry pozostają zgodne z API: vendor ma zastosowanie do firewalli; nie dodawać fikcyjnych lokalizacji, racków lub producentów switchy. Nagłówek obiektu: nazwa, opis, model, podsumowanie portów. Widoki: `Panel`, `Port table`, `History`; edycja urządzenia jest akcją, nie kolejnym niezwiązanym ekranem.
+Device list: name, type, model and assigned port count. Filters remain consistent with the API: vendor applies to firewalls; do not add fictional locations, racks or switch vendors. Object header: name, description, model, port summary. Views: `Panel`, `Port table`, `History`; device editing is an action rather than another unrelated screen.
 
-### Cały panel w ekranie
+### Fitting the complete panel on screen
 
-Canvas jest ograniczony do dostępnego obszaru ekranu. Początkowo `Fit`: cała geometria grup portów mieści się w szerokości canvasu. Obliczenie skali z rzeczywistego bounding box i ResizeObserver, z marginesem; canvas nie zwiększa szerokości strony. Po otwarciu inspektora przelicza się Fit, jeśli użytkownik nie wybrał ręcznego zoomu. Kontrolki: `Fit`, minus, aktualna skala, plus, `Fullscreen`. Powiększony widok może przewijać wyłącznie canvas. Fullscreen ma widoczne wyjście i obsługę Escape.
+The canvas is bounded by available screen space. Initially use `Fit`: all port group geometry fits within the canvas width. Calculate scale from the actual bounding box and ResizeObserver, with a margin; the canvas does not widen the page. Opening the inspector recalculates Fit unless the user chose manual zoom. Controls: `Fit`, minus, current scale, plus, `Fullscreen`. Zoomed views scroll only the canvas. Fullscreen has a visible exit and Escape support.
 
-Nie pomniejszać całego JSX z tekstem i przyciskami do nieczytelnego rozmiaru. Widok Fit pokazuje schemat portów: rodzinę, numer i przypisanie; pełne nazwy, etykiety, cel i VLAN znajdują się w inspektorze i tabeli. Utrzymać fizyczny porządek par 1/2, 3/4 itd., osobne grupy Ethernet/SFP/QSFP i NIC. Nie łamać portów do przypadkowych rzędów tylko po to, by pasowały do szerokości.
+Do not shrink all JSX, including text and buttons, to an unreadable size. Fit shows a port schematic: family, number and assignment; full names, labels, destination and VLAN are in the inspector and table. Preserve physical pairs 1/2, 3/4, etc., and separate Ethernet/SFP/QSFP and NIC groups. Do not wrap ports into arbitrary rows merely to fit the width.
 
-Jeśli Fit sprowadza cele interakcji poniżej przyjętego minimum, schemat służy do orientacji, a wybór zapewnia czytelna lista/tabela i wyszukanie portu. Nie nakładać na siebie powiększonych hitboxów. Na małym ekranie domyślnie tabela; Panel i Fullscreen dostępne świadomie. Obsługa klawiatury: wejście jednym Tab do schematu, strzałki między portami, Enter wybiera, focus ma czytelną nazwę. Zaznaczenie jest wspólne dla panelu i tabeli.
+If Fit reduces interaction targets below the accepted minimum, use the schematic for orientation and provide selection through a readable list/table and port search. Do not overlap enlarged hitboxes. Default to the table on small screens; Panel and Fullscreen remain explicit choices. Keyboard support: one Tab enters the schematic, arrows move between ports, Enter selects, and focus has a readable name. Selection is shared between panel and table.
 
-### Edycja
+### Editing
 
-Wybrany port otwiera inspektor obok canvasu: pełna nazwa, rodzina/prędkość, etykieta, Leads to, tryb Access/Trunk i odpowiednie VLAN-y. Zapis w stałej stopce; pole niezapisanych zmian widoczne. Zmiana portu, urządzenia, modułu lub tenanta ma wspólne rozstrzygnięcie `Save / Discard / Stay`. Operacji asynchronicznej nie można zapisać do nowo wybranego obiektu.
+The selected port opens an inspector beside the canvas: full name, family/speed, label, Leads to, Access/Trunk mode and relevant VLANs. Save actions sit in a fixed footer; unsaved changes are visible. Switching ports, devices, modules or tenants uses a shared `Save / Discard / Stay` decision. An asynchronous operation cannot save to a newly selected object.
 
-Przypisanie dokumentacyjne nie jest statusem linku. Widoczny podpis `Saved documentation · No live link status`. Leads to pozostaje tekstem; nie rysujemy potwierdzonych połączeń do innych urządzeń bez relacji w danych. Zmiana VLAN nie konfiguruje sprzętu. Redukcja liczby portów pokazuje istniejący podgląd utraconych przypisań/konfiguracji i wymaga potwierdzenia. Historia usuniętych urządzeń pozostaje dostępna przez wyszukanie ID.
+A documented assignment is not link status. Show `Saved documentation · No live link status`. Leads to remains text; do not draw confirmed connections to other devices without relationships in the data. Changing VLAN does not configure hardware. Reducing the port count shows the existing preview of lost assignments/configuration and requires confirmation. Deleted device history remains available by ID search.
 
-## Routing Map — wyrównanie kolumn
+## Routing Map — column alignment
 
-Najpierw lista zapisanych hostów, potem szczegóły hosta. Edytor importu przenosimy do osobnego procesu `Import routes`; nie zajmuje stale lewej strony ekranu operacyjnego. Lokalna nawigacja: `Hosts`, `Routing test`, `Topology`.
+Show the saved host list first, then host details. Move the import editor to a separate `Import routes` flow; it should not permanently occupy the left side of the operational screen. Local navigation: `Hosts`, `Routing test`, `Topology`.
 
-W szczegółach hosta sekcje Interfaces i Routes zajmują identyczną szerokość i zaczynają się w tej samej osi. Przy szerokim widoku wspólny trzykolumnowy preset: pierwsza 220 px, druga 240 px, trzecia reszta. Dla 960 px danych granice to 0 / 220 / 460 / 960 px. Obie tabele mają jawny `colgroup`, `table-layout: fixed`, identyczny padding 12 px oraz wiersze co najmniej 40 px. W edycji input mieści się we własnej komórce i nie przelicza kolumn. Makieta pokazuje tabelę tego samego hosta, nie porównuje różnych obiektów.
+In host details, Interfaces and Routes occupy the same width and start on the same axis. For wide views, use a shared three-column preset: first 220 px, second 240 px, third the remainder. For a 960 px data area, boundaries are 0 / 220 / 460 / 960 px. Both tables have an explicit `colgroup`, `table-layout: fixed`, identical 12 px padding and rows at least 40 px high. During editing, inputs fit their own cells without recalculating columns. The mockup shows tables for the same host, rather than comparing different objects.
 
-| Slot | Interfaces | Routes | Zasada |
+| Slot | Interfaces | Routes | Rule |
 |---|---|---|---|
-| A: 220 px | Name | Network | Pełna wartość techniczna dostępna do kopiowania |
-| B: 240 px | Address | Next hop | Monospace; wsparcie długich adresów bez zmiany geometrii |
-| C: pozostała przestrzeń | Description | Interface | Opis może zawijać się; nazwa interfejsu ma podgląd pełnej wartości |
+| A: 220 px | Name | Network | Full technical value available for copying |
+| B: 240 px | Address | Next hop | Monospace; long addresses supported without geometry changes |
+| C: remaining space | Description | Interface | Descriptions can wrap; interface names provide a full-value preview |
 
-Na węższym obszarze wspólny wariant 28% / 30% / 42%, z dolną granicą czytelnej szerokości tabeli. Poniżej niej obie sekcje przechodzą do widoku rekordów label/value, zamiast rozpychać całą stronę. Nie narzucamy takich samych szerokości każdej tabeli w projekcie — wspólny kontrakt stosujemy do zestawionych sekcji o porównywalnej strukturze.
+In narrower areas, use a shared 28% / 30% / 42% variant with a minimum readable table width. Below that width, both sections switch to label/value records rather than widening the entire page. Do not force identical widths on every table in the project — the shared contract applies to adjacent sections with comparable structure.
 
-Topology ma Fit, zoom i inspektor hosta dostępny przez kliknięcie i klawiaturę, zamiast danych wyłącznie na hover. Krawędź nadal oznacza współdzieloną sieć z zapisanych danych; nie przedstawia fizycznego kabla ani sprawdzonej ścieżki routingu.
+Topology has Fit, zoom and a host inspector accessible by click and keyboard, rather than hover-only data. An edge still represents a shared network from saved data; it does not represent a physical cable or a verified routing path.
 
-## Pozostałe powierzchnie
+## Other screens
 
-| Powierzchnia | Nowy układ i podstawowy przepływ |
+| Screen | New layout and primary flow |
 |---|---|
-| Workspace | Kompaktowy katalog grup narzędzi i lokalnie zapamiętane ostatnie moduły. Krótkie, prawdziwe opisy. Bez zbiorczych wskaźników „zdrowia sieci”, których aplikacja nie zbiera. |
-| Connection Test | Konfiguracja po lewej, wyniki po prawej. Źródła → cele → porty → właściwe dla systemu poświadczenia → opcje zaawansowane. Przed startem podsumowanie zakresu. Wyniki rozróżniają brak łączności, błąd wykonania i brak wyniku; filtry stanu i pełne szczegóły. Zachować walidację, limity i parametry SSH/WinRM. Nie obiecywać anulowania zadania bez API. |
-| Troubleshoot | Zachować zakres Diagnostics, Locate & Port, Reachability & Route, STP, Inventory, Activity. Ujednolicić nawigację i układ cel → parametry → wynik. Locate ma stały kontekst celu, pod nim czytelne sekcje port health, cable, optics, access. Karty wyników nie zmieniają rozmiaru losowo i pokazują czas oraz źródło. Zachować współdzielony `locateForm` oraz zależność Route check od poświadczeń Locate; nie udawać globalnego kontekstu, którego dziś nie ma. |
-| Post-Change Validation | Sekwencja Baseline → Execution → Diff → PIR ze wskazaniem planu i dowodów. Etapy bez danych mają stan Not available, nie sukces. Obecne symulacje wyraźnie Demonstration. Realny run, trwały sign-off i eksport wymagają osobnej integracji; samo GUI nie naprawi ich braku. |
-| IP Calculator | Krótki formularz, wynik obok, kopiowanie IP/CIDR/maski, binarny podział jako sekcja rozwijana. Etykiety powiązane z inputami, jasna informacja o prefiksie z pola IP. |
-| Subnet Splitter | Sieć i wykluczenia jako wejście, podgląd zakresu i bloki CIDR jako wynik. Błąd wskazuje konkretną linię. Sprawdzanie pojedynczych IP jest wtórną sekcją; zachować istniejące reguły obliczeń. |
-| Login / account | Jeden system pól i błędów, obsługa managera haseł. Konto i zmiana hasła w osobnym panelu z właściwym focus. Wygaśnięcie sesji blokuje akcje; nie przechowujemy poświadczeń diagnostyki w localStorage ani URL. |
-| Administration / tenants | Oddzielić zakres platformy i aktywnego tenanta. Users/Roles: tabela i inspektor, uprawnienia pogrupowane według modułów. AD: formularz sekcjami zgodny z istniejącymi opcjami. Audit: filtry, tabela, szczegóły zdarzenia; nie sugerować zunifikowanego audytu wszystkich modułów bez agregacji API. |
+| Workspace | Compact tool group catalog and locally remembered recent modules. Short, accurate descriptions. No aggregate “network health” indicators that the application does not collect. |
+| Connection Test | Configuration on the left, results on the right. Sources → destinations → ports → OS-appropriate credentials → advanced options. Scope summary before starting. Results distinguish connection failure, execution error and missing result; status filters and full details. Preserve validation, limits and SSH/WinRM parameters. Do not promise job cancellation without an API. |
+| Troubleshoot | Preserve Diagnostics, Locate & Port, Reachability & Route, STP, Inventory, Activity scope. Unify navigation and target → parameters → result layout. Locate has persistent target context, followed by readable port health, cable, optics and access sections. Result cards do not resize arbitrarily and show time and source. Preserve shared `locateForm` and Route check's dependency on Locate credentials; do not pretend a global context exists today. |
+| Post-Change Validation | Baseline → Execution → Diff → PIR sequence with plan and evidence. Stages without data show Not available, not success. Clearly label current simulations Demonstration. Real runs, persistent sign-off and export require separate integration; GUI changes alone cannot supply them. |
+| IP Calculator | Short form with adjacent result, copying IP/CIDR/mask, binary breakdown in an expandable section. Labels associated with inputs; clear information about the prefix from the IP field. |
+| Subnet Splitter | Network and exclusions as input, scope preview and CIDR blocks as output. Errors identify a specific line. Checking individual IPs is a secondary section; preserve existing calculation rules. |
+| Login / account | One field and error system with password manager support. Account and password changes in a separate panel with correct focus. Session expiry blocks actions; do not store diagnostic credentials in localStorage or URLs. |
+| Administration / tenants | Separate platform and active tenant scope. Users/Roles: table and inspector, permissions grouped by module. AD: sectioned form matching existing options. Audit: filters, table, event details; do not imply unified auditing across all modules without API aggregation. |
 
-## System wizualny — proponowane tokeny
+## Visual system — proposed tokens
 
-To kandydat systemu, nie zatwierdzony globalny DESIGN.md. Styl: płaskie, spokojne powierzchnie, subtelne separatory, czytelna typografia i jeden morski akcent. Bez gradientów tła, dekoracyjnego szkła, nadmiaru pillów i kart w kartach. Tożsamość pozostaje w `net::toolbox`, akcencie i precyzji danych.
+This is a candidate system, not an approved global DESIGN.md. Style: flat, calm surfaces, subtle separators, readable typography and one teal accent. No background gradients, decorative glass, excessive pills or cards within cards. Identity remains in `net::toolbox`, the accent and precise data.
 
-| Token | Ciemny wariant | Jasny wariant |
+| Token | Dark variant | Light variant |
 |---|---|---|
 | canvas | #11161D | #F3F5F7 |
 | surface | #181F28 | #FFFFFF |
@@ -169,64 +169,64 @@ To kandydat systemu, nie zatwierdzony globalny DESIGN.md. Styl: płaskie, spokoj
 | warning text | #F1C277 | #835000 |
 | danger text | #FFADB4 | #AD2334 |
 
-Tekst i przyciski: Inter self-hosted lub systemowy sans jako fallback. Mono: IBM Plex Mono self-hosted, tylko IP/CIDR/MAC/nazwy portów/CLI. Bez obowiązkowego pobierania fontów z Google w instalacji self-hosted. Typografia: tytuł strony 24/32 px semibold, tytuł obiektu 20/28, treść 14/20, dane 13/20, etykiety minimum 12/16. Liczby tabelaryczne. Body 14 px nie dotyczy mobile inputów: tam co najmniej 16 px.
+Text and buttons: self-hosted Inter or system sans fallback. Mono: self-hosted IBM Plex Mono, only for IP/CIDR/MAC/port names/CLI. No mandatory Google font downloads in a self-hosted installation. Typography: page title 24/32 px semibold, object title 20/28, body 14/20, data 13/20, labels at least 12/16. Tabular numerals. The 14 px body size does not apply to mobile inputs: use at least 16 px there.
 
-Skala odstępów: 4, 8, 12, 16, 24, 32 px. Padding obszaru roboczego 24 px desktop, 16 px tablet, 12 px telefon. Kontrolki 36 px desktop, minimum 44 px na dotyku. Wiersze tabeli 40 px standard, opcjonalne 32 px compact tylko desktop. Radius 6 px kontrolki, 8 px powierzchnie. Jeden system ikon SVG 18–20 px z tą samą grubością kreski; bez mieszanki Unicode i emoji.
+Spacing scale: 4, 8, 12, 16, 24, 32 px. Workspace padding: 24 px desktop, 16 px tablet, 12 px phone. Controls: 36 px desktop, at least 44 px for touch. Table rows: 40 px standard, optional 32 px compact on desktop only. Radius: 6 px controls, 8 px surfaces. One 18–20 px SVG icon system with consistent stroke weight; no mix of Unicode and emoji.
 
-Stany: hover, focus, selected, disabled, pending, error, success. Akcent oznacza akcję lub wybór; zielony status nie powinien wyglądać jak zaznaczony wiersz. Status zawsze tekst + symbol, nie sam kolor. Ruch wyłącznie jako feedback, 150–200 ms; reduced-motion wyłącza przejścia. Zero animowanych wejść całej strony.
+States: hover, focus, selected, disabled, pending, error, success. Accent indicates action or selection; a green status should not resemble a selected row. Status always uses text + symbol, not color alone. Motion only as feedback, 150–200 ms; reduced-motion disables transitions. No animated whole-page entrances.
 
-## Responsywność i geometria
+## Responsive behavior and geometry
 
-| Szerokość viewportu | Kompozycja |
+| Viewport width | Composition |
 |---|---|
-| ≥1600 px | Sidebar 216 px, lista 256–280 px, dane elastyczne, inspektor 320–360 px. Nie wszystkie regiony muszą być zawsze otwarte. |
-| 1280–1599 px | Sidebar 200–216 px. Przy otwartym inspektorze zwija się lista obiektów; canvas i tabela zachowują użyteczną szerokość. Makiety 1440 px celowo pokazują ten wariant. |
-| 900–1279 px | Nawigacja w wysuwanym panelu z nazwami; lista i szczegół jako dwa widoki. Inspektor zastępuje szczegół lub otwiera pełny panel z kontrolą focus. |
-| <900 px | Jeden główny widok: lista → obiekt → inspektor, z jawnym Back. Tenant pozostaje widoczny. Device domyślnie tabela. |
-| Telefon / 320 CSS px | Rekordy label/value i przewijanie pionowe. Canvas lub rzeczywiście dwuwymiarowa tabela mogą mieć własny scroll, ale nie cała strona. Pełnoekranowe formularze i kontrolki dotykowe. |
+| ≥1600 px | Sidebar 216 px, list 256–280 px, flexible data area, inspector 320–360 px. Not every region must always be open. |
+| 1280–1599 px | Sidebar 200–216 px. The object list collapses when the inspector is open; canvas and table retain usable width. The 1440 px mockups deliberately show this variant. |
+| 900–1279 px | Navigation in a drawer with names; list and detail as two views. The inspector replaces detail or opens a full panel with focus management. |
+| <900 px | One primary view: list → object → inspector, with explicit Back. Tenant remains visible. Device defaults to table. |
+| Phone / 320 CSS px | Label/value records and vertical scrolling. A canvas or genuinely two-dimensional table may scroll independently, but the whole page must not. Full-screen forms and touch controls. |
 
-Nie oceniać układu tylko po viewport: pojawienie się inspektora zmniejsza szerokość zawartości. Stosować również container queries. Nie wciskać czterech kolumn na laptop 1366 × 768. Na takim ekranie nagłówek jest kompaktowy, lista zwinięta podczas edycji, a wybrany port i przycisk Save pozostają widoczne bez przewijania całej strony. Tabele mają sticky header; zagnieżdżony scroll stosować świadomie, nie przez globalny limit 360 px.
+Do not assess layout by viewport alone: opening the inspector reduces content width. Also use container queries. Do not squeeze four columns onto a 1366 × 768 laptop. On that screen, the header is compact, the list collapses during editing, and the selected port and Save button remain visible without scrolling the entire page. Tables use sticky headers; apply nested scrolling deliberately, not through a global 360 px limit.
 
-## Stany i dostępność
+## States and accessibility
 
-| Sytuacja | Zachowanie |
+| Situation | Behavior |
 |---|---|
-| Pierwsze użycie | Co przechowuje moduł i właściwa akcja Add/Import; dla read-only informacja o potrzebnym dostępie. |
-| Brak wyników filtrów | Zachowane filtry, liczba 0, akcja Clear filters. Nie mylić z pustą bazą. |
-| Loading | Skeleton stabilnej geometrii; podczas odświeżania stare dane oznaczone jako odświeżane, bez możliwości operacji na nieaktualnej selekcji. |
-| Błąd danych | Komunikat przy danym regionie i Retry; nie kasować draftu. Nie pokazywać 0 zamiast nieznanych danych. |
-| Skan / zadanie | Zakres, stan z backendu, postęp tylko gdy znany, wynik i błędy. Zmiana widoku nie oznacza anulowania pracy serwera. |
-| Konflikt wersji | Zachowany draft, wyjaśnienie, odczyt aktualnej wersji i ponowny podgląd przed zapisem. |
-| Archiwizacja / usuwanie | Dokładny obiekt, zakres skutków, wymagany powód jeśli API go wymaga; potwierdzenie w dedykowanym dialogu lub etapie przeglądu. |
-| Niepełny sukces | Lista pominiętych elementów i przyczyn; stan warning, nie zbiorczy success. |
-| Niezapisane zmiany | Save / Discard / Stay, także przy zmianie tenanta; bez automatycznego nadpisywania. |
-| Sesja wygasła | Blokada akcji, ponowne logowanie; sekrety nie są utrwalane. Przywrócenie draftu tylko przy tym samym koncie i tenantcie po weryfikacji dostępu. |
+| First use | Explain what the module stores and offer the appropriate Add/Import action; explain required access for read-only users. |
+| No filter results | Preserve filters, show count 0 and Clear filters. Do not confuse this with an empty database. |
+| Loading | Stable skeleton geometry; while refreshing, mark old data as refreshing and prevent operations on stale selections. |
+| Data error | Message beside the affected region and Retry; do not discard the draft. Do not show 0 for unknown data. |
+| Scan / job | Scope, backend status, progress only when known, results and errors. Switching views does not cancel server work. |
+| Version conflict | Preserve the draft, explain, read the current version and preview again before saving. |
+| Archiving / deletion | Exact object, scope of effects, reason if required by the API; confirmation in a dedicated dialog or review step. |
+| Partial success | List skipped items and reasons; warning status rather than overall success. |
+| Unsaved changes | Save / Discard / Stay, including tenant changes; no automatic overwrite. |
+| Session expired | Block actions and require login again; secrets are not persisted. Restore a draft only for the same account and tenant after verifying access. |
 
-Cel wdrożenia: WCAG 2.2 AA. Kontrast tekstu min. 4.5:1, dużego tekstu 3:1, istotnych granic i wskaźników focus 3:1. Minimum celu interakcji AA to 24 × 24 CSS px z wyjątkami standardu; 44 px przyjmujemy jako własny standard dotyku. Klawiatura obsługuje wszystkie akcje, focus nie jest zasłaniany przez sticky paski, zamknięcie panelu oddaje go elementowi otwierającemu. Dialog ma nazwę, kontrolę focus i Escape; zakładki roving tabindex i strzałki. Linki do stron nie udają zakładek ARIA. Tabele zachowują semantykę i sortowanie `aria-sort`; mapa ma równoważny widok tabelaryczny. Komunikaty async w `aria-live`, błędy powiązane z polami. Sprawdzić zoom 200%, reflow przy 320 CSS px i obsługę managera haseł. Źródło: [W3C WCAG 2.2 Quick Reference](https://www.w3.org/WAI/WCAG22/quickref/).
+Implementation target: WCAG 2.2 AA. Text contrast at least 4.5:1, large text 3:1, essential boundaries and focus indicators 3:1. The AA interaction target minimum is 24 × 24 CSS px with standard exceptions; adopt 44 px as the project's touch standard. All actions support keyboard input, sticky bars do not obscure focus, and closing a panel restores focus to its trigger. Dialogs have a name, focus management and Escape support; tabs use roving tabindex and arrows. Page links do not pretend to be ARIA tabs. Tables retain semantics and `aria-sort`; maps have an equivalent table view. Async messages use `aria-live`, and errors are associated with fields. Check 200% zoom, reflow at 320 CSS px and password manager support. Source: [W3C WCAG 2.2 Quick Reference](https://www.w3.org/WAI/WCAG22/quickref/).
 
-## Wdrożenie etapami
+## Phased implementation
 
-1. **Wspólna powłoka i komponenty.** AppShell, Sidebar, TenantSwitcher, PageHeader, lokalna nawigacja, Button, Field, StatusBadge, DataTable, Inspector, dialog, Empty/Error/Loading. Dodać adresowalne widoki; dla instalacji self-hosted rozważyć hash routing bez konieczności nowych rewrite serwera. Zachować bramki auth i tenant remount. Nie zmieniać API w ramach kosmetyki.
-2. **Routing Map jako pierwszy test tabel.** Jawne kolumny Interfaces/Routes, zgodne wyrównanie, stabilna edycja. Mały zakres pozwala potwierdzić wspólne komponenty przed przebudową IPAM.
-3. **Device Visualization.** Fit i zoom, tabela portów, inspektor, responsywne zwijanie listy, focus i kontrola draftu. Zachować wersjonowanie i podglądy zmian struktury urządzenia.
-4. **IPAM.** Lista podsieci, hierarchia lokalnych widoków, zakładki podsieci, wspólny inspektor adresu. Dopiero potem ujednolicić import, planowanie, jakość i archiwum. Nie przepisywać jednocześnie hooków skanowania i całego backendu.
-5. **Diagnostyka, kalkulatory i administracja.** Przenieść istniejące zachowania do wspólnych komponentów. Oznaczyć demonstracyjne ekrany walidacji przed dalszym rozwojem. Podłączenie rzeczywistych runów/sign-off/eksportu to odrębne zadanie funkcjonalne.
-6. **Walidacja przekrojowa.** Oba motywy, klawiatura, laptop/tablet/telefon, różne role, duże dane i konflikt wersji. Usunąć stare globalne klasy `.tabs`, `.tab`, hardcoded kolory i powielone komponenty dopiero po migracji wszystkich konsumentów.
+1. **Shared shell and components.** AppShell, Sidebar, TenantSwitcher, PageHeader, local navigation, Button, Field, StatusBadge, DataTable, Inspector, dialog, Empty/Error/Loading. Add addressable views; consider hash routing for self-hosted installations without requiring new server rewrites. Preserve auth gates and tenant remounting. Do not change APIs for cosmetic work.
+2. **Routing Map as the first table test.** Explicit Interfaces/Routes columns, consistent alignment and stable editing. The small scope validates shared components before rebuilding IPAM.
+3. **Device Visualization.** Fit and zoom, port table, inspector, responsive list collapsing, focus and draft protection. Preserve versioning and device structure change previews.
+4. **IPAM.** Subnet list, local view hierarchy, subnet tabs and shared address inspector. Only then unify import, planning, quality and archive. Do not rewrite scan hooks and the entire backend at once.
+5. **Diagnostics, calculators and administration.** Move existing behavior into shared components. Label demonstration validation screens before further development. Connecting real runs/sign-off/export is a separate functional task.
+6. **Cross-cutting validation.** Both themes, keyboard, laptop/tablet/phone, different roles, large datasets and version conflicts. Remove old global `.tabs`, `.tab` classes, hardcoded colors and duplicate components only after migrating every consumer.
 
-Adresy widoków powinny kodować moduł, ID obiektu, lokalną sekcję oraz jawne filtry. Zakres cache zawsze tenant + moduł + obiekt. ID w URL nie jest dowodem uprawnienia. Nie przechowywać haseł, sekretów ani surowych wyników diagnostyki w URL lub trwałym storage. Ustawienia wyglądu mogą być lokalne, preferencje widoku również po odpowiednim rozdzieleniu zakresu.
+View addresses should encode module, object ID, local section and explicit filters. Cache scope is always tenant + module + object. An ID in a URL is not proof of permission. Do not store passwords, secrets or raw diagnostic results in URLs or persistent storage. Appearance settings may be local, as may view preferences after appropriate scoping.
 
-## Kryteria odbioru
+## Acceptance criteria
 
-- IPAM po otwarciu ma widoczną listę podsieci; otwarcie adresu z tabeli nie przenosi do mapy. Filtry i pozycja tabeli pozostają po zapisie.
-- Wszystkie moduły mają ten sam układ nagłówka, nawigacji, filtrów i głównych akcji, a nie identyczne bezmyślnie narzucone kontenery.
-- Device na 1366 × 768 pokazuje w Fit cały panel 48 Ethernet + grupy uplinków. Dodatkowo sprawdzić 48 SFP + 8 QSFP, firewall i serwer wielo-NIC. Nieczytelny Fit ma dostępny wybór portu z tabeli; zapis i pełna nazwa portu pozostają czytelne.
-- Interfaces i Routes mają dokładnie wspólne granice kolumn przy tych samych szerokościach, także w trakcie edycji i z długimi danymi. Testować pustą sekcję, długą nazwę interfejsu i wielowierszowy opis.
-- Zmiana tenanta z otwartym formularzem nie gubi zmian bez decyzji, nie pokazuje danych starego tenanta pod nową nazwą i nie utrwala poświadczeń.
-- Tryby IPAM read/write/scan/admin i tenant-admin/platform-admin zachowują granice obecnego backendu; bez dostępu nie ma bocznej drogi przez bezpośredni URL.
-- Przykładowe wyniki walidacji są oznaczone jako demonstracyjne, bez komunikatu o wykonanym eksporcie lub trwałym podpisie.
-- Brak poziomego scrolla całej strony przy 320, 390, 768, 1024, 1366, 1440 i 1920 px. Własny scroll danych dwuwymiarowych jest czytelnie opisany.
-- Wszystkie podstawowe przepływy działają klawiaturą, przy zoomie i w obu motywach. Ocena zgodności następuje na wdrożeniu, nie na podstawie makiet.
+- IPAM opens with a visible subnet list; opening an address from the table does not switch to the map. Filters and table position remain after saving.
+- All modules share header, navigation, filter and primary action structure rather than blindly imposed identical containers.
+- At 1366 × 768, Device Fit shows the entire 48 Ethernet panel + uplink groups. Also check 48 SFP + 8 QSFP, a firewall and a multi-NIC server. If Fit is unreadable, port selection remains available from the table; saving and full port names remain readable.
+- Interfaces and Routes have exactly shared column boundaries at the same widths, including while editing and with long data. Test an empty section, a long interface name and a multiline description.
+- Switching tenants with an open form does not lose changes without a decision, display the old tenant's data under a new name or persist credentials.
+- IPAM read/write/scan/admin and tenant-admin/platform-admin modes preserve current backend boundaries; direct URLs do not bypass denied access.
+- Sample validation results are labeled as demonstrations, without claims of completed exports or persistent signatures.
+- No whole-page horizontal scrolling at 320, 390, 768, 1024, 1366, 1440 or 1920 px. Independent scrolling of two-dimensional data is clearly described.
+- All primary flows support keyboard use, zoom and both themes. Assess conformance in the implementation, not from mockups.
 
-## Decyzje do potwierdzenia przed implementacją
+## Decisions to confirm before implementation
 
-Rekomendacja: wdrażać powyższy system etapami, zaczynając od wspólnej powłoki i tabel Routing Map. Ciemny motyw pozostaje wariantem początkowym dla obecnych użytkowników, jasny jest równorzędny; preferencja użytkownika ma pierwszeństwo przed systemową. Angielski interfejs pozostaje bez zmian językowych. Nie wprowadzamy nowych struktur DC/VRF/rack ani fałszywego monitoringu. Do przeglądu pozostaje kompozycja i sposób zwijania list podczas edycji; makiety pozwalają ocenić te decyzje przed zmianą działającej aplikacji.
+Recommendation: implement the system in phases, starting with the shared shell and Routing Map tables. Dark remains the initial theme for existing users and light is equally supported; user preference overrides system preference. The English interface requires no language changes. Do not introduce new DC/VRF/rack structures or false monitoring. Composition and list collapsing during editing remain for review; mockups allow these decisions to be assessed before changing the running application.

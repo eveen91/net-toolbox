@@ -1,64 +1,64 @@
-# Alternatywa B — nawigacja górna
+# Alternative B — top navigation
 
-Status: propozycja obok wariantu A z panelem bocznym. Makiety są statyczne, zawierają przykładowe dane i nie zmieniają działającego GUI. Zachowują ten sam system wizualny oraz reguły akcji, filtrów, tabel i inspektorów z [głównego projektu](README.md).
+Status: a proposal alongside variant A with a sidebar. Mockups are static, contain sample data and do not change the running GUI. They retain the visual system and rules for actions, filters, tables and inspectors from the [main design](README.md).
 
-## Makiety 1440 × 900
+## 1440 × 900 mockups
 
-- [IPAM z szerszą tabelą adresów](ipam-topnav.svg).
-- [Device Visualization z szerszym panelem urządzenia](devices-topnav.svg).
-- [Routing Map ze wspólnymi granicami kolumn](routing-topnav.svg).
+- [IPAM with a wider address table](ipam-topnav.svg).
+- [Device Visualization with a wider device panel](devices-topnav.svg).
+- [Routing Map with shared column boundaries](routing-topnav.svg).
 
-## Kompozycja
+## Composition
 
-Jeden pasek aplikacji o wysokości 60 px:
+One application bar, 60 px high:
 
 ```text
 net::toolbox | Workspace | Infrastructure ▾ | Diagnostics ▾ | Utilities ▾ | Administration | Tenant | Account
 ```
 
-`Infrastructure` zawiera IPAM, Device Visualization i Routing Map. `Diagnostics` zawiera Troubleshoot, Connection Test i Post-Change Validation. `Utilities` zawiera IP Calculator i Subnet Splitter. Administracja jest dostępna według roli; jej podstrony mają własną lokalną nawigację. Pozycja aktywnego modułu pozostaje czytelna w tytule strony, a grupa w pasku ma zaznaczenie.
+`Infrastructure` contains IPAM, Device Visualization and Routing Map. `Diagnostics` contains Troubleshoot, Connection Test and Post-Change Validation. `Utilities` contains IP Calculator and Subnet Splitter. Administration is available according to role; its subpages have their own local navigation. The active module remains clear in the page title, and its group is highlighted in the bar.
 
-Menu otwiera kliknięcie, Enter lub Space, nie sam hover. Podaje pełne nazwy modułów i oznacza aktywny. Escape zamyka i przywraca focus; wejście klawiaturą oraz przechodzenie przez linki musi działać bez myszy. Panel menu wychodzi poza pasek przez portal/popover i nie jest przycinany. Linki pozostają prawdziwymi adresami widoków. Nie nakładać ról ARIA menu bez implementacji kompletnego modelu klawiatury; prosty disclosure z listą linków jest wystarczający.
+Menus open by click, Enter or Space, rather than hover alone. They show full module names and identify the active one. Escape closes the menu and restores focus; keyboard entry and moving through links must work without a mouse. The menu panel extends beyond the bar through a portal/popover and is not clipped. Links remain actual view addresses. Do not apply ARIA menu roles without implementing the complete keyboard model; a simple disclosure with a list of links is sufficient.
 
-Pod paskiem: tytuł i główna akcja → lokalna nawigacja modułu → narzędzia danych → obiekt oraz inspektor. Filtry, zakładki i operacje nie migrują do globalnego paska. Nie powstają dodatkowe rzędy globalnej nawigacji.
+Below the bar: title and primary action → module local navigation → data tools → object and inspector. Filters, tabs and operations do not move into the global bar. No additional rows of global navigation are introduced.
 
-## Ile miejsca odzyskujemy
+## Space recovered
 
-Przy 1440 px, marginesach 24 px i inspektorze 334 px:
+At 1440 px, with 24 px margins and a 334 px inspector:
 
-| Region | A: panel boczny | B: pasek górny |
+| Region | A: sidebar | B: top bar |
 |---|---:|---:|
-| Nawigacja zajmująca szerokość | 216 px | 0 px |
-| Obszar pracy wewnątrz marginesów | 1176 px | 1392 px |
-| Główna powierzchnia przy otwartym inspektorze i odstępie 16 px | 826 px | 1042 px |
-| Wysokość górnego paska | 60 px | 60 px |
+| Navigation consuming width | 216 px | 0 px |
+| Workspace inside margins | 1176 px | 1392 px |
+| Main area with inspector open and a 16 px gap | 826 px | 1042 px |
+| Top bar height | 60 px | 60 px |
 
-Zysk wynosi **216 px szerokości**, około **26% dla głównej powierzchni z inspektorem**. Nie powiększamy czcionek ani nie rozciągamy kontrolek: dodatkowa przestrzeń trafia do danych i canvasu. W makietach Routing Map pierwsze dwie kolumny nadal mają 220 i 240 px; rośnie trzecia, a granice pozostają wspólne dla Interfaces i Routes.
+The gain is **216 px of width**, about **26% for the main area with an inspector**. Fonts are not enlarged and controls are not stretched: the extra space goes to data and the canvas. In Routing Map mockups, the first two columns remain 220 and 240 px; the third grows, and boundaries remain shared between Interfaces and Routes.
 
-Lista podsieci/urządzeń/hostów nie musi zajmować odzyskanego miejsca. Na laptopie pozostaje selektorem otwierającym przegląd obiektów; podczas edycji miejsce otrzymują dane i inspektor. Na szerokim monitorze można pokazać listę obok szczegółów, zachowując rozsądne minimum szerokości danych. Zamknięcie inspektora oddaje jego szerokość tabeli lub panelowi urządzenia.
+Subnet/device/host lists do not have to occupy the recovered space. On laptops, they remain selectors opening an object browser; during editing, data and the inspector receive the space. Wide monitors can show the list beside details while maintaining a reasonable minimum data width. Closing the inspector returns its width to the table or device panel.
 
-## Zachowanie przy różnych szerokościach
+## Behavior at different widths
 
-- **Od 1280 px:** grupy Workspace/Infrastructure/Diagnostics/Utilities, administracja, tenant i konto w jednym rzędzie. Długie nazwy użytkownika/tenanta skracane wizualnie z dostępną pełną wartością; nie rozszerzają nawigacji. Nazwa tenanta w menu potwierdza jego tożsamość przed zmianą.
-- **900–1279 px:** logo, selector `Modules` z bieżącym modułem, tenant i konto; pełna lista narzędzi w rozwijanym panelu z grupami. Nie zmniejszamy tekstu, aby wciskać wszystkie przyciski.
-- **Poniżej 900 px:** zwarty nagłówek z nawigacją `Modules`, tenantem i kontem; logo może przejść do panelu nawigacji. Wybór obiektu i inspektor jako kolejne ekrany. Zawartość menu ma własny pionowy scroll, bez poziomego scrolla całej aplikacji.
-- **1366 × 768:** zachować kompaktowy nagłówek i stały Save w inspektorze. Fit dopasowuje panel urządzenia do obszaru dostępnego także po odjęciu wysokości toolbarów, nie tylko do szerokości.
+- **From 1280 px:** Workspace/Infrastructure/Diagnostics/Utilities groups, administration, tenant and account in one row. Long user/tenant names are visually truncated with the full value accessible; they do not widen navigation. The tenant name in the menu confirms its identity before switching.
+- **900–1279 px:** logo, `Modules` selector with the current module, tenant and account; the complete tool list appears in a grouped dropdown panel. Do not reduce text size to squeeze in all buttons.
+- **Below 900 px:** compact header with `Modules` navigation, tenant and account; the logo can move into the navigation panel. Object selection and inspector become subsequent screens. Menu content has its own vertical scroll without whole-application horizontal scrolling.
+- **1366 × 768:** retain a compact header and fixed Save in the inspector. Fit adapts the device panel to available space after subtracting toolbar heights as well as accounting for width.
 
-Breakpointy to punkt wyjścia do weryfikacji rzeczywistych etykiet, fontów i zoomu. Zmiana tenanta, RBAC, ochrona draftu i wersjonowanie zachowują zasady głównego projektu.
+Breakpoints are a starting point for verifying actual labels, fonts and zoom. Tenant switching, RBAC, draft protection and versioning retain the main design's rules.
 
-## Porównanie decyzji
+## Decision comparison
 
-| Kryterium | A: panel boczny | B: pasek górny |
+| Criterion | A: sidebar | B: top bar |
 |---|---|---|
-| Duże tabele i panele portów | Mniej szerokości | Więcej szerokości bez zwiększenia paska |
-| Odkrywanie modułów | Wszystkie nazwy stale widoczne | Moduły widoczne po otwarciu grupy |
-| Zmiana modułu | Jeden klik | Otwarcie grupy i wybór linku |
-| Wzrost liczby narzędzi | Wydłuża listę boczną | Wydłuża listy wewnątrz grup |
-| Mały laptop | Wymaga zwijania sidebaru | Zostawia szerokość na dane; nawigacja przechodzi do Modules |
-| Przewidywalność pracy w module | Wspólna anatomia | Ta sama anatomia, szerszy obszar pracy |
+| Large tables and port panels | Less width | More width without enlarging the bar |
+| Module discovery | All names always visible | Modules visible after opening a group |
+| Switching modules | One click | Open a group and select a link |
+| Growing tool count | Extends the sidebar list | Extends lists within groups |
+| Small laptop | Requires sidebar collapsing | Leaves width for data; navigation switches to Modules |
+| Predictable work within a module | Shared anatomy | Same anatomy, wider workspace |
 
-**Rekomendacja dla zgłoszonych problemów:** wariant B jest lepiej dopasowany do szerokich tabel i wizualizacji urządzeń. Grupowanie menu utrzymuje górny pasek w ryzach, a akcje modułu pozostają pod nim. Ceną jest dodatkowy krok przy zmianie narzędzia. Wdrożenie powinno użyć jednej wybranej powłoki; nie trzeba równolegle utrzymywać dwóch pełnych systemów nawigacji.
+**Recommendation for the reported issues:** variant B better suits wide tables and device visualizations. Grouping menus keeps the top bar manageable, while module actions remain below it. The cost is an additional step when switching tools. Implementation should use one selected shell; there is no need to maintain two complete navigation systems in parallel.
 
-## Sprawdzenie przed wdrożeniem
+## Pre-implementation checks
 
-Zweryfikować brak overflow dla długiego tenanta i konta, dostępność menu klawiaturą, poprawny focus po zmianie widoku oraz podział miejsca przy otwartym inspektorze. Potwierdzić Fit na 48 Ethernet + uplinki oraz 48 SFP + 8 QSFP. Makiety mają sprawdzoną składnię SVG i geometrię, ale nie stanowią testu działającego interfejsu w przeglądarce.
+Verify no overflow with long tenant and account names, keyboard menu accessibility, correct focus after view changes and space allocation with the inspector open. Confirm Fit for 48 Ethernet + uplinks and 48 SFP + 8 QSFP. Mockups have validated SVG syntax and geometry, but do not constitute browser testing of the running interface.

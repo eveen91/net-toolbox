@@ -1,3 +1,4 @@
+import {portDescription} from './logic.js';
 import React, { useState } from 'react';
 import { FAMILY_NAMES, VENDORS } from './logic.js';
 import { connectionPorts, hasDocumentation, vlanDescription, networkCardTitle } from './connections.js';
@@ -37,7 +38,7 @@ export default function ConnectionMap({device, selectedPort, onSelectPort, disab
           {device.deviceType==='storage'&&(index===0||visible[index-1].controller!==port.controller)&&<h5 className="sv-map-controller-heading">Controller {port.controller}</h5>}
           {device.deviceType==='server'&&(index===0||visible[index-1].groupId!==port.groupId)&&<h5 className="sv-map-controller-heading">{networkCardTitle(port,device.networkCards)}</h5>}
           <button type="button" id={`sv-map-port-${port.id}`} className={`sv-connection ${selectedPort===port.id?'sv-connection-selected':''}`} aria-pressed={selectedPort===port.id} disabled={disabled} onClick={()=>onSelectPort(port.id)}>
-            <span className="sv-connection-port"><strong>{port.label || port.name}</strong><span>{port.label && !port.isManagement ? `${port.name} · ` : port.controller ? `Controller ${port.controller} · ` : ''}{port.isManagement?'MGMT · ':''}{FAMILY_NAMES[port.family]} · {port.speedGbps}G</span></span>
+            <span className="sv-connection-port"><strong>{port.label || port.name}</strong><span>{port.label && !port.isManagement ? `${port.name} · ` : port.controller ? `Controller ${port.controller} · ` : ''}{port.isManagement?'MGMT · ':''}{portDescription(port)}</span></span>
             <span className="sv-connection-config">{port.ipAddress ? <span className="sv-connection-ip">{port.ipAddress}</span> : <span className="sv-map-unspecified">No IP recorded</span>}{port.portMode&&<span>{vlanDescription(port)}</span>}</span>
             <Arrow/><span className={`sv-connection-destination ${port.leadsTo?'':'sv-map-unspecified'}`}><span>Leads to</span><strong>{port.leadsTo || 'Destination not recorded'}</strong></span>
           </button>

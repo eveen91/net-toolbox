@@ -1,244 +1,358 @@
 # Device Visualization
 
-Narzędzie służy do ręcznej dokumentacji fizycznych portów switchy, routerów, firewalli
-Check Point/FortiGate, serwerów oraz macierzy z dwoma kontrolerami. Nie odpyta urządzenia, nie wymaga haseł i nie
-pokazuje bieżącego stanu linku. Znacznik przy porcie oznacza zapisaną informację
-„Leads to”, a nie aktywne połączenie sieciowe.
+This tool manually documents physical ports on switches, routers, Check
+Point/FortiGate firewalls, servers and dual-controller storage arrays. It does
+not query devices, require passwords or show live link status. A port marker
+indicates saved “Leads to” information, rather than an active network connection.
 
-## Uprawnienia i tenanty
+## Permissions and tenants
 
-Dane oraz historia są przechowywane w bazie aktywnego tenanta. Wybierz tenanta na
-pasku aplikacji, a następnie **Device Visualization**. W istniejącej instalacji
-administrator musi nadać roli uprawnienie `device-visualization` w Config Panel.
-Nowe instalacje dodają je do początkowej roli `user`; dotychczasowe role nie są
-nadpisywane. Administrator platformy i `tenant-admin` mają dostęp przez `*`.
+Data and history are stored in the active tenant's database. Select a tenant in
+the application bar, then **Device Visualization**. In an existing installation,
+an administrator must grant the role the `device-visualization` permission in
+Config Panel. New installations add it to the initial `user` role; existing roles
+are not overwritten. Platform administrators and `tenant-admin` have access via `*`.
 
-Nazwy urządzeń są unikalne bez rozróżniania wielkości liter według SQLite NOCASE
-w ramach jednego tenanta, wspólnie dla wszystkich typów urządzeń. W innych
-tenantach mogą istnieć te same nazwy. Wybór tenanta usuwa lokalne szkice edycji.
-Tryb bez logowania zachowuje istniejące zasady dostępu do tenanta domyślnego.
+Device names are unique without case sensitivity under SQLite NOCASE within a
+tenant, across all device types. Other tenants can use the same names. Selecting
+a tenant clears local edit drafts. Mode without login retains the existing
+default tenant access rules.
 
-## Tworzenie i porty
+## Creation and ports
 
-Urządzenia są wspólną ewidencją z [DC Inventory](dc-inventory.md). Formularz
-**New device / Edit device → DC / rack location** zapisuje wysokość urządzenia
-w U, szafę i początkowe U; centrum danych wynika z szafy. U1 znajduje się na dole,
-a urządzenie 2U od U3 zajmuje U3–U4. Wysokość jest wymagana przy zapisie w UI,
-również dla dotychczasowych urządzeń z nieznaną wysokością. Brak szafy oznacza
-**Unassigned**. Kolizje i przekroczenie pojemności szafy są odrzucane.
+Devices share an inventory with [DC Inventory](dc-inventory.md). The
+**New device / Edit device → DC / rack location** form saves device height in U,
+rack and starting unit; the data center is derived from the rack. U1 is at the
+bottom, and a 2U device starting at U3 occupies U3–U4. The UI requires a height
+when saving, including for existing devices whose height is unknown. No rack
+means **Unassigned**. Collisions and placements beyond rack capacity are rejected.
 
-Katalog centrów i szaf można odczytać z uprawnieniem `device-visualization`;
-zarządzanie nimi wymaga `dc-inventory`. API urządzenia przyjmuje opcjonalne
-`heightU`, `rackId`, `rackPosition`; pominięcie ich w edycji zachowuje lokalizację,
-a `rackId: null` odpina urządzenie. Przypisanie w DC Inventory współdzieli wersję
-urządzenia, więc równoczesne zapisy wymagają ponownego wczytania po konflikcie.
-Położenie nie tworzy kopii urządzenia i zachowuje wszystkie dane jego portów.
+The data center and rack catalog can be read with `device-visualization`;
+managing locations requires `dc-inventory`. The device API accepts optional
+`heightU`, `rackId`, `rackPosition`; omitting them during editing preserves the
+location, while `rackId: null` unassigns the device. DC Inventory placement shares
+the device version, so concurrent writes require a reload after a conflict.
+Placement does not copy the device and preserves all its port data.
 
-1. Wybierz **New device**, typ i nazwę; opcjonalnie opis oraz własną nazwę modelu.
-2. Switch/router/firewall: ustaw liczbę portów Ethernet, SFP i QSFP oraz prędkość każdej
-   rodziny. Dla firewalla wybierz Check Point, FortiGate lub wariant generyczny.
-3. Serwer: dodaj 1–16 kart NIC. Każda karta ma niezależny typ złącza, 1–8 gniazd,
-   prędkość i opcjonalną nazwę. **Add network card** zajmuje pierwszy wolny slot.
-4. Użyj **Save device**. Wybierz port na panelu, wpisz etykietę i **Leads to**, a
-   następnie **Save assignment**. **Clear assignment** usuwa cel i zachowuje
-   aktualną etykietę edytora.
+1. Select **New device**, a type and name; optionally enter a description and a
+   custom model name.
+2. Switch/router/firewall: set Ethernet, SFP and QSFP port counts and each
+   family's speed. For a firewall, select Check Point, FortiGate or generic.
+3. Server: add 1–16 NICs. Each card has its own connector type, 1–8 sockets,
+   speed and optional name. **Add network card** uses the first free slot.
+4. Use **Save device**. Select a port on the panel, enter a label and **Leads to**,
+   then **Save assignment**. **Clear assignment** removes the destination and
+   preserves the editor's current label.
 
-Prędkości: Ethernet 1/10G, SFP 10/25G, QSFP 40/100G. Maksymalnie 128 portów DATA
-oraz jeden opcjonalny port MGMT na urządzenie (macierz: dwa, po jednym na kontroler); switch/router: do 96 Ethernet, 48 SFP i 16 QSFP; firewall: do 96 Ethernet,
-32 SFP i 16 QSFP. Wygląd firewalla
-jest generyczny; wpisany model nie pobiera specyfikacji producenta. Serwer pokazuje
-tylny panel i osobne sloty NIC. Na telefonie panel portów przewija się poziomo.
+Speeds: Ethernet 1/10G, SFP 10/25G, QSFP 40/100G. Up to 128 DATA ports and one
+optional MGMT port per device (storage: two, one per controller); switch/router:
+up to 96 Ethernet, 48 SFP and 16 QSFP; firewall: up to 96 Ethernet, 32 SFP and
+16 QSFP. Firewall appearance is generic; entering a model does not fetch vendor
+specifications. A server shows its rear panel and separate NIC slots. On a phone,
+the port panel scrolls horizontally.
 
-Wszystkie typy urządzeń mogą mieć osobne gniazdo **MGMT · Ethernet 1G** (macierz: po jednym na kontroler).
-Pole **Dedicated management port (MGMT · Ethernet 1G)** jest domyślnie zaznaczone
-w **New device**. Istniejące urządzenia pozostają bez zmian; port można dodać
-w **Edit device**, zaznaczając to samo pole. MGMT nie zmienia numeracji portów DATA
-ani slotów NIC. Etykietę, **Leads to**, adres IP i VLAN-y edytuje się w zwykłym edytorze portu.
-Wyłączenie MGMT usuwa jego gniazdo; jeśli zawiera zapisane dane, wymaga istniejącego
-podglądu strat i **Confirm removal and save**.
+All device types can have a separate **MGMT · Ethernet 1G** socket (storage: one
+per controller). **Dedicated management port (MGMT · Ethernet 1G)** is selected
+by default in **New device**. Existing devices remain unchanged; add the port in
+**Edit device** by selecting the same checkbox. MGMT does not change DATA port
+numbering or NIC slots. Edit its label, **Leads to**, IP address and VLANs in the
+regular port editor. Disabling MGMT removes its socket; if it contains saved data,
+the existing loss preview and **Confirm removal and save** are required.
 
-Router jest osobnym typem urządzenia, bez pola vendora. Typu zapisanego urządzenia
-nie można zmienić. API przyjmuje `deviceType: "router"` z `portGroups`, bez
-`networkCards` i bez vendora; obowiązują te same prędkości rodzin co dla switcha.
+Router is a separate device type without a vendor field. A saved device's type
+cannot be changed. The API accepts `deviceType: "router"` with `portGroups`, without
+`networkCards` or a vendor; the same family speeds apply as for switches.
 
-## Macierz: dwa kontrolery i osobne karty NIC
+## Storage arrays: two controllers and separate NICs
 
-W **New device → Storage array** skonfiguruj osobno **Controller A** i
-**Controller B**. Każdy wymaga 1–8 kart NIC w lokalnych slotach 1–8; każda karta
-ma 1–8 portów, własną rodzinę złączy, prędkość i opcjonalną nazwę. Łączny limit
-wynosi 128 portów DATA. NIC 1 może istnieć jednocześnie na obu kontrolerach.
-Panel tylny pokazuje dwa oddzielne banki portów. Macierz nie ma vendora, a jej
-zapisanego typu nie można zmienić.
+In **New device → Storage array**, configure **Controller A** and **Controller B**
+separately. Each requires 1–8 NICs in local slots 1–8; each card has 1–8 ports,
+its own connector family, speed and optional name. The total limit is 128 DATA
+ports. NIC 1 can exist on both controllers at once. The rear panel shows two
+separate port banks. Storage arrays have no vendor field, and their saved type
+cannot be changed.
 
-Wspólne pole **Dedicated management ports (one per controller · Ethernet 1G)**
-włącza lub wyłącza oba porty MGMT naraz: limit wynosi wtedy 128 DATA + 2 MGMT.
-Adresy IP, etykiety, cele i VLAN-y obu portów MGMT edytuje się niezależnie w
-istniejącym edytorze portu. Usunięcie lub wymiana karty kontrolera A z zapisanym IP, VLAN-em, etykietą lub celem
-wymaga przeglądu utraconych danych i potwierdzenia; zachowane karty kontrolera B
-utrzymują identyfikatory i przypisania.
+The shared **Dedicated management ports (one per controller · Ethernet 1G)**
+checkbox enables or disables both MGMT ports together: the limit is then 128 DATA
++ 2 MGMT. Edit the IP addresses, labels, destinations and VLANs of the two MGMT
+ports independently in the existing port editor. Removing or replacing a
+controller A card with a saved IP, VLAN, label or destination requires a review
+of lost data and confirmation; retained controller B cards keep their IDs and
+assignments.
 
-API przyjmuje `deviceType: "storage"`, bez vendora, z `networkCards` zamiast
-`portGroups`. Każda karta musi zawierać `controller: "A"` lub `"B"` i lokalne
-`slotNumber` 1–8. Istniejący identyfikator karty nie może zmienić kontrolera ani
-slotu; karta obcego urządzenia jest odrzucana. Odpowiedzi kart i portów zawierają
-opcjonalne `controller`, puste dla innych typów urządzeń. Serwer nie przyjmuje
-niepustego `controller`. Pominięte `managementPort` zachowuje dotychczasową
-semantykę tworzenia i edycji; `true` tworzy parę MGMT.
+The API accepts `deviceType: "storage"`, without a vendor, with `networkCards`
+instead of `portGroups`. Each card must include `controller: "A"` or `"B"` and a
+local `slotNumber` from 1–8. An existing card ID cannot change controller or slot;
+a card belonging to another device is rejected. Card and port responses include
+optional `controller`, empty for other device types. Servers do not accept a
+nonempty `controller`. Omitting `managementPort` retains the existing creation
+and editing semantics; `true` creates the MGMT pair.
 
-## Routery, firewalle, macierze i serwery: panel oraz mapa połączeń
+## Routers, firewalls, storage arrays and servers: panel and connection map
 
-Po wybraniu routera, firewalla, macierzy lub serwera domyślny widok **Connections** pokazuje razem
-kompaktowy panel fizyczny z **Fit** oraz mapę zapisanej dokumentacji:
-interfejs → IP / opcjonalny VLAN → **Leads to**. IP i VLAN pozostają niezależne;
-brak jednej informacji nie blokuje pozostałych. Kliknięcie interfejsu na mapie
-lub gniazda otwiera istniejący edytor portu. Obie reprezentacje współdzielą zaznaczenie.
+After selecting a router, firewall, storage array or server, the default
+**Connections** view combines a compact physical panel with **Fit** and a map of
+saved documentation: interface → IP / optional VLAN → **Leads to**. IP and VLAN
+remain independent; missing one does not block the others. Selecting an interface
+on the map or a socket opens the existing port editor. Both representations
+share the selection.
 
-**Show interfaces** oferuje **With saved details** (etykieta, IP, VLAN lub cel),
-**All interfaces** i **Management only**. MGMT jest pierwszy w swojej grupie; mapa pokazuje
-12 interfejsów na stronę. **Find interface** wyszukuje nazwę/etykietę, IP, VLAN
-oraz cel. Pusty wynik wyjaśnia brak danych lub dopasowań i udostępnia
-**Show all interfaces**, które usuwa filtr wyszukiwania i pokazuje wszystkie porty.
+**Show interfaces** offers **With saved details** (label, IP, VLAN or destination),
+**All interfaces** and **Management only**. MGMT is first in its group; the map
+shows 12 interfaces per page. **Find interface** searches name/label, IP, VLAN
+and destination. Empty results explain missing data or matches and offer
+**Show all interfaces**, which clears the search filter and shows all ports.
 
-Macierz grupuje interfejsy według kontrolera. Filtr **Controller** wybiera
-**Both controllers**, **Controller A** lub **Controller B**; wyszukiwanie i zakres
-interfejsów działają razem z tym filtrem. **Show all interfaces** resetuje również kontroler.
+Storage arrays group interfaces by controller. The **Controller** filter selects
+**Both controllers**, **Controller A** or **Controller B**; search and interface
+scope work with this filter. **Show all interfaces** also resets the controller.
 
-Wybór routera, firewalla, macierzy lub serwera zwija listę urządzeń; **Browse devices** przywraca ją.
-Osobne widoki **Panel**, **Port table** i **History** pozostają dostępne.
-Switche zachowują domyślny panel na desktopie oraz tabelę na wąskim ekranie.
-Mapa dopasowuje układ do szerokości swojego kontenera; na telefonie zachowuje
-pełnowymiarowy tekst i przyciski, a fizyczny podgląd ma wysokość 140px.
-Linie i strzałki opisują zapisane **Leads to**, nie stan linku ani kierunek ruchu.
+Selecting a router, firewall, storage array or server collapses the device list;
+**Browse devices** restores it. Separate **Panel**, **Port table** and **History**
+views remain available. Switches retain the default panel on desktop and table
+on narrow screens. The map adapts to its container width; on phones it retains
+full-size text and buttons, and the physical preview is 140px high. Lines and
+arrows describe saved **Leads to** information, not link status or traffic direction.
 
-Serwer pokazuje tylny panel z kartami NIC obok siebie i osobnym MGMT, jeśli jest
-włączony. Mapa rozdziela **Management** i grupy NIC, zachowując numery slotów
-oraz nazwy kart, również przy lukach, np. NIC 1, 3 i 7. Filtr **Network card**
-wybiera konkretną kartę według jej identyfikatora; **Find interface** wyszukuje
-również nazwę karty. Filtr karty łączy się z zakresem **Show interfaces**:
-wybrana karta i **Management only** mogą dać pusty wynik opisany jako brak
-interfejsów pasujących do filtrów. **Show all interfaces** resetuje także kartę NIC.
-Kliknięcie portu nadal otwiera wspólny edytor IP, opcjonalnego VLAN-u i **Leads to**.
+Servers show a rear panel with NICs side by side and separate MGMT, if enabled.
+The map separates **Management** and NIC groups, preserving slot numbers and card
+names, including gaps such as NIC 1, 3 and 7. The **Network card** filter selects
+a specific card by ID; **Find interface** also searches card names. The card
+filter combines with **Show interfaces** scope: a selected card and
+**Management only** may produce an empty result described as no interfaces
+matching the filters. **Show all interfaces** also resets the NIC filter.
+Selecting a port still opens the shared IP, optional VLAN and **Leads to** editor.
 
-Istniejące serwery otrzymują nowy widok po odświeżeniu aplikacji. Zmiana widoku
-nie wymaga migracji backendu, schematu ani danych; identyfikatory kart, ich nazwy,
-adresy IP i pozostałe zapisane przypisania pozostają bez zmian.
+Existing servers receive the new view after refreshing the application. This
+view change requires no backend, schema or data migration; card IDs, names,
+IP addresses and other saved assignments remain unchanged.
 
-## Edycja i ochrona danych
+## Per-port SFP modules
 
-Zmiana prędkości oraz dodanie portów zachowują istniejące przypisania. Zmniejszenie
-liczby portów usuwa najwyższe numery. Usunięcie środkowej karty nie zmienia numerów
-slotów innych kart. Ponowne dodanie karty w tym samym slocie tworzy nową kartę;
-nie przejmuje dawnych przypisań. Zmiana rodziny złączy karty wymienia jej porty.
+Select an SFP socket and set **SFP module** in the port editor:
 
-Jeśli edycja usuwa etykiety, cele, adresy IP lub VLAN-y, **Save device** najpierw wyświetla dokładny
-podgląd strat. Dopiero **Confirm removal and save** zatwierdza zmianę. Modyfikacja
-formularza unieważnia podgląd. API niezależnie kontroluje wersję i potwierdzenie.
-Konflikt równoczesnej edycji zachowuje szkic i wymaga jawnego ponownego wczytania
-urządzenia oraz przeglądu zmian. Zwykły zapis bez zmian nie zwiększa wersji.
+- **Use group default** — retain the SFP group's configured speed;
+- **SFP · 1G optical**;
+- **SFP+ · 10G optical**;
+- **SFP28 · 25G optical**;
+- **SFP → RJ45 · 1G copper**.
 
-**Delete device → Confirm delete** usuwa urządzenie i porty, zachowując historię.
-Komunikat po usunięciu podaje historyczny identyfikator urządzenia.
+The choice applies only to that port, including SFP NICs on servers and storage
+controllers. Other sockets keep their own settings. The physical cage remains
+SFP; the installed module determines the documented connection medium and speed.
+The panel, table, connection map and destination picker display the selected
+module. An RJ45 1G module matches Ethernet 1G ports and other RJ45 1G modules;
+optical SFP 1G matches optical SFP 1G, while SFP28 25G matches SFP ports documented
+at 25G. Occupied matching ports retain the usual replacement review.
 
-## Wyszukiwanie i historia
+The selector documents installed hardware; it neither configures the device nor
+verifies whether a particular cage/platform supports the module. Group defaults
+are separate from per-port module settings. Changing a group speed preserves
+explicit module choices. Removing a module-configured port requires the existing
+loss preview and confirmation. Saving uses device version checks and audit.
 
-Lista ma wyszukiwanie nazwy/modelu/opisu, filtry typu i vendora oraz strony po
-20 urządzeń. **Device history** pokazuje zapisane zmiany, z danymi przed i po.
-Wprowadź identyfikator usuniętego urządzenia, aby zobaczyć jego historię. Konto
-aktora jest identyfikowane globalnym numerem konta; brak aktora oznacza tryb otwarty.
-Historia jest również stronicowana.
+API: port assignments accept nullable `transceiver` with values `sfp-1g`,
+`sfp-10g`, `sfp28-25g`, `rj45-1g`. Non-null values are accepted only for SFP ports.
+Omitting the field preserves the saved module for older clients; `null` restores
+the group default. Port responses retain physical `family` and group `speedGbps`,
+and expose `transceiver`, `effectiveFamily`, `effectiveSpeedGbps`. Backend startup
+idempotently adds `dv_ports.transceiver`, leaving existing records at the group
+default and preserving IDs, network data, connections and audit history.
 
-## API i utrzymanie
+## Choosing a Leads to destination
 
-Prefiks: `/api/device-visualization/devices`. Dostępne są lista, CRUD, podgląd
-`POST /{id}/update-preview`, edycja `PUT /{id}/ports/{portId}` i historia
-`GET /{id}/audit`. Lista przyjmuje `query`, `deviceType`, `vendor`, `limit` (1–100)
-i `offset`; historia `limit`/`offset`. Wybór tenanta używa `X-Tenant-ID`.
+**Leads to** remains freely editable. **Choose existing device** searches devices
+by name, model or description in the active tenant (20 devices per page, excluding
+the current device). Select a device to see only ports with the same effective connector medium (Ethernet, SFP
+or QSFP) and speed as the source port, taking installed SFP modules into account
+and including matching MGMT ports.
+Occupied matching ports remain selectable with replacement confirmation. If none
+match, choose another device or use a manual note. The list shows their saved destinations,
+physical cable IDs, labels, IP addresses and VLAN settings. Choose a port to stage
+a connection, or **Use device name only** to fill a text note without a cable.
+Typing manually also switches back to a text note.
 
-Edycja wymaga `expectedVersion`; usuwanie danych portów dodatkowo
-`confirmPortDataRemoval: true`, a DELETE `confirmDelete: true` w JSON body.
-HTTP 409 z `detail.code` oznacza `stale_version` lub `confirmation_required`.
-Błędny kształt danych daje 422, konflikt nazwy 400, brak zasobu 404.
+**Save assignment** with a selected port atomically creates an actual port-to-port
+cable and sets reciprocal notes: `Destination device / port` on the source and
+`Source device / port` on the destination. The cable immediately appears on the
+next DC Inventory graph read. Target labels, IP addresses and VLAN settings are
+preserved; source fields are saved from the current editor. Nothing is configured
+on the actual hardware. Closing the picker alone does not save anything.
 
-Tworzenie i edycja urządzenia przyjmują opcjonalne pole boolean `managementPort`.
-`true` dodaje MGMT (parę dla macierzy), a `false` wyłącza je. Pominięcie pola przy tworzeniu nie dodaje
-MGMT; interfejs **New device** wysyła domyślnie `true`. Pominięcie pola przy edycji
-zachowuje zapisane ustawienie, także dla starszych klientów API. Port korzysta
-z istniejących grup, portów, wersjonowania i audytu; nie wymaga migracji schematu.
+A port is considered assigned when it has a physical cable or a nonempty
+**Leads to** note. When either end would lose an existing assignment, saving shows
+**Replace existing connection?** with current destinations, cable endpoints,
+labels, IP/VLAN settings and the proposed pair. Only **Confirm change and save**
+commits it. **Cancel replacement** leaves saved data unchanged. Replacing cables
+frees displaced peer ports and clears only reciprocal notes that still match the
+removed pair; custom notes on displaced peers are retained. Labels, IP addresses
+and VLAN settings on those peers are preserved.
 
-Tabele `dv_devices`, `dv_port_groups`, `dv_ports`, `dv_audit` powstają przy starcie
-w każdej zarejestrowanej bazie oraz podczas tworzenia tenanta. Dane, wersja i audyt
-zmieniają się w jednej transakcji. Nie ma osobnej bazy ani dodatkowego wolumenu.
-Backup wszystkich baz tenantów obejmuje też ten moduł; patrz [utrzymanie serwera](maintenance.md).
+The server checks both device versions and binds confirmation to the exact source
+draft, affected port configurations and cable relationships. Concurrent changes
+require a fresh review; a stale confirmation cannot overwrite a new state. Data,
+versions and audit records for all affected devices and cables change in one
+transaction and roll back together on failure. Re-saving an unchanged pair is a
+no-op. The Device Visualization permission covers this workflow; `dc-inventory`
+is only needed to open its separate inventory workspace and API.
 
-Aktualizacja limitu SFP dla switchy z 32 do 48 migruje ograniczenie w istniejących
-bazach przy starcie backendu, zachowując identyfikatory, przypisania i audyt.
-Obsługiwane są m.in. konfiguracje 48 SFP + 6 lub 8 QSFP (łącznie 54 lub 56 portów).
+Manual text and device-name-only choices remain notes: they do not create, replace
+or remove physical cables, and renaming/deleting a device does not rewrite those
+notes. **Clear assignment** clears the note only. Use a selected device/port to
+replace a physical connection, or DC Inventory to explicitly disconnect it.
 
-Przy starcie backendu idempotentna migracja rozszerza wcześniejsze ograniczenie
-`CHECK` typu urządzenia o `router` i `storage`. Zachowuje identyfikatory urządzeń, grupy,
-porty, przypisania, audyt oraz sekwencję identyfikatorów; nie wymaga ręcznej edycji bazy.
+API: the existing `PUT /api/device-visualization/devices/{id}/ports/{portId}`
+accepts optional `targetPortId` and `targetVersion` alongside the normal source
+assignment fields and `expectedVersion`. Both target fields must be supplied
+together. If replacement is needed, HTTP 409 has
+`detail.code: connection_change_required`, `token`, affected `ports`, current
+`connections` and proposed reciprocal destinations. Resubmit the unchanged
+request with `replacementToken: token` to confirm. Changes to the state or draft
+invalidate that token and return a new review. Omitting the target fields retains
+legacy manual-note behavior. No additional schema migration or dependency is
+needed beyond the existing physical cabling schema.
 
-Kontrolery korzystają z istniejących grup NIC, bez dodatkowej migracji pól bazy.
-Wewnętrzne sloty grup 1–8 oznaczają A, a 9–16 oznaczają B; API zawsze pokazuje
-lokalne sloty 1–8 wraz z `controller`. Ten zapis jest szczegółem backendu.
+## Physical cabling between devices
 
-## Adres IP interfejsu i opcjonalny VLAN
+[DC Inventory → Connections](dc-inventory.md#rack-connections) adds explicit
+port-to-port cabling within and between racks. It uses these same device and port
+IDs, including controller-specific and MGMT ports. The inventory workspace requires `dc-inventory`; the device/port selection
+workflow above can manage the same cables using `device-visualization`.
 
-Pole **IP address** w edytorze portu przyjmuje IPv4 lub IPv6, opcjonalnie z prefiksem,
-np. `192.0.2.10`, `192.0.2.10/24` albo `2001:db8::10/64`. Adres należy do interfejsu:
-zapis z prefiksem zachowuje adres hosta, nie zastępuje go adresem sieci. VLAN jest
-opcjonalny i niezależny od adresu IP; można zapisać samo IP, sam VLAN lub oba.
-Dotyczy to wszystkich portów, także MGMT. Puste pole usuwa adres przy zapisie.
-Tabela portów pokazuje kolumnę **IP address** i wyszukuje również po adresie;
-podpowiedź oraz dostępna nazwa gniazda na panelu zawierają zapisane IP.
+Port responses include nullable `connectionId`; the port editor shows the cable
+ID and supports reviewing a replacement through device/port selection. This is separate from the **Leads to** note: editing
+or clearing that note does not disconnect a cable. Connecting/disconnecting
+increments the version of both devices and is audited. Moving devices preserves
+cables. Removing a connected port or card requires preview and confirmation;
+`removedConfiguredPortCount` includes ports with IP, VLAN, an explicit SFP module or a physical cable,
+counting each once. Confirmed removal clears the relationship and records it in
+inventory history; deleting a device similarly releases its peer ports.
 
-API przypisania i odpowiedź portu zawierają nullable `ipAddress` (do 64 znaków).
-Adres jest normalizowany: IPv6 otrzymuje skrócony zapis, a prefiks zapis liczbowy.
-Adresy ze strefą `%`, np. `fe80::1%eth0`, są odrzucane. Niepoprawny adres daje 422.
-`ipAddress: null` lub pusty ciąg usuwa IP; pominięcie pola podczas edycji zachowuje
-dotychczasowy adres dla starszych klientów. Operacje VLAN nie wymagają adresu IP.
+## Editing and data protection
 
-Przy starcie backendu idempotentna migracja dodaje kolumnę `ip_address` do
-`dv_ports`, zachowując istniejące porty, przypisania i audyt. Dotychczasowe porty
-mają początkowo puste IP. Zapis adresu korzysta ze wspólnej wersji i audytu.
-Usunięcie portu zawierającego tylko IP również wymaga podglądu strat i potwierdzenia;
-`removedConfiguredPortCount` obejmuje porty z IP lub VLAN-em, licząc każdy raz.
+Changing speed and adding ports preserve existing assignments. Reducing the
+port count removes the highest numbers. Removing a middle card does not change
+other cards' slot numbers. Adding a card in the same slot creates a new card;
+it does not inherit former assignments. Changing a card's connector family
+replaces its ports.
 
-W edytorze portu wybierz **Port mode**: **Access** (jeden Access VLAN) albo
-**Trunk** (Allowed VLANs: lista `10,20,100-110` lub `all`). Trunk może mieć
-opcjonalny Native VLAN. Numery VLAN są z zakresu 1–4094. **Not configured** usuwa
-konfigurację VLAN przy zapisie. Zmiana trybu zeruje niepasujące pola formularza.
-Zapis jest ręczną dokumentacją, nie wysyła konfiguracji do urządzenia.
+If an edit removes labels, destinations, IP addresses or VLANs, **Save device**
+first shows an exact loss preview. Only **Confirm removal and save** commits the
+change. Modifying the form invalidates the preview. The API independently checks
+the version and confirmation. A concurrent edit conflict preserves the draft
+and requires an explicit device reload and change review. Saving without changes
+does not increment the version.
 
-Konfiguracja jest dostępna dla portów wszystkich typów urządzeń, zapisywana
-z wersją i audytem, zachowana przy zmianie prędkości i zwykłej edycji przypisania.
-Usunięcie skonfigurowanego portu wymaga podglądu i potwierdzenia nawet bez etykiety
-lub celu. Migracja dodaje pola do istniejących portów bez zmiany ich ID.
+**Delete device → Confirm delete** removes the device and ports while retaining
+history. The deletion message includes the historical device ID.
 
-API portu przyjmuje także `portMode`, `accessVlan`, `trunkVlans`, `nativeVlan`.
-Brak wszystkich czterech pól zachowuje dotychczasową konfigurację dla starszych
-klientów; jawne `portMode: null` bez VLAN-ów czyści ją. Lista trunk jest
-normalizowana, sortowana i pozbawiana powtórzeń. Native VLAN jest dokumentowany
-niezależnie od listy Allowed VLANs.
+## Search and history
 
-## Konwencja nazw portów switcha
+The list supports name/model/description search, type and vendor filters, and
+pages of 20 devices. **Device history** shows saved changes with before and after
+data. Enter a deleted device's ID to view its history. The actor is identified
+by a global account ID; no actor means open mode. History is also paginated.
 
-W **New device / Edit device → Port naming** wybierz:
+## API and maintenance
 
-- `Eth 1 / SFP 1 / QSFP 1` — numeracja osobna dla każdej rodziny (domyślna);
-- `1/1/1` — unit / slot / port, z edytowalnymi numerami unit i slot;
-- `1/0/1` — unit / 0 / port, z edytowalnym unit;
+Prefix: `/api/device-visualization/devices`. Available operations include listing,
+CRUD, preview via `POST /{id}/update-preview`, editing via
+`PUT /{id}/ports/{portId}` and history via `GET /{id}/audit`. Listing accepts
+`query`, `deviceType`, `vendor`, `limit` (1–100) and `offset`; history accepts
+`limit`/`offset`. Tenant selection uses `X-Tenant-ID`.
+
+Editing requires `expectedVersion`; removing port data additionally requires
+`confirmPortDataRemoval: true`, and DELETE requires `confirmDelete: true` in the
+JSON body. HTTP 409 with `detail.code` indicates `stale_version` or
+`confirmation_required`. Invalid payloads return 422, name conflicts 400, and
+missing resources 404.
+
+Device creation and editing accept the optional boolean `managementPort`.
+`true` adds MGMT (a pair for storage arrays), while `false` disables it. Omitting
+the field during creation does not add MGMT; the **New device** UI sends `true`
+by default. Omitting it during editing preserves the saved setting, including
+for older API clients. The port uses existing groups, ports, versioning and
+audit; no schema migration is required.
+
+The `dv_devices`, `dv_port_groups`, `dv_ports`, `dv_audit` tables are created at
+startup in every registered database and when a tenant is created. Data, version
+and audit records change in one transaction. There is no separate database or
+additional volume. Backups of all tenant databases also cover this module; see
+[server maintenance](maintenance.md).
+
+Raising the switch SFP limit from 32 to 48 migrates the constraint in existing
+databases at backend startup, preserving IDs, assignments and audit records.
+Configurations including 48 SFP + 6 or 8 QSFP (54 or 56 ports total) are supported.
+
+At backend startup, an idempotent migration extends the previous device type
+`CHECK` constraint with `router` and `storage`. It preserves device IDs, groups,
+ports, assignments, audit records and the ID sequence; manual database editing
+is not required.
+
+Controllers use existing NIC groups without an additional database field
+migration. Internal group slots 1–8 represent A and 9–16 represent B; the API
+always shows local slots 1–8 with `controller`. This representation is a backend
+implementation detail.
+
+## Interface IP addresses and optional VLANs
+
+The port editor's **IP address** field accepts IPv4 or IPv6, optionally with a
+prefix, e.g. `192.0.2.10`, `192.0.2.10/24` or `2001:db8::10/64`. The address belongs
+to the interface: saving a prefix preserves the host address rather than replacing
+it with the network address. VLAN is optional and independent of the IP address;
+save IP alone, VLAN alone or both. This applies to all ports, including MGMT.
+An empty field clears the address when saved. The port table shows an
+**IP address** column and also searches addresses; the socket tooltip and
+accessible name on the panel include the saved IP.
+
+The assignment API and port response include nullable `ipAddress` (up to 64
+characters). Addresses are normalized: IPv6 uses compressed notation and prefixes
+use numeric notation. Addresses with a `%` zone, e.g. `fe80::1%eth0`, are rejected.
+Invalid addresses return 422. `ipAddress: null` or an empty string clears the IP;
+omitting the field during editing preserves the current address for older
+clients. VLAN operations do not require an IP address.
+
+At backend startup, an idempotent migration adds the `ip_address` column to
+`dv_ports`, preserving existing ports, assignments and audit records. Existing
+ports initially have no IP. Address writes use shared versioning and audit.
+Removing a port containing only an IP also requires a loss preview and
+confirmation; `removedConfiguredPortCount` includes ports with IP, VLAN, an explicit SFP module or a physical cable,
+counting each once.
+
+In the port editor, select **Port mode**: **Access** (one Access VLAN) or
+**Trunk** (Allowed VLANs: a list such as `10,20,100-110` or `all`). Trunk can have
+an optional Native VLAN. VLAN IDs range from 1–4094. **Not configured** clears
+the VLAN configuration when saved. Changing mode resets incompatible form fields.
+Saving is manual documentation and does not send configuration to the device.
+
+Configuration is available for ports on all device types, saved with versioning
+and audit, and preserved during speed changes and ordinary assignment edits.
+Removing a configured port requires preview and confirmation even without a label
+or destination. Migration adds fields to existing ports without changing their IDs.
+
+The port API also accepts `portMode`, `accessVlan`, `trunkVlans`, `nativeVlan`.
+Omitting all four preserves the current configuration for older clients; explicit
+`portMode: null` without VLANs clears it. Trunk lists are normalized, sorted and
+deduplicated. Native VLAN is documented independently of Allowed VLANs.
+
+## Switch port naming conventions
+
+In **New device / Edit device → Port naming**, select:
+
+- `Eth 1 / SFP 1 / QSFP 1` — separate numbering for each family (default);
+- `1/1/1` — unit / slot / port, with editable unit and slot numbers;
+- `1/0/1` — unit / 0 / port, with editable unit;
 - `1/1` — unit / port;
-- `1, 2, 3` — numeracja ciągła.
+- `1, 2, 3` — continuous numbering.
 
-Formaty liczbowe numerują porty kolejno: Ethernet, SFP, QSFP. Dlatego nazwy nie
-powtarzają się pomiędzy rodzinami. Dodanie portów wcześniejszej rodziny przesuwa
-numery kolejnych rodzin. Zmiana dotyczy wyłącznie nazw prezentowanych: identyfikatory,
-etykiety, cele i VLAN-y pozostają zachowane. Numer unit: 1–16; slot: 0–16.
-Routery, firewalle i karty serwera zachowują nazwy według rodzin lub kart. Istniejące switche
-po migracji nadal używają nazw według rodziny. API: `portNaming`, `portUnit`, `portSlot`;
-edycja starszym klientem bez tych pól zachowuje zapisaną konwencję.
+Numeric formats number ports in order: Ethernet, SFP, QSFP. Names therefore do
+not repeat across families. Adding ports in an earlier family shifts later
+families' numbers. Only display names change: IDs, labels, destinations and VLANs
+are preserved. Unit number: 1–16; slot: 0–16. Routers, firewalls and server cards
+retain family- or card-based names. Existing switches continue using family-based
+names after migration. API fields: `portNaming`, `portUnit`, `portSlot`; editing
+with an older client that omits these fields preserves the saved convention.
 
-Panel switcha układa każdą rodzinę portów w dwóch rzędach, parami pionowo:
-1 nad 2, 3 nad 4 itd. Liczba kolumn rośnie wraz z liczbą portów; na wąskim
-ekranie przewija się sam panel. Układ nie zmienia numeracji ani konfiguracji.
+The switch panel arranges each port family in two rows, paired vertically:
+1 above 2, 3 above 4, etc. The column count grows with the port count; only the
+panel scrolls on narrow screens. Layout does not change numbering or configuration.

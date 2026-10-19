@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import { getDeviceAudit } from './api.js';
-const ACTIONS={device_create:'Device created',device_update:'Configuration changed',device_location_update:'Rack placement changed',port_update:'Port updated',device_delete:'Device deleted'};
+const ACTIONS={cable_connect:'Cable connected',cable_disconnect:'Cable disconnected',device_create:'Device created',device_update:'Configuration changed',device_location_update:'Rack placement changed',port_update:'Port updated',device_delete:'Device deleted'};
 export default function DeviceHistory({deviceId}) {
   const [id,setId]=useState(deviceId||''),[lookup,setLookup]=useState(deviceId||null),[offset,setOffset]=useState(0),[data,setData]=useState(null),[error,setError]=useState(null),[loading,setLoading]=useState(false),[retry,setRetry]=useState(0),[expanded,setExpanded]=useState(null);
   useEffect(()=>{

@@ -1,154 +1,187 @@
-# Tenanty w net::toolbox
+# Tenants in net::toolbox
 
-Tenant jest granicą danych organizacji lub klienta dla całej aplikacji.
-Konto użytkownika jest globalne i może należeć do wielu tenantów, z inną rolą
-w każdym z nich. DC i VRF pozostają przyszłymi strukturami wewnątrz tenanta.
+A tenant is the organization or customer data boundary for the entire application.
+User accounts are global and can belong to multiple tenants, with a different
+role in each. DC and VRF remain future structures within a tenant.
 
-## Obsługa
+## Usage
 
-1. Zaloguj się jako administrator platformy (`admin`).
-2. Otwórz **Administration → Tenants** i utwórz tenanta.
-3. Wybierz go w polu **Manage access for tenant** w panelu.
-4. W tym samym panelu przypisz istniejące konto i rolę. Nowe konta tworzysz
-   w zakładce **Users**, a szablony uprawnień w **Roles**.
+1. Log in as a platform administrator (`admin`).
+2. Open **Administration → Tenants** and create a tenant.
+3. Select it in **Manage access for tenant** in the panel.
+4. In the same panel, assign an existing account and role. Create new accounts
+   under **Users** and permission templates under **Roles**.
 
-`admin` jest rolą administratora platformy: zarządza kontami, rolami i wszystkimi
-tenantami. `tenant-admin` zarządza istniejącymi członkami swojego tenanta i ma
-pełny dostęp do jego narzędzi; nie otrzymuje administracji platformą. Pierwszy
-dostęp kolejnych kont nadaje administrator platformy. Role niestandardowe mają
-te same uprawnienia modułów co wcześniej, ale obowiązują w przypisanym tenancie.
-Zmiana szablonu roli dotyczy wszystkich członkostw używających tego szablonu.
+`admin` is the platform administrator role: it manages accounts, roles and all
+tenants. `tenant-admin` manages existing members of its tenant and has full access
+to its tools; it does not receive platform administration access. The platform
+administrator grants initial access to other accounts. Custom roles retain their
+previous module permissions, but apply within the assigned tenant. Changing a
+role template affects all memberships using that template.
 
-## Dane i zgodność
+## Data and compatibility
 
-- `server/auth.db`: globalne konta, sesje, ustawienia, role, tenanty, członkostwa
-  oraz audyt tworzenia tenantów i zmian dostępu.
-- `server/toolbox.db`: dotychczasowe dane, przypisane bez kopiowania do tenanta
-  **Domyślny** (`default`).
-- `server/tenants/<UUID>/toolbox.db`: dane nowego tenanta. Katalog nadrzędny
-  można ustawić przez `TENANT_DATA_ROOT`.
-- Docker ustawia `TENANT_DATA_ROOT=/data/tenants` w trwałym wolumenie.
+- `server/auth.db`: global accounts, sessions, settings, roles, tenants,
+  memberships and audit records for tenant creation and access changes.
+- `server/toolbox.db`: existing data, assigned without copying to the
+  **Domyślny** (Default, `default`) tenant.
+- `server/tenants/<UUID>/toolbox.db`: a new tenant's data. Set the parent directory
+  with `TENANT_DATA_ROOT`.
+- Docker sets `TENANT_DATA_ROOT=/data/tenants` in a persistent volume.
 
-Przy pierwszej migracji istniejące konta zachowują role w tenancie domyślnym.
-Migracja jest jednokrotna: ponowny start nie odtwarza cofniętych członkostw.
-Nowe konta lokalne i dotychczasowy przepływ AD otrzymują początkowe członkostwo w tenancie domyślnym. Nowe konta AD rozpoznane wyłącznie przez przypisanie grupy do tenanta nie otrzymują tego dodatkowego członkostwa.
-Zmiana dawnej roli konta aktualizuje to członkostwo tylko wtedy, gdy nadal
-odpowiada ono dawnej roli; niezależne przypisania tenantowe pozostają zachowane.
+During the initial migration, existing accounts retain their roles in the default
+tenant. This migration runs once: restarting does not restore revoked memberships.
+New local accounts and the existing AD flow receive initial membership in the
+default tenant. New AD accounts recognized solely through a group-to-tenant
+assignment do not receive this additional membership. Changing an account's former
+role updates that membership only if it still matches the former role; independent
+tenant assignments are preserved.
 
-IPAM (w tym ustawienia, tagi, archiwum i audyt), routing, urządzenia,
-Device Visualization (switche, firewalle, karty NIC, porty i historia),
-audyt diagnostyki oraz dane walidacji korzystają z bazy aktywnego tenanta.
-Podsieci, adresy i nazwy urządzeń mogą się powtarzać między tenantami.
-Kalkulatory działające wyłącznie w przeglądarce nie wymagają osobnej bazy i
-korzystają z globalnych uprawnień konta.
+IPAM (including settings, tags, archive and audit), routing, devices,
+Device Visualization (switches, firewalls, NICs, ports and history), diagnostics
+audit and validation data use the active tenant's database. Subnets, addresses
+and device names can be repeated across tenants. Browser-only calculators do not
+require a separate database and use the account's global permissions.
 
-Tryb bez logowania zachowuje otwarty dostęp wyłącznie do tenanta domyślnego.
-Pozostałe tenanty zawsze wymagają sesji i uprawnień. Zalogowane konta podlegają
-członkostwu także przy wyłączonym globalnym wymogu logowania.
+Mode without login retains open access only to the default tenant. Other tenants
+always require a session and permissions. Logged-in accounts are subject to
+membership checks even when the global login requirement is disabled.
 
-## API i nowe moduły
+## API and new modules
 
-`X-Tenant-ID` wybiera tenanta; brak nagłówka zachowuje `default` dla zgodności
-z istniejącymi klientami API. Strumienie SSE używają parametru `tenant_id`,
-ponieważ natywny EventSource nie przesyła własnych nagłówków. Oba selektory
-przechodzą tę samą kontrolę sesji i aktualnego członkostwa po stronie serwera.
-Ścieżka pliku powstaje z rejestru i UUID, nigdy z nazwy podanej przez klienta.
+`X-Tenant-ID` selects the tenant; omitting the header retains `default` for
+compatibility with existing API clients. SSE streams use the `tenant_id` parameter
+because native EventSource does not send custom headers. Both selectors undergo
+the same server-side session and current membership checks. File paths are
+resolved from the registry and UUID, never from a client-supplied name.
 
-Frontend przechowuje wybór osobno w każdej karcie. Zmiana tenanta ponownie
-weryfikuje sesję i odmontowuje narzędzia, usuwając ich lokalny stan oraz SSE.
+The frontend stores the selection separately in each browser tab. Switching
+tenants revalidates the session and unmounts tools, clearing their local state
+and SSE connections.
 
-Nowy zapisujący moduł powinien korzystać z `db.get_connection()` lub wspólnego
-resolvera `tenancy.context.database_path`, a jego inicjalizacja musi zostać
-dodana do `tenancy.service.initialize_tenant`. Nie wolno przełączać globalnego
-`DB_PATH` w trakcie żądań. Wątki wymagają `tenancy.context.run_in_executor`,
-a zadania platformowe jawnego `tenant_scope`. Harmonogram IPAM iteruje po
-zarejestrowanych tenantach; zadania dziedziczą właściwy kontekst.
+New modules that persist data should use `db.get_connection()` or the shared
+`tenancy.context.database_path` resolver, and their initialization must be added
+to `tenancy.service.initialize_tenant`. Never switch the global `DB_PATH` during
+requests. Threads require `tenancy.context.run_in_executor`, and platform tasks
+need an explicit `tenant_scope`. The IPAM scheduler iterates over registered
+tenants; jobs inherit the correct context.
 
-## Migracje, backup i odtwarzanie
+## Migrations, backup and recovery
 
-Start aplikacji wykonuje inicjalizację/migracje modułów w każdej zarejestrowanej
-bazie. Utworzenie tenanta publikuje wpis w rejestrze dopiero po pomyślnym
-utworzeniu schematów; zwykły błąd usuwa niedokończony katalog i wycofuje wpis.
-Nagłe przerwanie procesu może pozostawić niezarejestrowany katalog UUID;
-nie jest on udostępniany ani automatycznie dołączany do aplikacji.
+Application startup initializes/migrates modules in every registered database.
+Tenant creation publishes the registry entry only after schemas are created
+successfully; an ordinary error removes the incomplete directory and rolls back
+the entry. An abrupt process interruption can leave an unregistered UUID
+directory; it is neither exposed nor automatically attached to the application.
 
-Przed aktualizacją zachowaj kopię `auth.db`, `toolbox.db` i całego katalogu
-`TENANT_DATA_ROOT`. Najprostszy spójny backup wykonasz przy zatrzymanym backendzie;
-SQLite Backup API pozwala kopiować pojedynczą działającą bazę, ale spójny zestaw
-wielu baz wymaga wstrzymania zapisów lub skoordynowanego snapshotu.
-Przykłady backupu i kontrole po aktualizacji opisuje [procedura utrzymania serwera](maintenance.md).
-Odtwarzanie wymaga zachowania UUID i zgodności rejestru z katalogami.
-Nie przywracaj samej bazy danych tenanta pod identyfikatorem innego tenanta.
+Before upgrading, back up `auth.db`, `toolbox.db` and the entire `TENANT_DATA_ROOT`
+directory. The simplest consistent backup is made with the backend stopped.
+The SQLite Backup API can copy individual live databases, but a consistent set
+of multiple databases requires paused writes or a coordinated snapshot.
+See the [server maintenance procedure](maintenance.md) for backup examples and
+post-upgrade checks. Recovery must preserve UUIDs and consistency between the
+registry and directories. Do not restore a tenant database under another tenant's ID.
 
-Nie ma automatycznego usuwania tenantów ani raportów przekrojowych. Oddzielne
-pliki zapewniają granicę danych aplikacji; backend i administrator hosta nadal
-mają dostęp do wszystkich plików. To nie są osobne procesy ani konta systemowe.
+There is no automatic tenant deletion or cross-tenant reporting. Separate files
+provide an application data boundary; the backend and host administrator still
+have access to all files. They are not separate processes or system accounts.
 
-### Przenoszenie hostów Routing Map
+### Moving Routing Map hosts
 
-Wybierz zapisany host w Routing Map, użyj **Move to tenant**, wybierz tenant docelowy,
-następnie **Review move** i **Confirm move**. Można w ten sposób przenieść istniejące
-hosty z „Domyślnego”, razem z trasami i interfejsami. Wymagane jest zalogowane konto
-z dostępem do Routing Map w obu tenantach. Przenoszenie zachowuje datę zapisu,
-usuwając host ze źródła; istniejący host o tej samej nazwie w celu blokuje operację.
-Zmiana danych po podglądzie wymaga ponownego sprawdzenia. Audyt zapisuje operację
-w obu tenantach. Blok hosta jest też usuwany z lokalnego pola importu, aby kolejny
-zapis nie odtworzył przeniesionego hosta w źródle.
+Select a saved host in Routing Map, use **Move to tenant**, choose the destination,
+then **Review move** and **Confirm move**. This moves existing hosts from
+“Domyślny” (Default), including routes and interfaces. A logged-in account with
+Routing Map access in both tenants is required. Moving preserves the save date
+and removes the host from the source; an existing destination host with the same
+name blocks the operation. Data changes after preview require another review.
+The operation is audited in both tenants. The host block is also removed from
+the local import field so a subsequent save does not recreate it in the source.
 
-Dane i audyt są zapisywane w jednej transakcji SQLite obejmującej trzy pliki.
-Przenoszenie wymaga trybu dziennika DELETE/TRUNCATE/PERSIST we wszystkich tych
-bazach; przy WAL operacja jest odrzucana, ponieważ SQLite nie gwarantuje wtedy
-atomowości transakcji obejmującej wiele plików ([SQLite ATTACH](https://www.sqlite.org/lang_attach.html)).
+Data and audit records are saved in one SQLite transaction spanning three files.
+Moving requires DELETE/TRUNCATE/PERSIST journal mode in all participating
+databases; WAL mode is rejected because SQLite does not guarantee atomicity
+across multiple files in that mode ([SQLite ATTACH](https://www.sqlite.org/lang_attach.html)).
 
-### Przenoszenie sieci IPAM
+### Moving IPAM networks
 
-W szczegółach podsieci użyj **Move to tenant → Review move → Confirm move**.
-Wymagane jest zalogowane konto z `ipam.write` (lub `ipam`/`*`) w obu tenantach.
-Przenoszona jest wybrana podsieć wraz z całym drzewem podsieci podrzędnych,
-metadanymi, adresami, tagami i ich przypisaniami, DHCP, rezerwacjami zakresów,
-wykluczeniami skanów, historią skanów i ukończonymi zadaniami. Identyfikatory
-rekordów są nadawane w bazie docelowej, a relacje zostają odpowiednio przepisane.
-Sieć nadrzędna poza przenoszonym drzewem pozostaje w źródle.
+In subnet details, use **Move to tenant → Review move → Confirm move**.
+A logged-in account with `ipam.write` (or `ipam`/`*`) in both tenants is required.
+The selected subnet moves with its entire child subnet tree, metadata, addresses,
+tags and assignments, DHCP, range reservations, scan exclusions, scan history and
+completed jobs. Record IDs are allocated in the destination database and
+relationships are remapped accordingly. A parent network outside the moved tree
+remains in the source.
 
-Konflikt zakresu z dowolną siecią docelową, tag o tej samej nazwie i innych
-metadanych, aktywny skan nakładającego się zakresu albo zmiana danych po podglądzie
-blokuje przenoszenie. Harmonogramy skanowania są przenoszone jako **wyłączone**;
-można je ponownie włączyć w nowym tenantcie. Archiwalne, usunięte rekordy oraz
-wyciszenia kontroli jakości pozostają w źródle. Historia audytu jest kopiowana
-do celu; jej oryginał i ślad przeniesienia pozostają w źródle. Operacja ma również
-wpis w audycie obu tenantów. Wszystkie zmiany danych i audytu są jedną transakcją
-z tymi samymi wymaganiami trybu dziennika SQLite co przenoszenie Routing Map.
+A range conflict with any destination network, a tag with the same name and
+different metadata, an active scan of an overlapping range, or a data change after
+preview blocks the move. Scan schedules move as **disabled**; they can be enabled
+again in the new tenant. Archived deleted records and muted data quality checks
+remain in the source. Audit history is copied to the destination; its original
+and a move record remain in the source. The operation also appears in both
+tenants' audit logs. All data and audit changes form a single transaction with
+the same SQLite journal mode requirements as Routing Map moves.
 
-## Wizualizacja urządzeń
+## Device Visualization
 
-[Device Visualization](device-visualization.md) zapisuje dane w bazie aktywnego
-tenanta. Uprawnienie `device-visualization` jest nadawane przez role członkostw;
-nie jest automatycznie dodawane do istniejących ról. Moduł obejmuje switche,
-firewalle Check Point/FortiGate i generyczne serwery. Backup wszystkich baz
-tenantów zawiera jego dane i audyt.
+[Device Visualization](device-visualization.md) stores data in the active tenant's
+database. The `device-visualization` permission is granted through membership
+roles; it is not automatically added to existing roles. The module covers
+switches, Check Point/FortiGate firewalls and generic servers. Backups of all
+tenant databases include its data and audit records.
 
-## Dostęp użytkowników i grup
+## User and group access
 
-Administrator platformy wybiera tenanta w **Administration → Tenants → Manage access for tenant**. Ten wybór służy zarządzaniu uprawnieniami i nie zmienia aktywnego tenanta narzędzi na górnym pasku. W sekcji kont przypisuje rolę konkretnemu użytkownikowi; w **Group access** przypisuje rolę grupie. Szablony ról i uprawnień modułów nadal definiuje się w **Roles**.
+The platform administrator selects a tenant in **Administration → Tenants →
+Manage access for tenant**. This selection controls permission management and
+does not change the tools' active tenant in the top bar. Assign a role to a
+specific user in the accounts section; assign a role to a group under **Group
+access**. Role templates and module permissions are still defined under **Roles**.
 
-**Administration → Groups** umożliwia tworzenie grup lokalnych i AD:
+**Administration → Groups** supports local and AD groups:
 
-- **Local**: członków dodaje i usuwa administrator platformy. Można przypisać istniejące konto lokalne lub AD. Członkostwo samo nie daje dostępu; grupa musi mieć rolę w danym tenancie.
-- **Active Directory**: podaje się nazwę i pełny DN grupy. Aplikacja nie zarządza członkostwem w katalogu. Przypisane do tenantów grupy są sprawdzane podczas uwierzytelniania AD, także przez członkostwo zagnieżdżone. Widok członków pokazuje konta rozpoznane przy ostatnim uwierzytelnianiu, a nie kompletną listę katalogową. Po przypisaniu nowej grupy użytkownicy powinni ponownie zalogować się przez AD.
+- **Local**: the platform administrator adds and removes members. Existing local
+  or AD accounts can be assigned. Membership alone does not grant access; the
+  group must have a role in the relevant tenant.
+- **Active Directory**: enter a name and full group DN. The application does not
+  manage directory membership. Groups assigned to tenants are checked during AD
+  authentication, including nested membership. The members view shows accounts
+  recognized at their last authentication, rather than a complete directory
+  listing. Users should log in through AD again after a new group is assigned.
 
-Bez indywidualnego przypisania uprawnienia ze wszystkich pasujących grup w danym tenancie sumują się. **Indywidualna rola ma pierwszeństwo i zastępuje całość uprawnień grupowych**. Usunięcie indywidualnej roli przywraca uprawnienia grup; nie jest równoznaczne z całkowitym odebraniem dostępu. Aby odebrać dostęp, usuń wszystkie jego źródła. Jeżeli potrzebne jest indywidualne ograniczenie użytkownika należącego do grupy, przypisz mu w tym tenancie rolę o węższym zestawie uprawnień.
+Without an individual assignment, permissions from all matching groups within a
+tenant are combined. **An individual role takes precedence and replaces the
+entire set of group permissions**. Removing the individual role restores group
+permissions; it does not necessarily revoke all access. To revoke access, remove
+all its sources. To restrict an individual user who belongs to a group, assign a
+role with a narrower permission set in that tenant.
 
-Dotychczasowe przypisania, w tym automatyczne członkostwo kont w tenancie **Domyślny**, pozostają zachowane i mają pierwszeństwo przed grupami. Aby w tym tenancie korzystać z dziedziczenia grup, usuń jego indywidualne przypisanie. Globalny administrator nadal ma dostęp do wszystkich tenantów. Rola `tenant-admin` nadana przez grupę nie daje administracji platformą ani prawa do tworzenia grup lub przyznawania grupom dostępu.
+Existing assignments, including automatic account membership in the **Domyślny**
+(Default) tenant, are preserved and take precedence over groups. Remove the
+individual assignment to use group inheritance in that tenant. A global
+administrator still has access to all tenants. A `tenant-admin` role granted
+through a group does not grant platform administration or the right to create
+groups or grant tenant access to groups.
 
-Zmiany grup lokalnych, przypisań grup, indywidualnych ról i szablonów uprawnień są odczytywane przy każdym żądaniu. Zmiany członkostwa w samym AD aplikacja poznaje dopiero podczas kolejnego uwierzytelnienia AD; do tego czasu obowiązuje ostatni zweryfikowany stan. Błędne hasło ani awaria LDAP nie są dowodem opuszczenia grupy. Nowe grupy AD bez przypisań tenantowych nie rozszerzają bramki logowania AD.
+Changes to local groups, group assignments, individual roles and permission
+templates are read on every request. The application learns of AD membership
+changes only at the next AD authentication; until then, the last verified state
+applies. An incorrect password or LDAP outage is not evidence of leaving a group.
+New AD groups without tenant assignments do not expand the AD login gate.
 
-Grupy, lokalne członkostwa, przypisania tenantowe i ostatnie obserwacje AD są przechowywane w `auth.db`. Migracja dodaje tabele bez zmiany istniejących danych. Zmiany przypisań i grup mają audyt zapisany w tej samej transakcji; historia globalnych grup jest w **Groups**, a zmiany dotyczące konkretnego tenanta również w **Tenants**. Usunięcie grupy usuwa jej członkostwa i wszystkie przypisania tenantowe, zachowując audyt.
+Groups, local memberships, tenant assignments and the latest AD observations are
+stored in `auth.db`. Migration adds tables without changing existing data. Group
+and assignment changes are audited in the same transaction; global group history
+is under **Groups**, and changes affecting a specific tenant also appear under
+**Tenants**. Deleting a group removes its memberships and all tenant assignments
+while preserving audit records.
 
-Nowe endpointy:
+New endpoints:
 
-- `/api/admin/access-groups` — wyszukiwanie i tworzenie grup, usuwanie po `/{id}`.
-- `/api/admin/access-groups/{id}/members` — członkowie; PUT/DELETE `/{userId}` tylko dla grup lokalnych.
-- `/api/admin/access-groups/accounts` oraz `/audit` — stronicowane konta do wyboru i historia grup.
-- `/api/tenants/{tenantId}/group-access` — przypisania grup; PUT/DELETE `/{groupId}` tylko dla administratora platformy.
+- `/api/admin/access-groups` — search and create groups; delete via `/{id}`.
+- `/api/admin/access-groups/{id}/members` — members; PUT/DELETE `/{userId}` for local groups only.
+- `/api/admin/access-groups/accounts` and `/audit` — paginated account selection and group history.
+- `/api/tenants/{tenantId}/group-access` — group assignments; PUT/DELETE `/{groupId}` for platform administrators only.
 
-Listy globalnych grup, członków, kont do wyboru i historii grup używają domyślnie stron po 25 pozycji (maksymalnie 100). Dane AD nie są przyjmowane z przeglądarki; zapisuje je tylko backend po sprawdzeniu danych uwierzytelniających.
+Global group, member, account selection and group history lists default to 25
+items per page (maximum 100). AD observations are not accepted from the browser;
+only the backend writes them after verifying credentials.

@@ -82,6 +82,7 @@ def init_db():
     migrate_port_vlans()
     migrate_port_naming()
     migrate_port_ip_addresses()
+    migrate_port_transceivers()
     from dc_inventory.repository import init_schema
     with connection(write=True) as conn:
         init_schema(conn)
@@ -128,6 +129,12 @@ def migrate_device_types():
         conn.rollback()
         conn.execute('PRAGMA foreign_keys=ON')
         conn.close()
+
+
+def migrate_port_transceivers():
+    with connection(write=True) as conn:
+        if 'transceiver' not in {row['name'] for row in conn.execute('PRAGMA table_info(dv_ports)')}:
+            conn.execute("ALTER TABLE dv_ports ADD COLUMN transceiver TEXT CHECK(transceiver IS NULL OR transceiver IN ('sfp-1g','sfp-10g','sfp28-25g','rj45-1g'))")
 
 
 def migrate_port_ip_addresses():
@@ -239,6 +246,7 @@ def detail(conn, device_id):
         raise Missing()
     data = summary(row)
     groups = [dict(g) for g in conn.execute("SELECT * FROM dv_port_groups WHERE device_id=? ORDER BY slot_number, CASE family WHEN 'ethernet' THEN 0 WHEN 'sfp' THEN 1 ELSE 2 END", (device_id,))]
+    cables={port:row['id'] for row in conn.execute('SELECT c.id,c.source_port_id,c.target_port_id FROM dc_connections c JOIN dv_ports p ON p.id=c.source_port_id OR p.id=c.target_port_id WHERE p.device_id=?',(device_id,)) for port in (row['source_port_id'],row['target_port_id'])}
     ports = []
     ordinal = 0
     for g in groups:
@@ -255,7 +263,9 @@ def detail(conn, device_id):
                 name = port_name(row,g['family'],p['port_number'],ordinal)
             if controller:
                 name = f'Controller {controller} / {name}'
-            ports.append({'controller':controller,'isManagement':management,'id':p['id'],'groupId':g['id'],'family':g['family'],'number':p['port_number'],'name':name,
+            from .transceivers import effective
+            effective_family,effective_speed=effective(g['family'],g['speed_gbps'],p['transceiver'])
+            ports.append({'transceiver':p['transceiver'],'effectiveFamily':effective_family,'effectiveSpeedGbps':effective_speed,'connectionId':cables.get(p['id']),'controller':controller,'isManagement':management,'id':p['id'],'groupId':g['id'],'family':g['family'],'number':p['port_number'],'name':name,
                           'slotNumber':slot,'speedGbps':g['speed_gbps'],'label':p['label'],'leadsTo':p['leads_to'],
                           'ipAddress':p['ip_address'],'portMode':p['port_mode'],'accessVlan':p['access_vlan'],'trunkVlans':p['trunk_vlans'],'nativeVlan':p['native_vlan']})
     data['ports'] = ports
@@ -351,9 +361,11 @@ def update_device(device_id, config, actor_id=None, preview=False):
             apply_placement(conn,device_id,config,current,validate_only=True)
             return review
         if (review['removedAssignedPortCount'] or review['removedLabelledPortCount'] or review['removedConfiguredPortCount']) and not config.confirmPortDataRemoval:
-            raise Conflict({'code':'confirmation_required','message':'Review and confirm removal of port labels, assignments or IP/VLAN configuration',**review})
+            raise Conflict({'code':'confirmation_required','message':'Review and confirm removal of port labels, assignments, IP/VLAN configuration or physical cables',**review})
         from dc_inventory.service import apply_placement
         apply_placement(conn,device_id,config,current)
+        from dc_inventory.connections import refresh_for_device
+        refresh_for_device(conn,device_id,actor_id)
         apply_groups(conn,device_id,proposed)
         naming={key:getattr(config,key) if key in config.model_fields_set else current[key] for key in ('portNaming','portUnit','portSlot')}
         conn.execute('UPDATE dv_devices SET port_naming=?,port_unit=?,port_slot=? WHERE id=?',
@@ -379,18 +391,29 @@ def update_port(device_id,port_id,request,actor_id=None):
         if port is None:
             raise Missing()
         check_version(current,request.expectedVersion)
-        fields={'portMode':'port_mode','accessVlan':'access_vlan','trunkVlans':'trunk_vlans','nativeVlan':'native_vlan'}
-        vlan={key:getattr(request,key) for key in fields} if set(fields).intersection(request.model_fields_set) else {key:port[key] for key in fields}
-        address = request.ipAddress if 'ipAddress' in request.model_fields_set else port['ipAddress']
-        if port['ipAddress']==address and port['label']==request.label and port['leadsTo']==request.leadsTo and all(port[k]==v for k,v in vlan.items()):
-            return current
-        conn.execute('UPDATE dv_ports SET label=?,leads_to=?,port_mode=?,access_vlan=?,trunk_vlans=?,native_vlan=?,ip_address=? WHERE id=? AND device_id=?',
-                     (request.label,request.leadsTo,vlan['portMode'],vlan['accessVlan'],vlan['trunkVlans'],vlan['nativeVlan'],address,port_id,device_id))
-        conn.execute('UPDATE dv_devices SET version=version+1,updated_at=? WHERE id=?',(now(),device_id))
-        result=detail(conn,device_id)
-        updated=next(p for p in result['ports'] if p['id']==port_id)
-        audit(conn,device_id,actor_id,'port_update',{'name':current['name'],'port':port},{'name':result['name'],'port':updated})
-        return result
+        if request.targetPortId is not None:
+            from .linked_assignment import assign
+            return assign(conn,current,port,request,actor_id)
+        return write_port_assignment(conn,current,port,request,actor_id)
+
+
+def write_port_assignment(conn,current,port,request,actor_id=None):
+    device_id,port_id=current['id'],port['id']
+    fields={'portMode':'port_mode','accessVlan':'access_vlan','trunkVlans':'trunk_vlans','nativeVlan':'native_vlan'}
+    vlan={key:getattr(request,key) for key in fields} if set(fields).intersection(request.model_fields_set) else {key:port[key] for key in fields}
+    module=request.transceiver if 'transceiver' in request.model_fields_set else port['transceiver']
+    if module is not None and port['family']!='sfp':
+        raise Invalid('Transceiver settings are only available for SFP ports')
+    address = request.ipAddress if 'ipAddress' in request.model_fields_set else port['ipAddress']
+    if port['transceiver']==module and port['ipAddress']==address and port['label']==request.label and port['leadsTo']==request.leadsTo and all(port[k]==v for k,v in vlan.items()):
+        return current
+    conn.execute('UPDATE dv_ports SET label=?,leads_to=?,port_mode=?,access_vlan=?,trunk_vlans=?,native_vlan=?,ip_address=?,transceiver=? WHERE id=? AND device_id=?',
+                 (request.label,request.leadsTo,vlan['portMode'],vlan['accessVlan'],vlan['trunkVlans'],vlan['nativeVlan'],address,module,port_id,device_id))
+    conn.execute('UPDATE dv_devices SET version=version+1,updated_at=? WHERE id=?',(now(),device_id))
+    result=detail(conn,device_id)
+    updated=next(p for p in result['ports'] if p['id']==port_id)
+    audit(conn,device_id,actor_id,'port_update',{'name':current['name'],'port':port},{'name':result['name'],'port':updated})
+    return result
 
 
 def delete_device(device_id,request,actor_id=None):
@@ -399,6 +422,8 @@ def delete_device(device_id,request,actor_id=None):
         check_version(current,request.expectedVersion)
         if not request.confirmDelete:
             raise Conflict({'code':'confirmation_required','message':'Confirm deletion of this device'})
+        from dc_inventory.connections import refresh_for_device
+        refresh_for_device(conn,device_id,actor_id)
         audit(conn,device_id,actor_id,'device_delete',current,None)
         if current['rackId'] is not None:
             from dc_inventory import repository as inventory

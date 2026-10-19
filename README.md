@@ -90,6 +90,7 @@ See [usage, permissions and API](docs/device-visualization.md).
 ### DC Inventory
 Place the shared Device Visualization devices in data centers and configurable 1–100U racks.
 - Bottom-up U numbering, recorded device height, rack elevation, and an unassigned-device list.
+- Physical port-to-port connections within and between racks, including other data centers: selectable cables, peer rack navigation, Fit/zoom and a paginated endpoint list.
 - Collision, capacity, shrink, and nonempty-location deletion protections with version checks and atomic audit.
 - Tenant-scoped data and `dc-inventory` permission; existing roles need an explicit grant, while admin wildcard access applies automatically.
 - Backend restart automatically migrates existing tenant databases; no new dependencies.
