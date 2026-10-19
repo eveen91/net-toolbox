@@ -13,7 +13,11 @@ import "../tools/shared.css";
 import "./admin.css";
 
 const ROLE_PERMISSIONS = [
-  ...TOOLS.filter((tool) => tool.id !== "ipam").map((tool) => ({ id: tool.id, name: tool.name })),
+  ...TOOLS.filter((tool) => tool.id !== "ipam").map((tool) => ({ id: tool.id, name: tool.id === "documentation" ? "Documentation full access (legacy)" : tool.name })),
+  { id: "documentation.read", name: "Documentation Read" },
+  { id: "documentation.write", name: "Documentation Edit / Review" },
+  { id: "documentation.publish", name: "Documentation Publish" },
+  { id: "documentation.admin", name: "Documentation Manage Confluence" },
   { id: "ipam.read", name: "IPAM Read" },
   { id: "ipam.write", name: "IPAM Write" },
   { id: "ipam.scan", name: "IPAM Scan" },

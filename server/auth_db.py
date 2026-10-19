@@ -25,6 +25,7 @@ FULL_ACCESS_PERMISSIONS = ["*"]
 # exactly as before until an admin deliberately narrows it down.
 DEFAULT_ROLE_NAME = "user"
 DEFAULT_ROLE_SEED_PERMISSIONS = [
+    "documentation",
     "dhcp-generator",
     "device-visualization",
     "dc-inventory",

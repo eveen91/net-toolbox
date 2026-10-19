@@ -1,0 +1,7 @@
+import React,{useEffect,useState} from 'react';
+import {getHistory} from './api.js';
+export default function DocumentHistory({id}){
+ const [opened,setOpened]=useState(false),[offset,setOffset]=useState(0),[page,setPage]=useState(null),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+ useEffect(()=>{let active=true;if(!opened)return;setPage(null);setError('');getHistory(id,offset).then(result=>{if(active)setPage(result);}).catch(failure=>{if(active)setError(failure.message);});return()=>{active=false;};},[id,opened,offset,retry]);
+ return <details className="tool-panel" onToggle={event=>setOpened(event.currentTarget.open)}><summary>Review and change history</summary>{error?<p role="alert" className="tool-error">{error} <button type="button" className="tool-btn tool-btn-ghost" onClick={()=>setRetry(value=>value+1)}>Retry history</button></p>:opened&&!page?<p role="status">Loading history…</p>:page&&<><ul>{page.items.map(item=><li key={item.id}>{new Date(item.createdAt).toLocaleString()} · {item.action}{item.targetStatus?' → '+item.targetStatus:''} · actor {item.actorName||item.actorId||'open mode'}</li>)}</ul>{page.total>20&&<div className="dc-doc-pager"><button type="button" className="tool-btn tool-btn-ghost" disabled={!offset} onClick={()=>setOffset(value=>value-20)}>Previous history</button><button type="button" className="tool-btn tool-btn-ghost" disabled={offset+20>=page.total} onClick={()=>setOffset(value=>value+20)}>Next history</button></div>}</>}</details>;
+}

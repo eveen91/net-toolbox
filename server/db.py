@@ -709,29 +709,34 @@ def merge_interfaces(stored: List[Dict], routes: List[Dict]) -> List[Dict]:
 def get_host(host: str) -> Optional[Dict]:
     conn = get_connection()
     try:
-        host_row = conn.execute(
-            "SELECT id, name, updated_at FROM hosts WHERE name = ?", (host,)
-        ).fetchone()
-        if host_row is None:
-            return None
-        route_rows = conn.execute(
-            "SELECT network, next_hop, interface FROM routes WHERE host_id = ? ORDER BY id",
-            (host_row["id"],),
-        ).fetchall()
-        interface_rows = conn.execute(
-            "SELECT name, ip_address, description FROM interfaces WHERE host_id = ? ORDER BY id",
-            (host_row["id"],),
-        ).fetchall()
-        routes = [_route_dict(r) for r in route_rows]
-        stored = [_interface_dict(i) for i in interface_rows]
-        return {
-            "host": host_row["name"],
-            "updatedAt": host_row["updated_at"],
-            "routes": routes,
-            "interfaces": merge_interfaces(stored, routes),
-        }
+        return get_host_in_connection(conn, host)
     finally:
         conn.close()
+
+
+def get_host_in_connection(conn, host: str) -> Optional[Dict]:
+    """Reuse the Routing Map read model inside an existing snapshot transaction."""
+    host_row = conn.execute(
+        "SELECT id, name, updated_at FROM hosts WHERE name = ?", (host,)
+    ).fetchone()
+    if host_row is None:
+        return None
+    route_rows = conn.execute(
+        "SELECT network, next_hop, interface FROM routes WHERE host_id = ? ORDER BY id",
+        (host_row["id"],),
+    ).fetchall()
+    interface_rows = conn.execute(
+        "SELECT name, ip_address, description FROM interfaces WHERE host_id = ? ORDER BY id",
+        (host_row["id"],),
+    ).fetchall()
+    routes = [_route_dict(r) for r in route_rows]
+    stored = [_interface_dict(i) for i in interface_rows]
+    return {
+        "host": host_row["name"],
+        "updatedAt": host_row["updated_at"],
+        "routes": routes,
+        "interfaces": merge_interfaces(stored, routes),
+    }
 
 
 def export_all() -> List[Dict]:

@@ -45,6 +45,7 @@ def initialize_tenant(tenant):
     import troubleshoot_audit
     from device_visualization import repository as device_visualization
     from dhcp_generator import repository as dhcp_generator
+    from documentation import repository as documentation
     path = tenant_database_path(tenant)
     with tenant_scope(TenantContext(tenant["id"], path)):
         db.init_db()
@@ -52,6 +53,7 @@ def initialize_tenant(tenant):
         troubleshoot_audit.init_db()
         device_visualization.init_db()
         dhcp_generator.init_db()
+        documentation.init_db()
 
 
 def initialize_all_tenants():

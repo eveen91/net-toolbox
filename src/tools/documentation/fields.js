@@ -1,0 +1,10 @@
+import catalog from '../../../server/documentation/templates.json';
+import networkChapters from '../../../server/documentation/chapters.json';
+export const TEMPLATES={...catalog,network:{...catalog.network,pages:networkChapters}};
+export const PAGES=networkChapters;
+export const SECTIONS=PAGES.flatMap(page=>page.sections);
+const subnetPages=networkChapters.map(page=>({...page,sections:page.sections.map(section=>({...section,fields:section.fields.map(field=>field.id==='dcName'?{...field,label:'Network name / CIDR'}:field)}))}));
+export const pagesFor=form=>(form?.templateId||'network')==='network'&&form?.scopeSpec?.kind==='subnet'?subnetPages:TEMPLATES[form?.templateId||'network'].pages;
+export const fieldValue=(form,field)=>field.note?(form.templateNotes||{})[field.id]||'':form[field.id]??'';
+export const emptyForm=author=>({...Object.fromEntries(SECTIONS.flatMap(section=>section.fields).map(field=>[field.id,field.id==='author'?author||'':''])),templateId:'network',scopeSpec:{kind:'none',id:null,dhcpVersionIds:[]},templateNotes:{}});
+export const sourcePage=(table,templateId,map)=> (map||TEMPLATES[templateId||'network'].sourceChapters||{})[table.chapter]||table.chapter;

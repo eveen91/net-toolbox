@@ -36,6 +36,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 from pydantic_core import ValidationError
 from dc_inventory.router import build_router as build_dc_inventory_router
+from documentation.router import build_router as build_documentation_router
 from device_visualization.router import build_router as build_device_visualization_router
 from dhcp_generator.router import build_router as build_dhcp_generator_router
 from connection_test.schemas import Source, Credentials, RunRequest
@@ -668,6 +669,7 @@ app.include_router(build_ipam_transfer_router(require_ipam_permission, require_a
 app.include_router(build_inventory_ipam_router(require_feature, require_ipam_permission, require_logged_in_user))
 app.include_router(build_device_visualization_router(require_feature, require_logged_in_user))
 app.include_router(build_dc_inventory_router(require_feature, require_logged_in_user))
+app.include_router(build_documentation_router(require_feature, require_logged_in_user))
 app.include_router(build_dhcp_generator_router(require_feature, require_logged_in_user))
 
 

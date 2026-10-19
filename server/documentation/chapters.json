@@ -1,0 +1,657 @@
+[
+  {
+    "id": "general",
+    "label": "General information",
+    "description": "DC identity, documentation scope and responsible contacts.",
+    "sections": [
+      {
+        "id": "identity",
+        "title": "Document and data center",
+        "description": "Identify the document and the site it describes.",
+        "fields": [
+          {
+            "id": "title",
+            "label": "Documentation title",
+            "required": true,
+            "max": 160
+          },
+          {
+            "id": "dcName",
+            "label": "Data center name",
+            "required": true,
+            "max": 100
+          },
+          {
+            "id": "dcCode",
+            "label": "Site code / identifier",
+            "max": 100
+          },
+          {
+            "id": "environment",
+            "label": "Environment",
+            "options": [
+              [
+                "production",
+                "Production"
+              ],
+              [
+                "disaster-recovery",
+                "Disaster recovery"
+              ],
+              [
+                "test",
+                "Test"
+              ],
+              [
+                "development",
+                "Development"
+              ],
+              [
+                "mixed",
+                "Mixed"
+              ]
+            ]
+          },
+          {
+            "id": "operator",
+            "label": "Facility operator / colocation provider",
+            "max": 200
+          },
+          {
+            "id": "author",
+            "label": "Document author",
+            "max": 200
+          },
+          {
+            "id": "reviewDate",
+            "label": "Next documentation review",
+            "type": "date",
+            "max": 10
+          }
+        ]
+      },
+      {
+        "id": "location",
+        "title": "Location",
+        "description": "Provide the physical location used by administrators and service engineers.",
+        "fields": [
+          {
+            "id": "address",
+            "label": "Full address",
+            "multiline": true,
+            "max": 500,
+            "hint": "Street, city, postal code and country."
+          },
+          {
+            "id": "building",
+            "label": "Building / floor",
+            "max": 200
+          },
+          {
+            "id": "rooms",
+            "label": "Rooms / halls / zones",
+            "max": 500
+          },
+          {
+            "id": "timezone",
+            "label": "Site time zone",
+            "max": 100,
+            "hint": "For example, Europe/Warsaw."
+          }
+        ]
+      },
+      {
+        "id": "scope",
+        "title": "Purpose and scope",
+        "description": "Describe what the DC supports and what this documentation covers.",
+        "fields": [
+          {
+            "id": "purpose",
+            "label": "Role of the DC and supported services",
+            "multiline": true,
+            "max": 5000
+          },
+          {
+            "id": "scope",
+            "label": "Documentation scope",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Locations, environments and systems covered by this document."
+          },
+          {
+            "id": "exclusions",
+            "label": "Exclusions and known gaps",
+            "multiline": true,
+            "max": 3000
+          },
+          {
+            "id": "criticality",
+            "label": "Service criticality",
+            "options": [
+              [
+                "critical",
+                "Critical"
+              ],
+              [
+                "high",
+                "High"
+              ],
+              [
+                "standard",
+                "Standard"
+              ],
+              [
+                "low",
+                "Low"
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ownership",
+        "title": "Responsibility and contacts",
+        "description": "Record who owns the site and who to contact during normal work or an incident.",
+        "fields": [
+          {
+            "id": "ownerTeam",
+            "label": "Responsible organization / team",
+            "max": 200
+          },
+          {
+            "id": "technicalOwner",
+            "label": "Technical owner",
+            "max": 500
+          },
+          {
+            "id": "serviceOwner",
+            "label": "Service / business owner",
+            "max": 500
+          },
+          {
+            "id": "operationsContact",
+            "label": "Operations / NOC contact",
+            "multiline": true,
+            "max": 1000,
+            "hint": "Team or person, email, phone and availability."
+          },
+          {
+            "id": "emergencyContact",
+            "label": "Incident contact and escalation",
+            "multiline": true,
+            "max": 1000,
+            "hint": "On-call contact, phone and escalation order."
+          },
+          {
+            "id": "providerContact",
+            "label": "Facility support contact",
+            "multiline": true,
+            "max": 1000,
+            "hint": "Provider helpdesk, phone, email and customer / contract reference."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "physical",
+    "label": "Physical layout",
+    "description": "Draft of the physical layout chapter. DC Inventory already owns racks and U-level placement; these fields describe the surrounding layout and references.",
+    "sections": [
+      {
+        "id": "layout",
+        "title": "Rooms and rack layout",
+        "description": "Describe the site layout and point to its plans.",
+        "fields": [
+          {
+            "id": "floorPlans",
+            "label": "Floor plans and drawing references",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Document locations, drawing identifiers and revision dates."
+          },
+          {
+            "id": "roomLayout",
+            "label": "Room / hall arrangement",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Areas, functions, boundaries, aisles and relevant access paths."
+          },
+          {
+            "id": "rackLayout",
+            "label": "Rack arrangement and naming",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Rack rows, location convention and references to DC Inventory. Individual U placements remain in inventory."
+          },
+          {
+            "id": "physicalConstraints",
+            "label": "Physical capacity and constraints",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Space, floor loading, transport clearances and expansion restrictions, if known."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "equipment",
+    "label": "Equipment",
+    "description": "Draft of the equipment chapter. Device Visualization and DC Inventory remain the source for individual devices, ports, models and locations.",
+    "sections": [
+      {
+        "id": "equipment-context",
+        "title": "Equipment scope and identification",
+        "description": "Record context and missing information without maintaining a second inventory.",
+        "fields": [
+          {
+            "id": "equipmentScope",
+            "label": "Equipment groups and roles",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Core, access, security, compute, storage, management and other equipment covered."
+          },
+          {
+            "id": "equipmentIdentification",
+            "label": "Identification and asset references",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Hostname conventions, asset register references and where serial numbers are maintained."
+          },
+          {
+            "id": "equipmentManagement",
+            "label": "Management access conventions",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Management networks, approved access methods and references to access procedures."
+          },
+          {
+            "id": "equipmentGaps",
+            "label": "Equipment information to verify",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Missing models, serials, software, support or inventory assignments to complete later."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "connections",
+    "label": "Connections",
+    "description": "Draft of the physical connectivity chapter. Saved device-to-port connections remain in DC Inventory and Device Visualization.",
+    "sections": [
+      {
+        "id": "cabling",
+        "title": "Cabling and physical connectivity",
+        "description": "Describe conventions, passive infrastructure and the context of existing connections.",
+        "fields": [
+          {
+            "id": "cablingStandards",
+            "label": "Cabling media and standards",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Copper/fiber types, connector conventions, documented speeds and cable lengths where relevant."
+          },
+          {
+            "id": "cableIdentification",
+            "label": "Cable identification",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Cable labels and how endpoints are identified."
+          },
+          {
+            "id": "patchPanels",
+            "label": "Patch panels and structured cabling",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Panel, socket and cross-connect naming; references to passive cabling records."
+          },
+          {
+            "id": "interRackLinks",
+            "label": "Inter-rack / inter-room paths",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Trays, risers, diverse paths and external cross-connect references."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "logical",
+    "label": "Logical network",
+    "description": "Draft of the logical network chapter. IPAM owns address records; Routing Map owns saved interfaces and routes.",
+    "sections": [
+      {
+        "id": "logical-design",
+        "title": "Logical network design",
+        "description": "Capture design intent and references rather than manually copying address and routing tables.",
+        "fields": [
+          {
+            "id": "addressingDesign",
+            "label": "Addressing and VLAN design",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Network roles, allocation conventions and references to the relevant IPAM networks."
+          },
+          {
+            "id": "routingDesign",
+            "label": "Gateways and routing architecture",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Routing boundaries, VRFs, dynamic/static routing design and Routing Map references."
+          },
+          {
+            "id": "securityZones",
+            "label": "Security zones and segmentation",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Zone purposes, traffic boundaries and references to the authoritative firewall manager/policy. Do not copy rulebases."
+          },
+          {
+            "id": "interDcDesign",
+            "label": "Inter-DC connectivity",
+            "multiline": true,
+            "max": 5000,
+            "hint": "DC-to-DC links, logical separation, routing and dependencies."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "external",
+    "label": "External connectivity",
+    "description": "Draft of the carrier and external-circuit chapter.",
+    "sections": [
+      {
+        "id": "external-links",
+        "title": "Carriers and circuits",
+        "description": "Identify external services and how they enter the site.",
+        "fields": [
+          {
+            "id": "connectivity",
+            "label": "External connectivity",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Carriers, circuit references, handoff locations, capacity and redundancy."
+          },
+          {
+            "id": "carrierCircuits",
+            "label": "Carrier and circuit references",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Provider, service/circuit ID, service type, capacity and contract/SLA reference."
+          },
+          {
+            "id": "carrierHandoffs",
+            "label": "Handoff and termination points",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Meet-me room, rack/panel/port, medium and provider/customer responsibilities."
+          },
+          {
+            "id": "externalRedundancy",
+            "label": "External link redundancy",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Independent paths/providers, failover design and shared dependencies."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "power",
+    "label": "Power",
+    "description": "Draft of the electrical supply and equipment-power chapter.",
+    "sections": [
+      {
+        "id": "electrical",
+        "title": "Power distribution and resilience",
+        "description": "Document known power arrangements and refer to electrical drawings and inventory.",
+        "fields": [
+          {
+            "id": "power",
+            "label": "Power supply and resilience",
+            "multiline": true,
+            "max": 5000,
+            "hint": "A/B feeds, capacity, UPS, generator and known shared dependencies."
+          },
+          {
+            "id": "powerDistribution",
+            "label": "Circuits, feeds and PDU references",
+            "multiline": true,
+            "max": 5000,
+            "hint": "A/B paths, circuit/PDU identifiers and references to electrical schematics."
+          },
+          {
+            "id": "devicePowerMapping",
+            "label": "Device power-feed assignment",
+            "multiline": true,
+            "max": 5000,
+            "hint": "How device PSUs map to A/B feeds and where per-device outlet records are maintained."
+          },
+          {
+            "id": "powerCapacity",
+            "label": "Power capacity and loading",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Rated/usable capacity, measured load, spare capacity and measurement date."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "environment",
+    "label": "Environment & security",
+    "description": "Draft of the facility-environment and physical-security chapter.",
+    "sections": [
+      {
+        "id": "environmental",
+        "title": "Environmental protection",
+        "description": "Document environmental controls and their operational references.",
+        "fields": [
+          {
+            "id": "cooling",
+            "label": "Cooling and environmental conditions",
+            "multiline": true,
+            "max": 3000,
+            "hint": "Cooling arrangement, redundancy and temperature / humidity monitoring."
+          },
+          {
+            "id": "fireProtection",
+            "label": "Fire detection and suppression",
+            "multiline": true,
+            "max": 3000
+          }
+        ]
+      },
+      {
+        "id": "access",
+        "title": "Physical access and deliveries",
+        "description": "Explain how authorized personnel enter the facility and arrange work.",
+        "fields": [
+          {
+            "id": "accessProcedure",
+            "label": "Access request and entry procedure",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Approvals, advance notice, visitor registration and escort requirements."
+          },
+          {
+            "id": "accessHours",
+            "label": "Access hours and restrictions",
+            "max": 500
+          },
+          {
+            "id": "deliveryProcedure",
+            "label": "Deliveries and equipment handling",
+            "multiline": true,
+            "max": 3000
+          },
+          {
+            "id": "physicalSecurity",
+            "label": "Physical security",
+            "multiline": true,
+            "max": 3000,
+            "hint": "Access control, security desk and relevant operating procedures. Do not enter access codes."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "services",
+    "label": "Infrastructure services",
+    "description": "Draft of the shared-service chapter. DHCP Generator remains the source for generated DHCP configuration.",
+    "sections": [
+      {
+        "id": "shared-services",
+        "title": "Infrastructure services",
+        "description": "Identify service locations, responsibilities and dependencies.",
+        "fields": [
+          {
+            "id": "nameAddressServices",
+            "label": "DNS, DHCP and NTP",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Server/service references, ownership, dependencies and DHCP Generator references where applicable."
+          },
+          {
+            "id": "authenticationServices",
+            "label": "Authentication and administrative access",
+            "multiline": true,
+            "max": 5000,
+            "hint": "AAA, directory services, privileged access and relevant access-procedure references."
+          },
+          {
+            "id": "monitoring",
+            "label": "Monitoring, alerting and incident handling",
+            "multiline": true,
+            "max": 3000
+          },
+          {
+            "id": "loggingServices",
+            "label": "Central logging and retention",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Log destinations, responsible team and retention-policy references."
+          },
+          {
+            "id": "configurationBackups",
+            "label": "Configuration backups",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Backup system, scope, schedule, ownership and restore procedure references."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "resilience",
+    "label": "Resilience & recovery",
+    "description": "Draft of the availability and disaster-recovery chapter.",
+    "sections": [
+      {
+        "id": "recovery",
+        "title": "Availability and recovery",
+        "description": "Describe the intended failure behavior and how it is verified.",
+        "fields": [
+          {
+            "id": "dependencies",
+            "label": "External dependencies and single points of failure",
+            "multiline": true,
+            "max": 3000
+          },
+          {
+            "id": "haDesign",
+            "label": "High availability and failover",
+            "multiline": true,
+            "max": 5000,
+            "hint": "HA groups, redundant paths, failure domains and expected failover behavior."
+          },
+          {
+            "id": "backupRecovery",
+            "label": "Backup and disaster recovery arrangements",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Procedure references, backup ownership, recovery priorities and agreed RPO / RTO, if known."
+          },
+          {
+            "id": "recoveryPriorities",
+            "label": "Recovery priorities and targets",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Restoration order, service dependencies and agreed RPO/RTO where known."
+          },
+          {
+            "id": "resilienceTests",
+            "label": "Failure scenarios and test references",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Relevant failure scenarios, last verification date/results and unresolved gaps."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "maintenance",
+    "label": "Maintenance",
+    "description": "Draft of the support, maintenance and documentation-history chapter.",
+    "sections": [
+      {
+        "id": "maintenance-context",
+        "title": "Support and maintenance",
+        "description": "Keep references and operating arrangements here.",
+        "fields": [
+          {
+            "id": "maintenanceWindow",
+            "label": "Maintenance windows and change process",
+            "multiline": true,
+            "max": 1000
+          },
+          {
+            "id": "supportLifecycle",
+            "label": "Support, warranties and lifecycle",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Support agreements, warranty locations, renewal/end-of-support dates and responsible team."
+          },
+          {
+            "id": "maintenanceSchedule",
+            "label": "Inspections and maintenance schedule",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Recurring checks for facility and IT infrastructure; responsible teams and report references."
+          },
+          {
+            "id": "changeHistory",
+            "label": "Relevant changes and document updates",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Change/ticket references, dates, affected areas and documentation update notes."
+          },
+          {
+            "id": "references",
+            "label": "Related documentation and links",
+            "multiline": true,
+            "max": 5000,
+            "hint": "Floor plans, contracts, runbooks, diagrams and existing documentation locations."
+          },
+          {
+            "id": "notes",
+            "label": "Additional information / items to verify",
+            "multiline": true,
+            "max": 5000
+          }
+        ]
+      }
+    ]
+  }
+]

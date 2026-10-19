@@ -1,0 +1,621 @@
+{
+  "network": {
+    "name": "Network / DC documentation",
+    "scopes": [
+      "none",
+      "dc",
+      "rack",
+      "subnet"
+    ],
+    "sourceChapters": {},
+    "version": 1
+  },
+  "switch": {
+    "name": "Switch documentation",
+    "scopes": [
+      "none",
+      "device"
+    ],
+    "pages": [
+      {
+        "id": "general",
+        "label": "General information",
+        "description": "",
+        "sections": [
+          {
+            "id": "general-section",
+            "title": "General information",
+            "description": "",
+            "fields": [
+              {
+                "id": "title",
+                "label": "Documentation title",
+                "required": true,
+                "max": 160
+              },
+              {
+                "id": "dcName",
+                "label": "Device name",
+                "required": true,
+                "max": 100
+              },
+              {
+                "id": "author",
+                "label": "Document author",
+                "max": 200
+              },
+              {
+                "id": "ownerTeam",
+                "label": "Responsible organization / team",
+                "max": 200
+              },
+              {
+                "id": "technicalOwner",
+                "label": "Technical owner",
+                "max": 500
+              },
+              {
+                "id": "reviewDate",
+                "label": "Next documentation review",
+                "type": "date",
+                "max": 10
+              },
+              {
+                "id": "purpose",
+                "label": "Role and purpose",
+                "multiline": true,
+                "max": 5000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "identity",
+        "label": "Identity and support",
+        "description": "",
+        "sections": [
+          {
+            "id": "identity-section",
+            "title": "Identity and support",
+            "description": "",
+            "fields": [
+              {
+                "id": "identity",
+                "label": "Serial number, software version and support references",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              },
+              {
+                "id": "equipmentManagement",
+                "label": "Management access conventions",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Management networks, approved access methods and references to access procedures."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "network",
+        "label": "Interfaces and routing",
+        "description": "",
+        "sections": [
+          {
+            "id": "network-section",
+            "title": "Interfaces and routing",
+            "description": "",
+            "fields": [
+              {
+                "id": "addressingDesign",
+                "label": "Addressing and VLAN design",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Network roles, allocation conventions and references to the relevant IPAM networks."
+              },
+              {
+                "id": "routingDesign",
+                "label": "Gateways and routing architecture",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Routing boundaries, VRFs, dynamic/static routing design and Routing Map references."
+              },
+              {
+                "id": "switching",
+                "label": "LACP, stack / MLAG, STP and PoE",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "operations",
+        "label": "Operations",
+        "description": "",
+        "sections": [
+          {
+            "id": "operations-section",
+            "title": "Operations",
+            "description": "",
+            "fields": [
+              {
+                "id": "configurationBackups",
+                "label": "Configuration backups",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Backup system, scope, schedule, ownership and restore procedure references."
+              },
+              {
+                "id": "monitoring",
+                "label": "Monitoring, alerting and incident handling",
+                "multiline": true,
+                "max": 3000
+              },
+              {
+                "id": "maintenanceWindow",
+                "label": "Maintenance windows and change process",
+                "multiline": true,
+                "max": 1000
+              },
+              {
+                "id": "references",
+                "label": "Related documentation and links",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Floor plans, contracts, runbooks, diagrams and existing documentation locations."
+              },
+              {
+                "id": "notes",
+                "label": "Additional information / items to verify",
+                "multiline": true,
+                "max": 5000
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "sourceChapters": {
+      "physical": "general",
+      "equipment": "identity",
+      "logical": "network",
+      "connections": "network",
+      "services": "operations"
+    },
+    "version": 1
+  },
+  "firewall": {
+    "name": "Firewall documentation",
+    "scopes": [
+      "none",
+      "device"
+    ],
+    "pages": [
+      {
+        "id": "general",
+        "label": "General information",
+        "description": "",
+        "sections": [
+          {
+            "id": "general-section",
+            "title": "General information",
+            "description": "",
+            "fields": [
+              {
+                "id": "title",
+                "label": "Documentation title",
+                "required": true,
+                "max": 160
+              },
+              {
+                "id": "dcName",
+                "label": "Device name",
+                "required": true,
+                "max": 100
+              },
+              {
+                "id": "author",
+                "label": "Document author",
+                "max": 200
+              },
+              {
+                "id": "ownerTeam",
+                "label": "Responsible organization / team",
+                "max": 200
+              },
+              {
+                "id": "technicalOwner",
+                "label": "Technical owner",
+                "max": 500
+              },
+              {
+                "id": "reviewDate",
+                "label": "Next documentation review",
+                "type": "date",
+                "max": 10
+              },
+              {
+                "id": "purpose",
+                "label": "Role and purpose",
+                "multiline": true,
+                "max": 5000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "identity",
+        "label": "Identity and support",
+        "description": "",
+        "sections": [
+          {
+            "id": "identity-section",
+            "title": "Identity and support",
+            "description": "",
+            "fields": [
+              {
+                "id": "identity",
+                "label": "Software, licences and support",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "network",
+        "label": "Interfaces, zones and routing",
+        "description": "",
+        "sections": [
+          {
+            "id": "network-section",
+            "title": "Interfaces, zones and routing",
+            "description": "",
+            "fields": [
+              {
+                "id": "securityZones",
+                "label": "Security zones and segmentation",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Zone purposes, traffic boundaries and references to the authoritative firewall manager/policy. Do not copy rulebases."
+              },
+              {
+                "id": "routingDesign",
+                "label": "Gateways and routing architecture",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Routing boundaries, VRFs, dynamic/static routing design and Routing Map references."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "ha",
+        "label": "High availability",
+        "description": "",
+        "sections": [
+          {
+            "id": "ha-section",
+            "title": "High availability",
+            "description": "",
+            "fields": [
+              {
+                "id": "haDesign",
+                "label": "High availability and failover",
+                "multiline": true,
+                "max": 5000,
+                "hint": "HA groups, redundant paths, failure domains and expected failover behavior."
+              },
+              {
+                "id": "ha",
+                "label": "HA members, synchronization and failover",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "policy",
+        "label": "Policy and NAT references",
+        "description": "",
+        "sections": [
+          {
+            "id": "policy-section",
+            "title": "Policy and NAT references",
+            "description": "",
+            "fields": [
+              {
+                "id": "policy",
+                "label": "Policy management references",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": "Manager/server, policy/package name, access reference, responsible team and change process. Do not transcribe rulebases or reconstruct per-rule historical justifications."
+              },
+              {
+                "id": "nat",
+                "label": "NAT design and management references",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "vpn",
+        "label": "VPN",
+        "description": "",
+        "sections": [
+          {
+            "id": "vpn-section",
+            "title": "VPN",
+            "description": "",
+            "fields": [
+              {
+                "id": "vpn",
+                "label": "Peers, networks and non-secret tunnel parameters",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "operations",
+        "label": "Operations",
+        "description": "",
+        "sections": [
+          {
+            "id": "operations-section",
+            "title": "Operations",
+            "description": "",
+            "fields": [
+              {
+                "id": "configurationBackups",
+                "label": "Configuration backups",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Backup system, scope, schedule, ownership and restore procedure references."
+              },
+              {
+                "id": "monitoring",
+                "label": "Monitoring, alerting and incident handling",
+                "multiline": true,
+                "max": 3000
+              },
+              {
+                "id": "maintenanceWindow",
+                "label": "Maintenance windows and change process",
+                "multiline": true,
+                "max": 1000
+              },
+              {
+                "id": "references",
+                "label": "Related documentation and links",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Floor plans, contracts, runbooks, diagrams and existing documentation locations."
+              },
+              {
+                "id": "notes",
+                "label": "Additional information / items to verify",
+                "multiline": true,
+                "max": 5000
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "sourceChapters": {
+      "physical": "general",
+      "equipment": "identity",
+      "logical": "network",
+      "connections": "network",
+      "services": "operations"
+    },
+    "version": 1
+  },
+  "runbook": {
+    "name": "Operational runbook",
+    "scopes": [
+      "none",
+      "dc",
+      "rack",
+      "device",
+      "subnet"
+    ],
+    "pages": [
+      {
+        "id": "general",
+        "label": "General information",
+        "description": "",
+        "sections": [
+          {
+            "id": "general-section",
+            "title": "General information",
+            "description": "",
+            "fields": [
+              {
+                "id": "title",
+                "label": "Documentation title",
+                "required": true,
+                "max": 160
+              },
+              {
+                "id": "dcName",
+                "label": "Affected service / system",
+                "required": false,
+                "max": 100
+              },
+              {
+                "id": "author",
+                "label": "Document author",
+                "max": 200
+              },
+              {
+                "id": "ownerTeam",
+                "label": "Responsible organization / team",
+                "max": 200
+              },
+              {
+                "id": "technicalOwner",
+                "label": "Technical owner",
+                "max": 500
+              },
+              {
+                "id": "reviewDate",
+                "label": "Next documentation review",
+                "type": "date",
+                "max": 10
+              },
+              {
+                "id": "purpose",
+                "label": "Purpose and affected services",
+                "multiline": true,
+                "max": 5000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "procedure",
+        "label": "Procedure",
+        "description": "",
+        "sections": [
+          {
+            "id": "procedure-section",
+            "title": "Procedure",
+            "description": "",
+            "fields": [
+              {
+                "id": "prerequisites",
+                "label": "Prerequisites and contacts",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              },
+              {
+                "id": "steps",
+                "label": "Procedure steps and expected results",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": true,
+                "max": 5000,
+                "hint": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "verification",
+        "label": "Verification and recovery",
+        "description": "",
+        "sections": [
+          {
+            "id": "verification-section",
+            "title": "Verification and recovery",
+            "description": "",
+            "fields": [
+              {
+                "id": "verification",
+                "label": "Verification",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": true,
+                "max": 5000,
+                "hint": ""
+              },
+              {
+                "id": "rollback",
+                "label": "Rollback and recovery",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": true,
+                "max": 5000,
+                "hint": ""
+              },
+              {
+                "id": "escalation",
+                "label": "Escalation",
+                "note": true,
+                "multiline": true,
+                "requiredForReview": false,
+                "max": 5000,
+                "hint": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "references",
+        "label": "References",
+        "description": "",
+        "sections": [
+          {
+            "id": "references-section",
+            "title": "References",
+            "description": "",
+            "fields": [
+              {
+                "id": "references",
+                "label": "Related documentation and links",
+                "multiline": true,
+                "max": 5000,
+                "hint": "Floor plans, contracts, runbooks, diagrams and existing documentation locations."
+              },
+              {
+                "id": "notes",
+                "label": "Additional information / items to verify",
+                "multiline": true,
+                "max": 5000
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "sourceChapters": {
+      "physical": "general",
+      "equipment": "general",
+      "logical": "general",
+      "connections": "general",
+      "services": "general"
+    },
+    "version": 1
+  }
+}
