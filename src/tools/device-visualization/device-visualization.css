@@ -166,3 +166,17 @@
 .sv-connection-review dl { display: grid; grid-template-columns: minmax(90px,1fr) minmax(0,2fr); gap: 6px 12px; font-size: 12px; }
 .sv-connection-review dt { color: var(--muted); }
 .sv-connection-review dd { margin: 0; overflow-wrap: anywhere; }
+
+.sv-drive-bays {margin:16px 0;min-width:0}
+.sv-drive-heading {display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.sv-drive-heading h4 {margin:0}
+.sv-drive-heading>span {color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.sv-drive-grid {display:grid;grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:6px}
+.sv-drive-bay {display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:58px;padding:8px;border:1px dashed var(--border);border-radius:4px;background:var(--input);color:var(--muted);font:inherit}
+button.sv-drive-bay {cursor:pointer}
+.sv-drive-bay strong {font-variant-numeric:tabular-nums;color:var(--text)}
+.sv-drive-bay span {font-size:11px}
+.sv-drive-occupied {border-style:solid;border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
+button.sv-drive-bay:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+.sv-port-group-sas .sv-socket-shape {border-radius:2px;border-width:2px;width:32px;height:16px}
+.sv-face-storage>.sv-port-group-sas {align-self:start}

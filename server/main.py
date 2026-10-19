@@ -60,6 +60,7 @@ from routing_transfer.router import build_router as build_routing_transfer_route
 from routing_ipam.router import build_router as build_routing_ipam_router
 from ipam import IpamRepository, IpamService
 from ipam import scan_service as ipam_scan_service
+from inventory_ipam.router import build_router as build_inventory_ipam_router
 from ipam.router import build_router as build_ipam_router
 from device_drivers.base import DeviceSession
 from device_drivers import get_driver
@@ -664,6 +665,7 @@ ipam_service = IpamService(ipam_repository, auth_db.get_user_by_id)
 ipam_scan_service.configure(ipam_repository)
 app.include_router(build_ipam_router(ipam_service, require_ipam_permission, require_logged_in_user))
 app.include_router(build_ipam_transfer_router(require_ipam_permission, require_authenticated_user))
+app.include_router(build_inventory_ipam_router(require_feature, require_ipam_permission, require_logged_in_user))
 app.include_router(build_device_visualization_router(require_feature, require_logged_in_user))
 app.include_router(build_dc_inventory_router(require_feature, require_logged_in_user))
 app.include_router(build_dhcp_generator_router(require_feature, require_logged_in_user))

@@ -143,3 +143,13 @@ export function addressesToCsv(addresses) {
   );
   return [headers.join(","), ...rows].join("\r\n");
 }
+export function bestSubnetForAddress(subnets,address) {
+  const ip=(address||'').split('/')[0].trim();
+  if(!looksLikeIPv4(ip))return null;
+  const value=ipv4ToNumber(ip);
+  return subnets.filter(subnet=>{
+    if(!looksLikeCidr(subnet.cidr))return false;
+    const [network,prefix]=subnet.cidr.split('/'),size=2**(32-Number(prefix));
+    return Math.floor(value/size)===Math.floor(ipv4ToNumber(network)/size);
+  }).sort((a,b)=>Number(b.cidr.split('/')[1])-Number(a.cidr.split('/')[1]))[0]||null;
+}

@@ -18,3 +18,13 @@ it('preserves structured conflicts for review and reload flows',async()=>{
   vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:false,status:409,json:async()=>({detail})}));
   await expect(updateDevice(1,{})).rejects.toMatchObject({status:409,detail,message:'Review removed ports'});
 });
+it('registers a saved interface in IPAM with its current version and tenant',async()=>{
+  const {placePortInIpam}=await import('./api.js');
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({status:'created'})}));
+  setTenantId('device-tenant');
+  await placePortInIpam(3,9,7);
+  const [url,options]=fetch.mock.calls[0];
+  expect(url).toContain('/devices/3/ports/9/ipam-placement');
+  expect(options.method).toBe('POST');expect(JSON.parse(options.body)).toEqual({expectedVersion:7});
+  expect(options.headers.get('X-Tenant-ID')).toBe('device-tenant');
+});

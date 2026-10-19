@@ -81,7 +81,8 @@ def graph(rack_id,device_id=None,limit=20,offset=0):
             entry['devices']=[dict(row) for row in conn.execute(inventory.DEVICE_SQL+' WHERE d.rack_id=? ORDER BY d.rack_position DESC',(id,))]
             racks.append(entry)
         unassigned={end['id']:end for link in links for end in (link['source'],link['target']) if end['rackId'] is None}
-        return {'rackId':rack_id,'racks':racks,'unassigned':list(unassigned.values()),'items':links,'total':total,'limit':limit,'offset':offset}
+        port_layouts={str(id):{'deviceType':device['deviceType'],'ports':[{key:port[key] for key in ('id','name','family','number','groupId','slotNumber','controller','isManagement')} for port in device['ports']]} for id,device in cache.items()}
+        return {'rackId':rack_id,'racks':racks,'portLayouts':port_layouts,'unassigned':list(unassigned.values()),'items':links,'total':total,'limit':limit,'offset':offset}
 
 
 def create(request,actor=None):
@@ -92,6 +93,8 @@ def create(request,actor=None):
 def create_in_transaction(conn,request,actor=None):
     cache={};a=endpoint(conn,request.sourcePortId,cache);b=endpoint(conn,request.targetPortId,cache)
     if a['id']==b['id']:raise devices.Invalid('Choose ports on two different devices')
+    if ('sas' in (a['family'],b['family'])) and a['family']!=b['family']:
+        raise devices.Invalid('Connect storage expansion ports only to other storage expansion ports')
     devices.check_version(cache[a['id']],request.sourceVersion)
     devices.check_version(cache[b['id']],request.targetVersion)
     if conn.execute('SELECT 1 FROM dc_connections WHERE source_port_id IN (?,?) OR target_port_id IN (?,?)',

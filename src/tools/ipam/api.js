@@ -12,7 +12,7 @@ async function handle(res) {
     let detail = res.statusText;
     try {
       const body = await res.json();
-      detail = body.detail ? String(body.detail) : detail;
+      detail = body.detail ? (typeof body.detail==='string'?body.detail:Array.isArray(body.detail)?body.detail.map(item=>item.msg).join('; '):body.detail.message||JSON.stringify(body.detail)) : detail;
     } catch {
       // ignore — keep statusText
     }
@@ -631,5 +631,15 @@ export async function moveSubnetToTenant(subnetId, targetTenantId, expectedVersi
   return handle(await apiFetch(`${BASE_URL}/api/ipam/subnets/${subnetId}/move`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ targetTenantId, expectedVersion }),
+  }));
+}
+
+export async function getInventoryLinks(address,offset=0) {
+  return handle(await apiFetch(`/api/ipam/inventory-links?${new URLSearchParams({address,offset,limit:25})}`));
+}
+
+export async function createHardwareFromAddress(addressId,device,expectedUpdatedAt,ipPort='management') {
+  return handle(await apiFetch(`/api/ipam/addresses/${encodeURIComponent(addressId)}/hardware`,{
+    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device,expectedUpdatedAt,ipPort}),
   }));
 }

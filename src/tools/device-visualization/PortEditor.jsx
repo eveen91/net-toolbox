@@ -1,8 +1,9 @@
+import IpamAddressField from './IpamAddressField.jsx';
 import React,{useEffect,useRef,useState} from 'react';
 import {TRANSCEIVERS,effectivePort} from './logic.js';
 import ConnectionReview from './ConnectionReview.jsx';
 import DestinationPicker from './DestinationPicker.jsx';
-import { updatePortAssignment } from './api.js';
+import { updatePortAssignment,placePortInIpam } from './api.js';
 export default function PortEditor({device,port,onSaved,onDirty,onBusy,onReload}) {
   const [label,setLabel]=useState(port.label||''),[destination,setDestination]=useState(port.leadsTo||'');
   const [target,setTarget]=useState(null),[review,setReview]=useState(null);
@@ -24,7 +25,12 @@ export default function PortEditor({device,port,onSaved,onDirty,onBusy,onReload}
       setTransceiver(current.transceiver||'');setAddress(current.ipAddress||'');
       setLabel(current.label||'');setDestination(current.leadsTo||'');setMode(current.portMode||'');
       setAccess(current.accessVlan??'');setAllowed(current.trunkVlans||'');setNative(current.nativeVlan??'');
-      setReview(null);setTarget(null);onSaved(saved);
+      let placement=null;
+      if(current.ipAddress){
+        try{placement=await placePortInIpam(saved.id,current.id,saved.version);}
+        catch(error){placement={status:'error',message:`Hardware was saved, but IPAM placement could not complete. ${error.message}`};}
+      }
+      setReview(null);setTarget(null);onSaved(saved,placement?{result:placement,deviceId:saved.id,portId:current.id,version:saved.version}:null);
     } catch(e) {if(e.detail?.code==='connection_change_required'){setReview(e.detail);setError(null);}else{setReview(null);setError(e.message);}setStale(e.detail?.code==='stale_version');}
     finally {setBusy(false);onBusy(false);}
   };
@@ -38,7 +44,7 @@ export default function PortEditor({device,port,onSaved,onDirty,onBusy,onReload}
       <p className="tool-hint">You can also type any destination above. Selecting a device and port saves both ends together. Typing manually saves a text note only.</p>
       {pickerOpen&&<DestinationPicker sourcePort={activePort} deviceId={device.id} disabled={busy} onSelect={selection=>{setTarget(selection.port?selection:null);setReview(null);setDestination(selection.port?`${selection.device.name} / ${selection.port.name}`:selection.device.name);setPickerOpen(false);destinationInput.current?.focus();}} onClose={closePicker}/>}
       {target&&<p role="status" className="tool-hint">Selected: {target.device.name} / {target.port.name}. Save assignment updates both devices and the rack connection diagram.</p>}
-      <label>IP address (optional)<input className="tool-input" maxLength={64} value={address} onChange={e=>setAddress(e.target.value)} placeholder="192.0.2.1/24 or 2001:db8::1/64" aria-describedby="sv-port-ip-hint" spellCheck={false}/></label>
+      {port.family!=='sas'&&<><IpamAddressField value={address} onChange={setAddress} disabled={busy}/>
       <p className="tool-hint" id="sv-port-ip-hint">IPv4 or IPv6, with an optional prefix. This address belongs to the interface; VLAN configuration is optional.</p>
       <h4>VLAN configuration (optional)</h4>
       <div className="sv-fields">
@@ -46,7 +52,7 @@ export default function PortEditor({device,port,onSaved,onDirty,onBusy,onReload}
         {mode==='access'&&<label>Access VLAN<input className="tool-input" type="number" min={1} max={4094} step={1} required value={access} onChange={e=>setAccess(e.target.value)}/></label>}
         {mode==='trunk'&&<><label>Allowed VLANs<input className="tool-input" required maxLength={2000} placeholder="10,20,100-110 or all" value={allowed} onChange={e=>setAllowed(e.target.value)}/></label><label>Native VLAN (optional)<input className="tool-input" type="number" min={1} max={4094} step={1} value={native} onChange={e=>setNative(e.target.value)}/></label></>}
       </div>
-      <p className="tool-hint">VLAN IDs: 1–4094. Saved documentation; no device configuration is applied.</p>
+      <p className="tool-hint">VLAN IDs: 1–4094. Saved documentation; no device configuration is applied.</p></>}
       {review&&<ConnectionReview review={review} busy={busy} onConfirm={()=>save(false,review.token)} onCancel={()=>setReview(null)}/> }
       {!review&&<button type="submit" className="tool-btn tool-btn-primary">{busy?'Saving…':'Save assignment'}</button>}
       {port.leadsTo&&<button type="button" className="tool-btn tool-btn-ghost" onClick={()=>save(true)}>Clear assignment</button>}

@@ -61,3 +61,14 @@ describe("IPAM address helpers", () => {
     expect(isOutsidePointerStart(null, outside)).toBe(false);
   });
 });
+
+it('chooses the most specific subnet for a saved interface IP without changing subnet order',async()=>{
+  const {bestSubnetForAddress}=await import('./logic.js');
+  const subnets=[{id:1,cidr:'0.0.0.0/0'},{id:2,cidr:'10.0.0.0/8'},{id:3,cidr:'10.20.3.0/24'},{id:4,cidr:'10.20.3.7/32'}];
+  expect(bestSubnetForAddress(subnets,'10.20.3.7/24')?.id).toBe(4);
+  expect(bestSubnetForAddress(subnets,'10.20.3.8')?.id).toBe(3);
+  expect(bestSubnetForAddress(subnets,'192.0.2.4')?.id).toBe(1);
+  expect(bestSubnetForAddress(subnets,'2001:db8::1')).toBeNull();
+  expect(bestSubnetForAddress([], '10.20.3.7')).toBeNull();
+  expect(subnets.map(item=>item.id)).toEqual([1,2,3,4]);
+});

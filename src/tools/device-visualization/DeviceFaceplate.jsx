@@ -5,7 +5,8 @@ export default function DeviceFaceplate({device,selectedPort,onSelectPort,disabl
   const groups=useMemo(()=>{
     const data=usesCards(device.deviceType)?device.networkCards:device.portGroups;
     const management=device.ports.filter(p=>p.isManagement).map(p=>({id:p.groupId,controller:p.controller,family:'ethernet',count:1,speedGbps:p.speedGbps,isManagement:true}));
-    return [...data,...management];
+    const expansion=device.expansionGroupId?[{id:device.expansionGroupId,family:'sas',count:device.expansionPortCount,speedGbps:12}]:[];
+    return [...data,...management,...expansion];
   },[device]);
   const moveFocus=event=>{
     if(!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End'].includes(event.key))return;
@@ -17,7 +18,7 @@ export default function DeviceFaceplate({device,selectedPort,onSelectPort,disabl
   };
   const renderGroup=group=>{
     const ports=device.ports.filter(p=>p.groupId===group.id);
-    const heading=group.isManagement?'Management':usesCards(device.deviceType)?`NIC ${group.slotNumber}${group.name?` · ${group.name}`:''}`:FAMILY_NAMES[group.family];
+    const heading=group.family==='sas'?'Shelf expansion':group.isManagement?'Management':usesCards(device.deviceType)?`NIC ${group.slotNumber}${group.name?` · ${group.name}`:''}`:FAMILY_NAMES[group.family];
     return <section className={`sv-port-group sv-port-group-${group.family} ${group.isManagement?'sv-port-group-management':''}`} key={group.id} aria-label={`${group.controller?`Controller ${group.controller} · `:''}${heading}`}>
       <h4>{heading}<span>{group.speedGbps}G{group.family==='sfp'?' default':''} · {group.count} sockets</span></h4>
       <div className="sv-sockets" style={{'--columns':device.deviceType==='switch'?Math.ceil(group.count/2):Math.min(group.count,usesCards(device.deviceType)?8:group.family==='qsfp'?4:8)}}>
@@ -32,13 +33,13 @@ export default function DeviceFaceplate({device,selectedPort,onSelectPort,disabl
     </section>;
   };
   if(device.deviceType==='cable-management')return <div className="sv-chassis"><div className="sv-chassis-caption"><span>RACKMOUNT CABLE MANAGEMENT PANEL</span><span>1U</span></div><p className="tool-hint">Passive cable management panel · No network ports</p></div>;
-  const caption=device.deviceType==='server'?'SERVER · REAR PANEL':device.deviceType==='storage'?'STORAGE ARRAY · REAR PANEL':device.deviceType==='firewall'?VENDORS[device.vendor]:device.deviceType==='router'?'ROUTER · FRONT PANEL':'SWITCH · FRONT PANEL';
+  const caption=device.deviceType==='server'?'SERVER · REAR PANEL':device.deviceType==='storage-shelf'?'STORAGE EXPANSION SHELF · REAR PANEL':device.deviceType==='storage'?'STORAGE HEAD · REAR PANEL':device.deviceType==='firewall'?VENDORS[device.vendor]:device.deviceType==='router'?'ROUTER · FRONT PANEL':'SWITCH · FRONT PANEL';
   return <div className={`sv-chassis sv-chassis-${device.deviceType} sv-vendor-${device.vendor||'generic'} ${device.deviceType==='switch'&&device.portNaming!=='family'?'sv-naming-numeric':''}`}>
     <div className="sv-chassis-caption"><span>{caption}</span><span>{device.model||'Configurable chassis'}</span></div>
     <p className="sv-sr-only">Markers show saved assignments, not live link status. Scroll to see all sockets.</p>
     <div className="sv-face-scroll" tabIndex={0} role="region" aria-label={`${device.name} physical ports`}>
       <div className={`sv-face sv-face-${device.deviceType}`}>
-        {device.deviceType==='storage'?CONTROLLERS.map(controller=><section className="sv-storage-controller" key={controller} aria-label={`Controller ${controller} physical ports`}><h3>Controller {controller}</h3><div className="sv-storage-controller-groups">{groups.filter(g=>g.controller===controller&&g.count>0).map(renderGroup)}</div></section>):groups.filter(g=>g.count>0).map(renderGroup)}
+        {device.deviceType==='storage'?CONTROLLERS.map(controller=><section className="sv-storage-controller" key={controller} aria-label={`Controller ${controller} physical ports`}><h3>Controller {controller}</h3><div className="sv-storage-controller-groups">{groups.filter(g=>g.controller===controller&&g.count>0).map(renderGroup)}</div></section>):groups.filter(g=>g.count>0).map(renderGroup)}{device.deviceType==='storage'&&groups.filter(g=>g.family==='sas').map(renderGroup)}
       </div>
     </div>
     <p className="sv-scroll-hint">Select a socket. Scroll horizontally when ports extend beyond the panel.</p>

@@ -33,7 +33,7 @@ def init_db():
         BEGIN IMMEDIATE;
         CREATE TABLE IF NOT EXISTS dv_devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            device_type TEXT NOT NULL CHECK(device_type IN ('switch','router','firewall','server','storage','cable-management')),
+            device_type TEXT NOT NULL CHECK(device_type IN ('switch','router','firewall','server','storage','storage-shelf','cable-management')),
             vendor TEXT CHECK(vendor IN ('checkpoint','fortigate','generic')),
             name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(name)) BETWEEN 1 AND 100),
             model TEXT CHECK(model IS NULL OR length(model)<=100),
@@ -48,13 +48,13 @@ def init_db():
             kind TEXT NOT NULL CHECK(kind IN ('family','nic')),
             group_key TEXT NOT NULL,
             slot_number INTEGER, name TEXT CHECK(name IS NULL OR length(name)<=60),
-            family TEXT NOT NULL CHECK(family IN ('ethernet','sfp','qsfp')),
+            family TEXT NOT NULL CHECK(family IN ('ethernet','sfp','qsfp','sas')),
             port_count INTEGER NOT NULL, speed_gbps INTEGER NOT NULL,
             UNIQUE(device_id,group_key), UNIQUE(device_id,slot_number), UNIQUE(id,device_id),
             CHECK((kind='nic' AND slot_number BETWEEN 1 AND 16 AND slot_number IS NOT NULL AND port_count BETWEEN 1 AND 8)
                OR (kind='family' AND slot_number IS NULL AND port_count>=0 AND
-                    ((family='ethernet' AND port_count<=96) OR (family='sfp' AND port_count<=48) OR (family='qsfp' AND port_count<=16)))),
-            CHECK((family='ethernet' AND speed_gbps IN (1,10)) OR (family='sfp' AND speed_gbps IN (10,25)) OR (family='qsfp' AND speed_gbps IN (40,100)))
+                    ((family='ethernet' AND port_count<=96) OR (family='sfp' AND port_count<=48) OR (family='qsfp' AND port_count<=16) OR (family='sas' AND port_count<=16)))),
+            CHECK((family='ethernet' AND speed_gbps IN (1,10)) OR (family='sfp' AND speed_gbps IN (10,25)) OR (family='qsfp' AND speed_gbps IN (40,100)) OR (family='sas' AND speed_gbps=12))
         );
         CREATE TABLE IF NOT EXISTS dv_ports (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +79,7 @@ def init_db():
 
     migrate_device_types()
     migrate_sfp_limit()
+    migrate_storage()
     migrate_port_vlans()
     migrate_port_naming()
     migrate_port_ip_addresses()
@@ -104,7 +105,7 @@ def migrate_device_types():
         row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='dv_devices'").fetchone()
         if row is None:
             return
-        missing = [kind for kind in ("router", "storage", "cable-management") if f"'{kind}'" not in row[0]]
+        missing = [kind for kind in ("router", "storage", "storage-shelf", "cable-management") if f"'{kind}'" not in row[0]]
         if not missing:
             return
         sql = re.sub(r"(device_type\s+IN\s*\()([^)]*)(\))",
@@ -129,6 +130,59 @@ def migrate_device_types():
         conn.rollback()
         conn.execute('PRAGMA foreign_keys=ON')
         conn.close()
+
+
+def migrate_storage():
+    with connection(write=True) as conn:
+        columns={row['name'] for row in conn.execute('PRAGMA table_info(dv_devices)')}
+        if 'drive_bay_count' not in columns:
+            conn.execute('ALTER TABLE dv_devices ADD COLUMN drive_bay_count INTEGER NOT NULL DEFAULT 0 CHECK(drive_bay_count BETWEEN 0 AND 120)')
+        if 'occupied_bays' not in columns:
+            conn.execute("ALTER TABLE dv_devices ADD COLUMN occupied_bays TEXT NOT NULL DEFAULT '[]'")
+    conn=db.get_connection()
+    try:
+        conn.execute('PRAGMA foreign_keys=OFF')
+        conn.execute('BEGIN IMMEDIATE')
+        sql=conn.execute("SELECT sql FROM sqlite_master WHERE name='dv_port_groups'").fetchone()[0]
+        if "'sas'" in sql:
+            return
+        updated=sql.replace("'ethernet','sfp','qsfp'", "'ethernet','sfp','qsfp','sas'")
+        updated=updated.replace("(family='qsfp' AND port_count<=16)", "(family='qsfp' AND port_count<=16) OR (family='sas' AND port_count<=16)")
+        updated=updated.replace("(family='qsfp' AND speed_gbps IN (40,100))", "(family='qsfp' AND speed_gbps IN (40,100)) OR (family='sas' AND speed_gbps=12)")
+        if updated==sql:
+            raise sqlite3.IntegrityError('Cannot locate storage expansion constraints')
+        objects=[row[0] for row in conn.execute("SELECT sql FROM sqlite_master WHERE tbl_name='dv_port_groups' AND type IN ('index','trigger') AND sql IS NOT NULL")]
+        sequence=conn.execute("SELECT seq FROM sqlite_sequence WHERE name='dv_port_groups'").fetchone()
+        updated=re.sub(r'CREATE TABLE(?: IF NOT EXISTS)?\s+(?:"dv_port_groups"|dv_port_groups)(?=\s*\()', 'CREATE TABLE dv_port_groups_new', updated, count=1, flags=re.I)
+        conn.execute(updated)
+        conn.execute('INSERT INTO dv_port_groups_new SELECT * FROM dv_port_groups')
+        conn.execute('DROP TABLE dv_port_groups')
+        conn.execute('ALTER TABLE dv_port_groups_new RENAME TO dv_port_groups')
+        if sequence:
+            conn.execute("UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='dv_port_groups'", (sequence[0],))
+        for statement in objects:
+            conn.execute(statement)
+        if conn.execute('PRAGMA foreign_key_check').fetchone():
+            raise sqlite3.IntegrityError('Foreign key validation failed during storage migration')
+        conn.commit()
+    finally:
+        conn.rollback()
+        conn.execute('PRAGMA foreign_keys=ON')
+        conn.close()
+
+
+def storage_values(config, current=None):
+    old=current or {}
+    count=config.driveBayCount if config.driveBayCount is not None else old.get('driveBayCount', 0)
+    occupied=config.occupiedBays if config.occupiedBays is not None else old.get('occupiedBays', [])
+    if any(n > count for n in occupied):
+        raise Invalid('Mark occupied bays as empty before reducing the bay count')
+    return count, occupied
+
+
+def apply_storage(conn, device_id, config, current=None):
+    count,occupied=storage_values(config,current)
+    conn.execute('UPDATE dv_devices SET drive_bay_count=?,occupied_bays=? WHERE id=?', (count,json.dumps(occupied),device_id))
 
 
 def migrate_port_transceivers():
@@ -225,12 +279,13 @@ def connection(write=False):
 
 
 def summary(row):
-    return {out: row[col] for out, col in [('id','id'),('deviceType','device_type'),('vendor','vendor'),('name','name'),
+    return {'driveBayCount':row['drive_bay_count'],'occupiedBays':json.loads(row['occupied_bays']),'expansionPortCount':row['expansion_count'],**{out: row[col] for out, col in [('id','id'),('deviceType','device_type'),('vendor','vendor'),('name','name'),
         ('heightU','height_u'),('rackId','rack_id'),('rackPosition','rack_position'),('rackName','rack_name'),('dataCenterId','data_center_id'),('dataCenterName','data_center_name'),('managementPort','management_port'),('portNaming','port_naming'),('portUnit','port_unit'),('portSlot','port_slot'),('model','model'),('description','description'),('version','version'),('createdAt','created_at'),('updatedAt','updated_at'),
-        ('portCount','port_count'),('assignedPortCount','assigned_count'),('cardCount','card_count')]}
+        ('portCount','port_count'),('assignedPortCount','assigned_count'),('cardCount','card_count')]}}
 
 
 SUMMARY_SQL = '''SELECT d.*,
+ (SELECT COALESCE(SUM(port_count),0) FROM dv_port_groups g WHERE g.device_id=d.id AND g.group_key='expansion') expansion_count,
  (SELECT name FROM dc_racks WHERE id=d.rack_id) rack_name,
  (SELECT data_center_id FROM dc_racks WHERE id=d.rack_id) data_center_id,
  (SELECT c.name FROM dc_racks r JOIN dc_datacenters c ON c.id=r.data_center_id WHERE r.id=d.rack_id) data_center_name,
@@ -270,7 +325,8 @@ def detail(conn, device_id):
                           'ipAddress':p['ip_address'],'portMode':p['port_mode'],'accessVlan':p['access_vlan'],'trunkVlans':p['trunk_vlans'],'nativeVlan':p['native_vlan']})
     data['ports'] = ports
     mapped = [{'id':g['id'],'family':g['family'],'count':g['port_count'],'speedGbps':g['speed_gbps'],
-               **({'slotNumber':((g['slot_number']-1)%8+1) if row['device_type']=='storage' else g['slot_number'],'name':g['name'],'controller':('B' if g['slot_number']>8 else 'A') if row['device_type']=='storage' else None} if g['kind']=='nic' else {})} for g in groups if g['group_key'] not in ('mgmt','mgmt-A','mgmt-B')]
+               **({'slotNumber':((g['slot_number']-1)%8+1) if row['device_type']=='storage' else g['slot_number'],'name':g['name'],'controller':('B' if g['slot_number']>8 else 'A') if row['device_type']=='storage' else None} if g['kind']=='nic' else {})} for g in groups if g['group_key'] not in ('mgmt','mgmt-A','mgmt-B','expansion')]
+    data['expansionGroupId'] = next((g['id'] for g in groups if g['group_key']=='expansion'), None)
     data['managementGroupId'] = next((g['id'] for g in groups if g['group_key']=='mgmt'), None)
     data['networkCards' if row['device_type'] in ('server','storage') else 'portGroups'] = mapped
     return data
@@ -332,20 +388,25 @@ def apply_groups(conn, device_id, proposed):
 
 def create_device(config, actor_id=None):
     with connection(write=True) as conn:
-        stamp=now()
-        cursor=conn.execute('INSERT INTO dv_devices(device_type,vendor,name,model,description,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
-            (config.deviceType,config.vendor,config.name,config.model,config.description,stamp,stamp))
-        device_id=cursor.lastrowid
-        conn.execute("UPDATE dv_devices SET port_naming=?,port_unit=?,port_slot=? WHERE id=?", (config.portNaming,config.portUnit,config.portSlot,device_id))
-        apply_groups(conn,device_id,proposals(config))
-        from dc_inventory.service import apply_placement
-        apply_placement(conn,device_id,config)
-        result=detail(conn,device_id)
-        audit(conn,device_id,actor_id,'device_create',None,result)
-        if result['rackId'] is not None or result['heightU'] is not None:
-            from dc_inventory import repository as inventory
-            inventory.log(conn,'device',device_id,actor_id,'placement',None,inventory.device_snapshot(result))
-        return result
+        return create_device_in_transaction(conn,config,actor_id)
+
+
+def create_device_in_transaction(conn,config,actor_id=None):
+    stamp=now()
+    cursor=conn.execute('INSERT INTO dv_devices(device_type,vendor,name,model,description,created_at,updated_at) VALUES(?,?,?,?,?,?,?)',
+        (config.deviceType,config.vendor,config.name,config.model,config.description,stamp,stamp))
+    device_id=cursor.lastrowid
+    conn.execute("UPDATE dv_devices SET port_naming=?,port_unit=?,port_slot=? WHERE id=?", (config.portNaming,config.portUnit,config.portSlot,device_id))
+    apply_storage(conn,device_id,config)
+    apply_groups(conn,device_id,proposals(config))
+    from dc_inventory.service import apply_placement
+    apply_placement(conn,device_id,config)
+    result=detail(conn,device_id)
+    audit(conn,device_id,actor_id,'device_create',None,result)
+    if result['rackId'] is not None or result['heightU'] is not None:
+        from dc_inventory import repository as inventory
+        inventory.log(conn,'device',device_id,actor_id,'placement',None,inventory.device_snapshot(result))
+    return result
 
 
 def update_device(device_id, config, actor_id=None, preview=False):
@@ -354,6 +415,7 @@ def update_device(device_id, config, actor_id=None, preview=False):
         check_version(current,config.expectedVersion)
         if current['deviceType'] != config.deviceType:
             raise Invalid('Device type cannot be changed')
+        storage_values(config,current)
         proposed=proposals(config,current)
         review=preview_data(current,proposed)
         if preview:
@@ -366,6 +428,7 @@ def update_device(device_id, config, actor_id=None, preview=False):
         apply_placement(conn,device_id,config,current)
         from dc_inventory.connections import refresh_for_device
         refresh_for_device(conn,device_id,actor_id)
+        apply_storage(conn,device_id,config,current)
         apply_groups(conn,device_id,proposed)
         naming={key:getattr(config,key) if key in config.model_fields_set else current[key] for key in ('portNaming','portUnit','portSlot')}
         conn.execute('UPDATE dv_devices SET port_naming=?,port_unit=?,port_slot=? WHERE id=?',
@@ -405,6 +468,8 @@ def write_port_assignment(conn,current,port,request,actor_id=None):
     if module is not None and port['family']!='sfp':
         raise Invalid('Transceiver settings are only available for SFP ports')
     address = request.ipAddress if 'ipAddress' in request.model_fields_set else port['ipAddress']
+    if port['family']=='sas' and (address or module or any(v is not None for v in vlan.values())):
+        raise Invalid('Storage expansion ports do not support IP, VLAN or SFP module settings')
     if port['transceiver']==module and port['ipAddress']==address and port['label']==request.label and port['leadsTo']==request.leadsTo and all(port[k]==v for k,v in vlan.items()):
         return current
     conn.execute('UPDATE dv_ports SET label=?,leads_to=?,port_mode=?,access_vlan=?,trunk_vlans=?,native_vlan=?,ip_address=?,transceiver=? WHERE id=? AND device_id=?',

@@ -78,3 +78,12 @@ it('matches installed SFP modules by effective medium and speed, including RJ45 
   expect(compatiblePorts({...cage,transceiver:'sfp28-25g'},candidates).map(p=>p.id)).toEqual([2,5]);
   expect(compatiblePorts(cage,candidates).map(p=>p.id)).toEqual([6]);
 });
+it('round-trips storage bays and expansion ports independently of NIC identities',()=>{
+ const device={deviceType:'storage',name:'Head',vendor:null,networkCards:[{id:2,name:'LAN',controller:'A',slotNumber:1,family:'sfp',count:2,speedGbps:10}],driveBayCount:24,occupiedBays:[1,24],expansionPortCount:4,ports:[{id:10,groupId:8,family:'sas',number:4}]};
+ const draft=initialDraft(device);
+ expect(payload(draft,3)).toMatchObject({driveBayCount:24,occupiedBays:[1,24],expansionPortCount:4,expectedVersion:3});
+ expect(removedPorts(device,draft)).toEqual([]);
+ expect(removedPorts(device,{...draft,expansionPortCount:2}).map(p=>p.id)).toEqual([10]);
+ expect(()=>validateDraft({...draft,driveBayCount:12})).toThrow('occupied bays');
+ expect(compatiblePorts({family:'sas',speedGbps:12},[{id:1,family:'sas',speedGbps:12},{id:2,family:'sfp',speedGbps:10}]).map(p=>p.id)).toEqual([1]);
+});

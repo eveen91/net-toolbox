@@ -67,3 +67,22 @@
 .di-cable-detail { padding: 16px; background: var(--panel); border-left: 3px solid var(--accent); overflow-wrap: anywhere; }
 .di-connection-form section { min-width: 0; }
 .di-connection-form .di-actions { margin-bottom: 14px; }
+.di-svg-panel-name { fill: var(--text); font-size: 10px; font-weight: 600; }
+.di-svg-socket { fill: var(--panel); stroke: var(--muted); stroke-width: .6px; }
+.di-svg-socket-connected { fill: var(--accent-dim); stroke: var(--accent); cursor: pointer; }
+.di-svg-socket-selected { fill: var(--accent); stroke: var(--text); stroke-width: 1px; }
+.di-svg-selected-port { fill: var(--accent); font-size: 9px; font-family: var(--mono); font-weight: 600; }
+.di-svg-port-pin { fill: var(--accent); stroke: var(--input-bg); stroke-width: 1px; }
+.di-cable-line { stroke-width: 1.4px; stroke-linejoin: miter; }
+.di-cable-selected .di-cable-line { stroke-width: 2.5px; }
+
+.di-bundle-picker {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.di-bundle-picker button {white-space:normal;text-align:left;gap:10px}
+.di-bundle-picker button[aria-pressed="true"] {border-color:var(--accent);background:var(--accent-dim)}
+.di-bundle-picker strong {font-variant-numeric:tabular-nums;color:var(--accent)}
+.di-svg-organizer {fill:var(--panel);stroke:var(--border);stroke-width:1;stroke-dasharray:4 3}
+.di-bundle-line {fill:none;stroke:var(--accent);stroke-width:4;stroke-linejoin:round;opacity:.55}
+.di-bundle:hover .di-bundle-line,.di-bundle:focus-within .di-bundle-line {opacity:1;stroke-width:6}
+.di-svg-device rect[role="button"] {cursor:pointer}
+.di-svg-device rect[role="button"]:focus-visible {stroke:var(--accent);stroke-width:2;outline:none}
+.di-device-focused td {background:var(--accent-dim)}

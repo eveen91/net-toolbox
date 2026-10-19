@@ -73,7 +73,21 @@ text is retained and is never automatically matched to devices or converted into
 cables. The diagram documents saved cabling, not live link status or traffic flow.
 
 Select a cable in the diagram or connection list to highlight both devices and
-see full device, port, data center, rack and U details. **Open source rack** or
+see full device, port, data center, rack and U details. Miniature device panels
+show actual saved socket groups. Switch Ethernet/SFP/QSFP ports retain vertical
+odd/even pairs (1 above 2, 3 above 4); NIC/controller and MGMT groups remain separate.
+Cable endpoints are anchored to the corresponding sockets, not to device centers.
+Selecting a cable highlights both sockets and adds their port names to the panels;
+connected sockets can also be selected directly by mouse or keyboard.
+
+Cables use horizontal/vertical segments and right-angle turns. Shared corridors
+between racks provide candidate tracks; overlapping intervals and crossings are
+penalized, while nested local cables use separate outer/inner tracks. Paths to
+nonadjacent racks use a bus above the rack bodies to avoid intermediate equipment.
+Frequently connected peer racks appear nearer the selected rack. The routing is a
+heuristic, not a guarantee of a crossing-free graph. Positions follow saved panel
+geometry and do not imply a specific manufacturer's chassis design. Use 100% or
+zoom for socket detail; the connection list retains full readable endpoint names. **Open source rack** or
 **Open destination rack** switches to the peer's rack. **Fit racks** shows the
 complete layout; **100%** and zoom preserve access to readable labels through
 scrolling. The full endpoint list remains readable and keyboard-accessible even
@@ -83,7 +97,9 @@ Connections are paginated at 20 per page (API maximum 50). The diagram and list
 show the same page; the count states the full number of matches. Peer racks are
 direct neighbors represented by those connections, rather than a recursive graph
 of the entire tenant. Rack diagrams include all equipment installed in each
-shown rack. Moving or renaming a device updates the next graph read without
+shown rack. The graph response also includes bounded `portLayouts` metadata for
+connected devices (socket IDs, names, groups, numbering, family, controller, NIC
+slot and MGMT flags), without adding IP/VLAN configuration to the graph payload. Moving or renaming a device updates the next graph read without
 changing its cable endpoints.
 
 A port can belong to only one physical cable. Writes check both device versions
@@ -177,3 +193,11 @@ databases: it creates `dc_datacenters`, `dc_racks`, `dc_audit`, location fields 
 `dv_devices` and U range protection. New tenants receive the same schema.
 No new dependencies, separate database or volume are required. Tenant database
 backups include the inventory and shared devices; see [server maintenance](maintenance.md).
+
+### Cable bundle overview
+
+Rack Connections opens with aggregated bundles and side cable organizers instead of drawing every cable. Bundle counts refer to the current page. Select a bundle or device to narrow the connection list; select a connected port or list entry to trace exactly one cable. Show overview clears the focus. Fit racks and manual zoom remain available. Device and cable positions are schematic; the diagram does not represent installed cable lengths or live status.
+
+### Opening hardware from IPAM
+
+IPAM address details include live hardware links. A link opens `#/dc-inventory?device=<id>`, resolves the current rack and highlights the device; unplaced devices open the filtered Unassigned list. See [Device, DC Inventory and IPAM integration](inventory-ipam.md).

@@ -2,6 +2,11 @@
 
 def proposals(config, current=None):
     result = data_proposals(config, current)
+    if config.deviceType in ('storage', 'storage-shelf'):
+        count = 2 if config.deviceType == 'storage-shelf' else config.expansionPortCount if config.expansionPortCount is not None else (current or {}).get('expansionPortCount', 0)
+        existing = next((p['groupId'] for p in (current or {}).get('ports', []) if p['family'] == 'sas'), None)
+        if count:
+            result.append({'id': existing, 'kind': 'family', 'slot': None, 'name': 'Expansion', 'family': 'sas', 'groupKey': 'expansion', 'count': count, 'speedGbps': 12})
     enabled = config.managementPort if current is None or "managementPort" in config.model_fields_set else current["managementPort"]
     if enabled:
         controllers = ('A', 'B') if config.deviceType == 'storage' else (None,)
@@ -13,7 +18,7 @@ def proposals(config, current=None):
 
 def data_proposals(config, current=None):
     from .repository import Missing, Invalid
-    if config.deviceType == 'cable-management':
+    if config.deviceType in ('cable-management', 'storage-shelf'):
         return []
     old = current or {}
     if config.deviceType not in ('server', 'storage'):

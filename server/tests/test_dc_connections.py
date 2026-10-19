@@ -32,6 +32,10 @@ def test_graph_local_remote_unassigned_and_move_preserves_connection(client):
     assert [r['id'] for r in graph['racks']]==[r1['id'],r2['id']]
     assert graph['unassigned'][0]['id']==loose['id']
     assert graph['items'][0]['source']['portName']=='Eth 1'
+    layout=graph['portLayouts'][str(a['id'])]
+    assert layout['deviceType']=='switch'
+    assert layout['ports'][0]['id']==a['ports'][0]['id'] and layout['ports'][0]['number']==1
+    assert 'ipAddress' not in layout['ports'][0] and 'leadsTo' not in layout['ports'][0]
     assert client.get(f"{ROOT}/racks/{r1['id']}/connections",params={'deviceId':a['id'],'limit':1,'offset':1}).json()['total']==2
     assert client.get(f"{ROOT}/racks/{r1['id']}/connections",params={'deviceId':c['id']}).status_code==400
     assert client.get(f"{ROOT}/devices/{a['id']}/ports").json()['items'][0]['connectionId']==local.json()['id']

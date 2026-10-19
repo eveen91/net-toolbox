@@ -4,11 +4,11 @@ from .naming import PortNaming
 from .vlans import normalize_trunk
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-Family = Literal['ethernet', 'sfp', 'qsfp']
-DeviceType = Literal['switch', 'router', 'firewall', 'server', 'storage', 'cable-management']
+Family = Literal['ethernet', 'sfp', 'qsfp', 'sas']
+DeviceType = Literal['switch', 'router', 'firewall', 'server', 'storage', 'storage-shelf', 'cable-management']
 Vendor = Literal['checkpoint', 'fortigate', 'generic']
-SPEEDS = {'ethernet': (1, 10), 'sfp': (10, 25), 'qsfp': (40, 100)}
-COUNTS = {'ethernet': 96, 'sfp': 48, 'qsfp': 16}
+SPEEDS = {'ethernet': (1, 10), 'sfp': (10, 25), 'qsfp': (40, 100), 'sas': (12,)}
+COUNTS = {'ethernet': 96, 'sfp': 48, 'qsfp': 16, 'sas': 16}
 
 
 class StrictModel(BaseModel):
@@ -41,6 +41,17 @@ class NetworkCard(PortGroup):
 
 
 class DeviceConfig(StrictModel):
+    driveBayCount: int | None = Field(default=None, strict=True, ge=0, le=120)
+    occupiedBays: list[int] | None = Field(default=None, max_length=120)
+    expansionPortCount: int | None = Field(default=None, strict=True, ge=0, le=16)
+
+    @field_validator('occupiedBays', mode='before')
+    @classmethod
+    def occupied_numbers(cls, value):
+        if value is not None and (not isinstance(value, list) or any(type(n) is not int or n < 1 or n > 120 for n in value) or len(value) != len(set(value))):
+            raise ValueError('Occupied bays must be unique bay numbers from 1 to 120')
+        return sorted(value) if value is not None else None
+
     heightU: int | None = Field(default=None,strict=True,ge=1,le=100)
     rackId: int | None = Field(default=None,strict=True,ge=1)
     rackPosition: int | None = Field(default=None,strict=True,ge=1,le=100)
@@ -65,6 +76,13 @@ class DeviceConfig(StrictModel):
 
     @model_validator(mode='after')
     def domain(self):
+        if self.deviceType not in ('storage', 'storage-shelf') and (self.driveBayCount or self.occupiedBays or self.expansionPortCount):
+            raise ValueError('Drive bays and expansion ports are only available for storage heads and shelves')
+        if self.driveBayCount is not None and any(n > self.driveBayCount for n in self.occupiedBays or []):
+            raise ValueError('Occupied bay number exceeds the configured bay count')
+        if self.deviceType == 'storage-shelf':
+            if self.managementPort or self.networkCards or self.portGroups or self.expansionPortCount not in (None, 2):
+                raise ValueError('Storage shelves have exactly two expansion ports and no network cards or management ports')
         if self.deviceType != 'switch' and (self.portNaming != 'family' or self.portUnit != 1 or self.portSlot != 1):
             raise ValueError('Custom port naming is only supported for switches')
         if self.deviceType == 'firewall':
@@ -76,7 +94,11 @@ class DeviceConfig(StrictModel):
             if self.heightU != 1 or self.managementPort or self.portGroups or self.networkCards:
                 raise ValueError('Cable management panels occupy exactly 1U and have no network ports')
             return self
+        if self.deviceType == 'storage-shelf':
+            return self
         if self.deviceType in ('server', 'storage'):
+            if any(card.family == 'sas' for card in self.networkCards or []):
+                raise ValueError('Use dedicated expansion ports for SAS connections')
             if not self.networkCards or 'portGroups' in self.model_fields_set:
                 raise ValueError('Servers/storage require networkCards and do not accept portGroups')
             if len({(card.controller,card.slotNumber) for card in self.networkCards}) != len(self.networkCards):
@@ -93,7 +115,7 @@ class DeviceConfig(StrictModel):
         else:
             if self.portGroups is None or 'networkCards' in self.model_fields_set:
                 raise ValueError('Switches/firewalls require portGroups and do not accept networkCards')
-            if len(self.portGroups) != 3 or {g.family for g in self.portGroups} != set(SPEEDS):
+            if len(self.portGroups) != 3 or {g.family for g in self.portGroups} != {'ethernet','sfp','qsfp'}:
                 raise ValueError('Provide exactly one Ethernet, SFP and QSFP group')
             if self.deviceType == 'firewall' and any(g.family == 'sfp' and g.count > 32 for g in self.portGroups):
                 raise ValueError('Firewalls support at most 32 SFP ports')
@@ -186,6 +208,9 @@ class DeviceDelete(StrictModel):
 
 
 class DeviceSummary(BaseModel):
+    driveBayCount: int
+    occupiedBays: list[int]
+    expansionPortCount: int
     heightU: int | None
     rackId: int | None
     rackPosition: int | None
@@ -232,6 +257,7 @@ class GroupResponse(PortGroup):
 
 
 class DeviceDetail(DeviceSummary):
+    expansionGroupId: int | None = None
     managementGroupId: int | None = None
     ports: list[PortResponse]
     portGroups: list[GroupResponse] | None = None

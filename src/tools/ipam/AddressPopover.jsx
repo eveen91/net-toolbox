@@ -1,10 +1,11 @@
+import InventoryLinks from './InventoryLinks.jsx';
 import React, { useEffect, useRef, useState } from "react";
 import useUnsavedChanges from "../../components/useUnsavedChanges.js";
 import AuditTimeline from "./AuditTimeline.jsx";
 import TagSelector from "./TagSelector.jsx";
 import { formatTimestamp, isOutsidePointerStart } from "./logic.js";
 import { useAccessibleDialog } from "./hooks/useAccessibleDialog.js";
-import { addAddress, deleteAddress, getSubnetAddresses, releaseAddress, rescanAddress, updateAddress } from "./api.js";
+import { getSubnet, addAddress, deleteAddress, getSubnetAddresses, releaseAddress, rescanAddress, updateAddress } from "./api.js";
 
 const MODE_ADD = "add";
 const MODE_VIEW = "view";
@@ -133,9 +134,11 @@ export default function AddressPopover({
 
   useEffect(() => {
     const handlePointerDown = (event) => {
+      if (document.querySelector('[data-ipam-hardware-dialog="true"]')) return;
       if (!inspector && isOutsidePointerStart(popoverRef.current, event.target)) requestClose();
     };
     const handleKeyDown = (event) => {
+      if (document.querySelector('[data-ipam-hardware-dialog="true"]')) return;
       if (!isModal && event.key === "Escape" && popoverRef.current?.contains(event.target)) requestClose();
     };
 
@@ -406,6 +409,7 @@ export default function AddressPopover({
             <Detail label="Locked">{address.locked ? "Yes" : "No"}</Detail>
             <Detail label="Updated">{formatTimestamp(address.updatedAt)}</Detail>
           </div>
+          <InventoryLinks key={ip} ip={ip} address={address} onCreated={async()=>onUpdated(await getSubnet(subnetId))}/>
           <div className={`ip-address-popover-tags${pendingAction === "tags" ? " pending" : ""}`}>
             <div className="ip-address-popover-detail-label">Tags</div>
             <TagSelector

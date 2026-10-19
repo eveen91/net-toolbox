@@ -1824,3 +1824,13 @@ button.audit-entry-header:focus-visible {
 .ip-subnet-parent { display: block; color: var(--muted); font: 11px/1.5 var(--mono); margin-top: 4px; overflow-wrap: anywhere; }
 @media (max-width: 600px) { .ip-subnet-tree-toggle, .ip-subnet-tree-spacer { width: 44px; min-width: 44px; height: 44px; } }
 @media (min-width: 601px) { .ip-subnet-list-table td:first-child { min-width: 280px; } }
+
+.ip-inventory-links {margin:16px 0;padding-top:12px;border-top:1px solid var(--border);min-width:0}
+.ip-inventory-links h4 {margin:0 0 10px}
+.ip-inventory-links ul {list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.ip-inventory-links a {display:block;padding:10px;border:1px solid var(--border);border-radius:4px;color:var(--accent);text-decoration:none;overflow-wrap:anywhere}
+.ip-inventory-links a span {display:block;font-size:12px;color:var(--muted);margin-top:5px}
+.ip-inventory-links a:hover,.ip-inventory-links a:focus-visible {border-color:var(--accent);background:var(--accent-dim)}
+.tool-modal.ip-create-hardware {width:min(960px,calc(100vw - 32px));max-width:960px;max-height:calc(100dvh - 32px);overflow-y:auto}
+.ip-create-hardware .sv-form {padding:0;border:0}
+.ip-create-hardware .sv-form>h3 {font-size:14px;color:var(--muted)}

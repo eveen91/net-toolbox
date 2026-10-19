@@ -1,10 +1,12 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hasToolAccess, visibleTools } from "../registry.js";
 import AddressPopover from "./AddressPopover.jsx";
 import TagSelector from "./TagSelector.jsx";
 import IpamToolbar from "./IpamToolbar.jsx";
+
+vi.mock('../../auth/AuthContext.jsx',async original=>({...await original(),useAuth:()=>({user:{permissions:['ipam.read']},loginRequired:true})}));
 
 const address = { id: 1, address: "10.0.0.1", status: "used", allocationType: "static", updatedAt: "2026-01-01" };
 function enabledButton(html, text) {

@@ -20,3 +20,4 @@ export const updateDevice=(id,data)=>request(idPath(id),'PUT',data);
 export const deleteDevice=(id,data)=>request(idPath(id),'DELETE',data);
 export const updatePortAssignment=(id,portId,data)=>request(`${idPath(id)}/ports/${encodeURIComponent(portId)}`,'PUT',data);
 export const getDeviceAudit=(id,options={})=>request(`${idPath(id)}/audit?${new URLSearchParams(options)}`);
+export const placePortInIpam=(deviceId,portId,expectedVersion)=>request(`${idPath(deviceId)}/ports/${encodeURIComponent(portId)}/ipam-placement`,'POST',{expectedVersion});

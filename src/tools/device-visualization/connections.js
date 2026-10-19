@@ -1,6 +1,6 @@
 import { FAMILY_NAMES } from './logic.js';
 
-export const isAppliance = device => ['router', 'firewall', 'storage', 'server'].includes(device?.deviceType);
+export const isAppliance = device => ['router', 'firewall', 'storage', 'storage-shelf', 'server'].includes(device?.deviceType);
 export const hasDocumentation = port => !!(port.ipAddress || port.portMode || port.leadsTo || port.label);
 export function vlanDescription(port) {
   if (port.portMode === 'access') return `Access VLAN ${port.accessVlan}`;

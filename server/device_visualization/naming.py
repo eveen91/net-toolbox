@@ -13,4 +13,4 @@ def port_name(device, family, number, ordinal):
         return f"{device['port_unit']}/{ordinal}"
     if naming=='port':
         return str(ordinal)
-    return f"{ {'ethernet':'Eth','sfp':'SFP','qsfp':'QSFP'}[family]} {number}"
+    return f"{ {'ethernet':'Eth','sfp':'SFP','qsfp':'QSFP','sas':'Expansion'}[family]} {number}"

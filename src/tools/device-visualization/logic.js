@@ -1,9 +1,10 @@
 export const FAMILIES=['ethernet','sfp','qsfp'];
-export const FAMILY_NAMES={ethernet:'Ethernet',sfp:'SFP',qsfp:'QSFP'};
+export const FAMILY_NAMES={ethernet:'Ethernet',sfp:'SFP',qsfp:'QSFP',sas:'SAS expansion'};
 export const SPEEDS={ethernet:[1,10],sfp:[10,25],qsfp:[40,100]};
 export const LIMITS={ethernet:96,sfp:48,qsfp:16};
 export const limitsForType=type=>type==='firewall'?{...LIMITS,sfp:32}:LIMITS;
 export const VENDORS={checkpoint:'Check Point',fortigate:'FortiGate',generic:'Generic firewall'};
+export const isStorage=type=>['storage','storage-shelf'].includes(type);
 export const usesCards=type=>['server','storage'].includes(type);
 export const CONTROLLERS=['A','B'];
 export function newStorageCard(controller,cards=[]) {
@@ -18,6 +19,7 @@ export const PORT_NAMING={family:'Eth 1 / SFP 1 / QSFP 1','unit-slot-port':'1/1/
 export function initialDraft(device) {
   if(device) {
     const result={deviceType:device.deviceType,vendor:device.vendor,name:device.name,model:device.model||'',description:device.description||'',managementPort:device.managementPort??false,heightU:device.heightU??null,rackId:device.rackId??null,rackPosition:device.rackPosition??null,dataCenterId:device.dataCenterId??null,dataCenterName:device.dataCenterName??null,rackName:device.rackName??null};
+    if(isStorage(device.deviceType))Object.assign(result,{driveBayCount:device.driveBayCount??0,occupiedBays:[...(device.occupiedBays||[])],expansionPortCount:device.expansionPortCount??(device.deviceType==='storage-shelf'?2:0)});
     if(device.deviceType==='switch')Object.assign(result,{portNaming:device.portNaming||'family',portUnit:device.portUnit??1,portSlot:device.portSlot??1});
     if(usesCards(device.deviceType)) result.networkCards=device.networkCards.map(c=>({...c,name:c.name||'',_key:`card-${c.id}`}));
     else result.portGroups=(device.portGroups||[]).map(({family,count,speedGbps})=>({family,count,speedGbps}));
@@ -27,6 +29,7 @@ export function initialDraft(device) {
 }
 export function payload(draft,version) {
   const data={deviceType:draft.deviceType,vendor:draft.vendor,name:draft.name.trim(),model:draft.model.trim()||null,description:draft.description.trim()||null};
+  if(isStorage(draft.deviceType))Object.assign(data,{driveBayCount:draft.driveBayCount??0,occupiedBays:draft.occupiedBays||[],expansionPortCount:draft.deviceType==='storage-shelf'?2:draft.expansionPortCount??0});
   if(draft.heightU!==undefined)Object.assign(data,{heightU:draft.heightU,rackId:draft.rackId||null,rackPosition:draft.rackId?draft.rackPosition:null});
   if(draft.managementPort!==undefined)data.managementPort=draft.managementPort;
   if(draft.deviceType==='switch')Object.assign(data,{portNaming:draft.portNaming||'family',portUnit:draft.portUnit??1,portSlot:draft.portSlot??1});
@@ -37,6 +40,12 @@ export function payload(draft,version) {
 }
 export function validateDraft(draft) {
   if(!draft.name.trim()||draft.name.trim().length>100)throw new Error('Device name must have 1–100 characters.');
+  if(isStorage(draft.deviceType)){
+    if(!Number.isInteger(draft.driveBayCount)||draft.driveBayCount<0||draft.driveBayCount>120)throw new Error('Use 0–120 drive bays.');
+    if((draft.occupiedBays||[]).some(n=>n>draft.driveBayCount))throw new Error('Mark occupied bays as empty before reducing the bay count.');
+    if(!Number.isInteger(draft.expansionPortCount)||draft.expansionPortCount<0||draft.expansionPortCount>16)throw new Error('Use 0–16 storage expansion ports.');
+  }
+  if(draft.deviceType==='storage-shelf')return 2;
   if(draft.deviceType==='cable-management') {
     if(draft.heightU!==1||draft.managementPort||(draft.portGroups||[]).length)throw new Error('Cable management panels occupy 1U and have no ports.');
     return 0;
@@ -56,6 +65,7 @@ export function removedPorts(device,draft) {
   if(!device)return [];
   return device.ports.filter(p=>{
     if(p.isManagement)return !draft.managementPort;
+    if(p.family==='sas')return p.number>(draft.deviceType==='storage-shelf'?2:draft.expansionPortCount??device.expansionPortCount??0);
     const group=usesCards(draft.deviceType)?draft.networkCards.find(c=>c.id===p.groupId):draft.portGroups.find(g=>g.family===p.family);
     return !group||group.family!==p.family||p.number>group.count;
   });

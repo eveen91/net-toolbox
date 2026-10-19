@@ -22,6 +22,8 @@ def assign(conn,source,port,request,actor):
     target=repo.detail(conn,row['device_id'])
     repo.check_version(target,request.targetVersion)
     target_port=next(p for p in target['ports'] if p['id']==request.targetPortId)
+    if 'sas' in (port['family'],target_port['family']) and port['family']!=target_port['family']:
+        raise repo.Invalid('Connect storage expansion ports only to other storage expansion ports')
     ids=(port['id'],target_port['id'])
     rows=conn.execute('SELECT * FROM dc_connections WHERE source_port_id IN (?,?) OR target_port_id IN (?,?)',ids*2).fetchall()
     same=next((row for row in rows if {row['source_port_id'],row['target_port_id']}==set(ids)),None)

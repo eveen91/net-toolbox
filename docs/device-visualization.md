@@ -356,3 +356,17 @@ with an older client that omits these fields preserves the saved convention.
 The switch panel arranges each port family in two rows, paired vertically:
 1 above 2, 3 above 4, etc. The column count grows with the port count; only the
 panel scrolls on narrow screens. Layout does not change numbering or configuration.
+
+## Storage heads, shelves and drive bays
+
+Use **Storage head / array** for the existing dual-controller device and **Storage expansion shelf** for an enclosure attached to it. A shelf is a separate inventory device with its own height and optional rack placement. It has exactly two dedicated SAS expansion ports. Connect these through **Choose existing device** and select a matching expansion port on a head or another shelf; reciprocal assignments and the DC Inventory cabling view use the existing physical connection mechanism. Free-text destinations remain supported. Ports already in use require the existing replacement review.
+
+A head can record 0–16 expansion ports in **Edit device → Disks and expansion**. Expansion ports are separate from controller NICs and cannot be connected to network ports. They currently use the documented SAS 12G connector profile; this is documentation, not hardware discovery or validation of a vendor topology. Existing heads retain their NICs and receive no additional ports until configured.
+
+Both heads and shelves can record 0–120 drive bays. Bay numbers start at 1. Select a bay in the device form to toggle **Occupied / Empty**, then save the device. The overview shows each bay and totals for occupied, empty and overall capacity. Before reducing the count, mark any occupied bays beyond the new count as empty. Occupancy is manual documentation and is included in device version checks and audit history; it does not query disks or represent health, RAID state or capacity.
+
+The startup migration preserves existing devices, port IDs, assignments and rack placements. Existing devices begin with no recorded drive bays. API updates that omit the new storage fields preserve their current values.
+
+## IPAM placement
+
+Saving an interface IP now attempts registration in the most specific matching IPAM subnet in the active tenant. A popup reports missing networks, conflicts or failed placement while retaining the device save. See [Device, DC Inventory and IPAM integration](inventory-ipam.md) for matching rules, permissions and API details.
